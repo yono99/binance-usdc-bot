@@ -74,16 +74,41 @@ Yang paling penting untuk keselamatan:
 | 6 Execution | `bot/execution.py` |
 | 7 Position mgmt | `bot/position.py` |
 | AI konfirmasi/veto | `bot/gemini_layer.py` |
-| Orkestrasi | `bot/engine.py` |
+| Orkestrasi (mono Python) | `bot/engine.py` |
+
+### Mode polyglot (Rust core + Python svc)
+
+Untuk latency hot-path, layer 1/5/6 dipindah ke Rust (`core/`), sementara
+screening/sinyal/Gemini tetap Python (`svc/`), tersambung lewat ZeroMQ:
+
+```
+core (Rust)  PUB candle 5556 ─► svc (Python)  ─ sinyal ─► PUSH 5557 ─► core ─ risk+exec ─► PUB event 5558 ─► svc
+```
+
+Jalankan **core dulu** (dia yang BIND socket), lalu svc:
+
+```bash
+# terminal 1 — Rust core (lihat core/README.md untuk install Rust)
+cd core && cargo run --release
+
+# terminal 2 — Python services
+python -m svc.run
+```
+
+> `bot/engine.py` (mono Python) dan stack polyglot adalah dua jalur terpisah:
+> pakai salah satu. Mono untuk riset/backtest cepat; polyglot untuk produksi latency-sensitif.
 
 ---
 
 ## Roadmap
 
+- [x] Mono Python 7-layer (dry/test/live)
+- [x] Rust core hot-path (ingest/normalize/risk/exec) + ZeroMQ IPC
+- [x] Jembatan Python `svc/` (SUB candle/event, PUSH intent)
+- [ ] Close/exit event dari core → svc (slot release otomatis di mode polyglot)
 - [ ] Backtester di data historis (validasi expectancy sebelum live)
-- [ ] WebSocket user-data stream (fill realtime, pengganti poll)
-- [ ] OCO native & amend trailing stop sisi exchange untuk live
+- [ ] User-data stream (fill realtime) + trailing stop sisi exchange
 - [ ] Dashboard PnL + notifikasi Telegram
 - [ ] Walk-forward parameter tuning
 
-Status saat ini: **v0.1 — kerangka 7-layer jalan di `dry`/`test`.** Belum tervalidasi untuk profit; jangan `live` sebelum lewat testnet.
+Status saat ini: **v0.1 — mono Python jalan di `dry`/`test`; stack polyglot tersambung (core perlu `cargo build`).** Belum tervalidasi untuk profit; jangan `live` sebelum lewat testnet.
