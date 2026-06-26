@@ -1,0 +1,58 @@
+# ============================================================
+#  Konfigurasi strategi & risiko.
+#  Edit di sini, JANGAN hardcode di kode.
+# ============================================================
+
+market:
+  quote: USDC              # margin/quote asset (USDC-M futures)
+  timeframe: "15m"         # timeframe sinyal utama
+  poll_seconds: 20         # interval loop (REST poll)
+  # whitelist; kosongkan [] untuk auto-pilih dari screener
+  whitelist:
+    - BTC/USDC:USDC
+    - ETH/USDC:USDC
+    - BNB/USDC:USDC
+    - SOL/USDC:USDC
+
+screener:
+  min_quote_volume_24h: 5_000_000   # likuiditas minimum (USDC)
+  max_spread_pct: 0.06              # bid-ask maksimum (%)
+  min_atr_pct: 0.25                 # volatilitas minimum (ATR/price %)
+  max_atr_pct: 6.0                  # buang yang terlalu liar
+
+signals:
+  ema_fast: 9
+  ema_mid: 21
+  ema_slow: 50
+  adx_period: 14
+  adx_trend_min: 20        # di bawah ini dianggap choppy -> cenderung SKIP
+  rsi_period: 14
+  atr_period: 14
+  # ambang skor gabungan (0..1) untuk membuka posisi
+  entry_confidence: 0.62
+  weights:
+    trend: 0.40
+    momentum: 0.30
+    structure: 0.30
+
+rotate:
+  max_open_positions: 2     # slot aktif maksimum
+  cooldown_minutes: 30      # jeda re-entry pair yang baru ditutup
+  blacklist_after_sl: 2     # SL beruntun -> blacklist sementara
+
+risk:
+  account_risk_pct: 0.5     # risiko per trade (% equity) -> tentukan size dari jarak SL
+  leverage: 3               # konservatif. Naikkan dgn sangat hati-hati.
+  max_portfolio_exposure_pct: 30   # total notional / equity
+  daily_max_loss_pct: 3.0   # circuit breaker: stop trading hari ini
+  daily_max_trades: 20
+  sl_atr_mult: 1.5          # SL = entry -/+ ATR * mult
+  tp_atr_mult: 2.6          # TP (RR ~1.7). >1 = expectancy-friendly
+  trailing: true
+  trailing_atr_mult: 1.2
+
+gemini:
+  # peran: confirm | veto | off  (lihat README)
+  role: "veto"
+  model: "gemini-2.5-flash"
+  min_regime_score: 0.4     # bila Gemini nilai regime < ini -> skip entry

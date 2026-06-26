@@ -1,0 +1,7 @@
+ccxt>=4.4.0
+pandas>=2.2.0
+numpy>=1.26.0
+python-dotenv>=1.0.1
+PyYAML>=6.0.2
+rich>=13.7.0
+google-genai>=0.3.0
