@@ -15,20 +15,21 @@ from collections import Counter
 from rich.console import Console
 from rich.table import Table
 
+from bot.altdata import align, fetch_funding, fetch_oi, funding_zscore, oi_delta
 from bot.backtest import Backtester, compute_metrics, fetch_history
 from bot.config import load_settings
 from bot.exchange import Exchange
 from bot.logger import log
 from bot.optimize import build_grid, walk_forward
-from bot.strategy_lab import build_grid_v2, walk_forward_v2
+from bot.strategy_lab import build_grid_v2, build_grid_v3, walk_forward_v2, walk_forward_v3
 
 console = Console()
 
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--strategy", choices=["v1", "v2"], default="v2",
-                   help="v1=trend murni, v2=HTF+regime+sesi (default)")
+    p.add_argument("--strategy", choices=["v1", "v2", "v3"], default="v2",
+                   help="v1=trend, v2=HTF+regime+sesi, v3=+funding+OI")
     p.add_argument("--symbols", nargs="*")
     p.add_argument("--tf")
     p.add_argument("--bars", type=int, default=5000)
@@ -50,6 +51,8 @@ def params_str(p: dict) -> str:
     base = f"{p['entry_confidence']}/{p['sl_atr_mult']}/{p['tp_atr_mult']}"
     if "use_htf" in p:
         base += f" htf={int(p['use_htf'])} reg={int(p['regime'])}"
+    if "use_funding" in p:
+        base += f" fnd={int(p['use_funding'])} oi={int(p['use_oi'])}"
     return base
 
 
@@ -65,16 +68,30 @@ def main() -> None:
 
     htf_mult = args.htf_mult or cfg["strategy"]["htf_mult"]
     sessions = set(args.sessions) if args.sessions else (set(cfg["strategy"]["sessions"]) or None)
-    if args.strategy == "v2":
+    if args.strategy == "v3":
+        grid = build_grid_v3(args.conf, args.sl, args.tp, [True], [True, False],
+                             [False, True], [False, True])
+
+        def run_wf(df, sym):
+            since = int(df.index[0].timestamp() * 1000)
+            fz = funding_zscore(fetch_funding(ex, sym, since), cfg["strategy"]["funding_z_window"])
+            funding_z = align(df.index, fz, 0.0)
+            oid = oi_delta(df.index, fetch_oi(ex, sym, tf, since), cfg["strategy"]["oi_delta_lookback"])
+            nz_f = int((funding_z != 0).sum())
+            nz_o = int((oid != 0).sum())
+            log.info(f"{sym}: funding terisi {nz_f}/{len(df)} bar, OI terisi {nz_o}/{len(df)} bar")
+            return walk_forward_v3(df, cfg, grid, bt, args.train, args.test, args.min_trades,
+                                   htf_mult, sessions, funding_z, oid)
+    elif args.strategy == "v2":
         grid = build_grid_v2(args.conf, args.sl, args.tp, [False, True], [False, True])
 
-        def run_wf(df):
+        def run_wf(df, sym):
             return walk_forward_v2(df, cfg, grid, bt, args.train, args.test,
                                    args.min_trades, htf_mult, sessions)
     else:
         grid = build_grid(args.conf, args.sl, args.tp)
 
-        def run_wf(df):
+        def run_wf(df, sym):
             return walk_forward(df, cfg, grid, bt, args.train, args.test, args.min_trades)
 
     log.info(f"Walk-forward strategy={args.strategy} tf={tf} bars={args.bars} "
@@ -90,7 +107,7 @@ def main() -> None:
             log.error(f"fetch {sym} gagal: {e}")
             continue
 
-        results, oos = run_wf(df)
+        results, oos = run_wf(df, sym)
         all_oos += oos
         if not results:
             log.warning(f"{sym}: data kurang untuk walk-forward")

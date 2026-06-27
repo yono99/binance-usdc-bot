@@ -4,9 +4,13 @@ from bot.backtest import Backtester
 from bot.optimize import decide, precompute, warmup
 from bot.strategy_lab import (
     build_grid_v2,
+    build_grid_v3,
     decide_v2,
+    decide_v3,
     precompute_v2,
+    precompute_v3,
     walk_forward_v2,
+    walk_forward_v3,
 )
 
 
@@ -55,4 +59,49 @@ def test_walk_forward_v2_smoke(cfg, make_df):
     bt = Backtester(cfg, fee_pct=0.04, slippage_pct=0.02)
     grid = build_grid_v2([0.55, 0.6], [1.5], [2.5], [False, True], [False, True])
     results, oos = walk_forward_v2(df, cfg, grid, bt, 400, 150, 5, htf_mult=4, sessions=None)
+    assert isinstance(results, list) and isinstance(oos, list)
+
+
+def _g(**kw):
+    base = {"entry_confidence": 0.4, "sl_atr_mult": 1.5, "tp_atr_mult": 2.5,
+            "use_htf": False, "regime": False, "use_funding": False, "use_oi": False}
+    base.update(kw)
+    return base
+
+
+def test_v3_equals_v2_without_altdata(cfg, make_df):
+    df = make_df(_trend(400))
+    n = len(df)
+    f3 = precompute_v3(df, cfg, 4, np.zeros(n), np.zeros(n))
+    g = _g()
+    side_v2 = decide_v2(f3.v2, g, cfg, None)
+    side_v3 = decide_v3(f3, g, cfg, None)
+    assert np.array_equal(side_v2, side_v3)
+
+
+def test_funding_blocks_crowded_longs(cfg, make_df):
+    df = make_df(_trend(400))
+    n = len(df)
+    fz = np.full(n, 5.0)   # funding sangat tinggi (long crowded) di semua bar
+    f3 = precompute_v3(df, cfg, 4, fz, np.zeros(n))
+    side = decide_v3(f3, _g(use_funding=True), cfg, None)
+    assert not np.any(side == 1)   # semua long diblokir
+
+
+def test_oi_requires_rising_interest(cfg, make_df):
+    df = make_df(_trend(400))
+    n = len(df)
+    f3 = precompute_v3(df, cfg, 4, np.zeros(n), np.full(n, -0.1))  # OI turun terus
+    side = decide_v3(f3, _g(use_oi=True), cfg, None)
+    assert np.all(side == 0)       # tak ada entry saat OI tak naik
+
+
+def test_walk_forward_v3_smoke(cfg, make_df):
+    df = make_df(_trend(1500))
+    n = len(df)
+    bt = Backtester(cfg, fee_pct=0.04, slippage_pct=0.02)
+    grid = build_grid_v3([0.55, 0.6], [1.5], [2.5], [True], [False], [False, True], [False, True])
+    rng = np.random.default_rng(1)
+    results, oos = walk_forward_v3(df, cfg, grid, bt, 400, 150, 5, 4, None,
+                                   rng.normal(0, 1, n), rng.normal(0, 0.05, n))
     assert isinstance(results, list) and isinstance(oos, list)

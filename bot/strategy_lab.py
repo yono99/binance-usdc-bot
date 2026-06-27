@@ -114,3 +114,58 @@ def walk_forward_v2(df: pd.DataFrame, cfg: dict, grid: list[dict], bt: Backteste
     return run_walk(df, cfg, grid, bt, f2.base,
                     lambda g: decide_v2(f2, g, cfg, sessions),
                     train_len, test_len, min_trades)
+
+
+# ----------------------- v3: + funding & open interest -----------------------
+
+@dataclass
+class FeaturesV3:
+    v2: FeaturesV2
+    funding_z: np.ndarray   # z-score funding (ekstrem = crowded)
+    oi_delta: np.ndarray    # perubahan open interest (uang baru masuk?)
+
+
+def precompute_v3(df: pd.DataFrame, cfg: dict, htf_mult: int,
+                  funding_z: np.ndarray, oi_delta: np.ndarray) -> FeaturesV3:
+    return FeaturesV3(precompute_v2(df, cfg, htf_mult), funding_z, oi_delta)
+
+
+def decide_v3(f3: FeaturesV3, g: dict, cfg: dict, sessions: set | None) -> np.ndarray:
+    """Mulai dari keputusan v2, lalu saring dengan funding & OI bila di-toggle."""
+    side = decide_v2(f3.v2, g, cfg, sessions).copy()
+    st = cfg["strategy"]
+
+    if g.get("use_funding"):
+        fz, blk = f3.funding_z, st["funding_z_block"]
+        # hindari masuk searah kerumunan: long saat funding sangat tinggi, short saat sangat rendah
+        side = np.where((side == 1) & (fz > blk), 0, side)
+        side = np.where((side == -1) & (fz < -blk), 0, side)
+
+    if g.get("use_oi"):
+        # konfirmasi: hanya entry bila open interest naik (uang baru), bukan short-covering
+        side = np.where((side != 0) & (f3.oi_delta <= 0), 0, side)
+
+    return side.astype(int)
+
+
+def build_grid_v3(conf_list, sl_list, tp_list, htf_opts, regime_opts,
+                  funding_opts, oi_opts) -> list[dict]:
+    grid = []
+    for conf, sl, tp, htf, reg, fund, oi in product(
+            conf_list, sl_list, tp_list, htf_opts, regime_opts, funding_opts, oi_opts):
+        if tp <= sl * 0.6:
+            continue
+        grid.append({"entry_confidence": conf, "sl_atr_mult": sl, "tp_atr_mult": tp,
+                     "use_htf": htf, "regime": reg, "use_funding": fund, "use_oi": oi})
+    return grid
+
+
+def walk_forward_v3(df: pd.DataFrame, cfg: dict, grid: list[dict], bt: Backtester,
+                    train_len: int, test_len: int, min_trades: int,
+                    htf_mult: int, sessions: set | None,
+                    funding_z: np.ndarray, oi_delta: np.ndarray):
+    """Strategi v3 (v2 + funding + open interest)."""
+    f3 = precompute_v3(df, cfg, htf_mult, funding_z, oi_delta)
+    return run_walk(df, cfg, grid, bt, f3.v2.base,
+                    lambda g: decide_v3(f3, g, cfg, sessions),
+                    train_len, test_len, min_trades)

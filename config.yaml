@@ -59,6 +59,10 @@ strategy:
   mr_rsi_low: 30           # MR long bila rsi < ini
   mr_rsi_high: 70          # MR short bila rsi > ini
   sessions: []             # jam UTC yang diizinkan; [] = semua jam
+  # v3 — funding & open interest
+  funding_z_window: 30     # jendela z-score funding (8h/poin → ~10 hari)
+  funding_z_block: 1.5     # |z| > ini → blokir entry searah kerumunan
+  oi_delta_lookback: 4     # bar untuk hitung perubahan open interest
 
 gemini:
   # peran: confirm | veto | off  (lihat README)
