@@ -35,7 +35,7 @@ class RuntimeSettings:
     enabled: bool = False                       # bot aktif buka posisi?
     technique: str = "auto"                     # scalping | swing | auto
     symbols: list[str] = field(default_factory=lambda: ["BTC/USDC:USDC"])
-    leverage: int = 10
+    leverage: int = 100                         # default 100x (paper) — likuidasi pada gerakan ~0.5%
     bet_usd: float = 12.0                       # margin per posisi
     balance_usd: float = 12.0                   # saldo akun (paper)
     target_profit_pct: float = 0.0              # 0 = pakai TP dari ATR; >0 = TP = entry×(1+ini%)

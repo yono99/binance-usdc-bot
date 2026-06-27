@@ -37,6 +37,12 @@ def test_x100_liquidation_is_tiny_move():
     assert RuntimeSettings(leverage=100).liquidation_frac() < 0.01
 
 
+def test_default_leverage_is_100x():
+    s = RuntimeSettings()
+    assert s.leverage == 100
+    assert s.liquidation_frac() < 0.01        # default = likuidasi pada gerakan <1%
+
+
 def test_save_load_roundtrip(tmp_path, monkeypatch):
     monkeypatch.setattr(ss, "STORE", tmp_path / "runtime.json")
     ss.save_settings(RuntimeSettings(enabled=True, technique="swing", leverage=20,
