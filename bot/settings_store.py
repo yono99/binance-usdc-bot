@@ -34,7 +34,7 @@ MAINT_MARGIN = 0.005  # asumsi maintenance margin ~0.5%
 
 @dataclass
 class RuntimeSettings:
-    enabled: bool = False                       # bot aktif buka posisi?
+    enabled: bool = True                        # bot aktif buka posisi? (default ON)
     technique: str = "auto"                     # scalping | swing | auto
     symbols: list[str] = field(default_factory=lambda: ["BTC/USDC:USDC"])
     leverage: int = 100                         # default 100x (paper) — likuidasi pada gerakan ~0.5%
@@ -42,11 +42,12 @@ class RuntimeSettings:
     balance_usd: float = 12.0                   # saldo akun (paper)
     target_profit_pct: float = 0.0              # 0 = pakai TP dari ATR; >0 = TP = entry×(1+ini%)
     max_open_positions: int = 2                 # slot posisi paralel maksimum
-    poll_seconds: int = 900                     # interval screening/siklus (detik) — default 15 menit
+    poll_seconds: int = 60                      # heartbeat bot (baca setting+monitor+status). Sinyal dievaluasi per bar TF.
     order_type: str = "limit"                   # default maker (limit) | market (taker)
     taker_fee_pct: float = 0.05                 # fee taker (%) — market order
     maker_fee_pct: float = 0.02                 # fee maker (%) — limit order
     gemini_model: str = ""                      # model Gemini (kosong = default config.yaml)
+    mode: str = ""                              # kosong = ikut .env | dry | test | live (UANG NYATA)
 
     def clamp(self) -> "RuntimeSettings":
         self.technique = self.technique if self.technique in PRESETS else "auto"
@@ -60,6 +61,7 @@ class RuntimeSettings:
         self.taker_fee_pct = max(0.0, float(self.taker_fee_pct))
         self.maker_fee_pct = max(0.0, float(self.maker_fee_pct))
         self.gemini_model = str(self.gemini_model or "").strip()
+        self.mode = self.mode if self.mode in ("", "dry", "test", "live") else ""
         # symbols kosong = "screening SEMUA pair USDC" (di-resolve oleh bot)
         return self
 

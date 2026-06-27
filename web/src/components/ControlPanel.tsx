@@ -22,6 +22,7 @@ type Form = {
   target_profit_pct: number;
   max_open_positions: number;
   poll_seconds: number;
+  mode: string;
   order_type: string;
   taker_fee_pct: number;
   maker_fee_pct: number;
@@ -37,8 +38,8 @@ export function ControlPanel({
   available: string[];
   account: Account | null;
 }) {
-  const isLive = account?.mode === "live";
-  const liveBalance = account?.balance_usdc;
+  const isLive = status?.mode === "live";              // mode efektif yang BERJALAN
+  const liveBalance = status?.balance_usd;             // di live = saldo Binance nyata
   const [s, setS] = useState<Settings | null>(null);
   const [form, setForm] = useState<Form | null>(null);
   const [saved, setSaved] = useState("");
@@ -61,6 +62,7 @@ export function ControlPanel({
         target_profit_pct: d.target_profit_pct,
         max_open_positions: d.max_open_positions,
         poll_seconds: d.poll_seconds,
+        mode: d.mode || "",
         order_type: d.order_type,
         taker_fee_pct: d.taker_fee_pct,
         maker_fee_pct: d.maker_fee_pct,
@@ -86,6 +88,15 @@ export function ControlPanel({
 
   const set = (k: keyof Form, v: Form[keyof Form]) => setForm((p) => (p ? { ...p, [k]: v } : p));
   const warn = riskWarn(form.leverage, +liqPct(form.leverage).toFixed(3));
+
+  const setMode = (m: string) => {
+    if (m === "live") {
+      if (!confirm("⚠ AKTIFKAN MODE LIVE — UANG NYATA?\n\nBot akan menempatkan order ASLI di Binance Futures memakai API key live kamu. Pastikan: key Futures-only + withdrawal OFF + IP-locked, dan mulai dengan bet SANGAT KECIL. Methodology: strategi ini belum ada edge (impas).\n\nLanjut?"))
+        return;
+      if (!confirm("Konfirmasi sekali lagi — ini UANG NYATA. Yakin mengaktifkan LIVE?")) return;
+    }
+    set("mode", m);
+  };
 
   // Bidang numerik yang divalidasi engine (clamp). Jika user input ngawur,
   // engine kembalikan ke batas wajar -> tampilkan peringatan apa yang disesuaikan.
@@ -120,9 +131,30 @@ export function ControlPanel({
 
   return (
     <div className="panel">
-      <h2>Kontrol Bot (paper)</h2>
+      <h2>Kontrol Bot {isLive ? "— ⚠ LIVE (UANG NYATA)" : "(paper)"}</h2>
+      {isLive && (
+        <div className="danger">
+          ⚠ <b>MODE LIVE AKTIF — UANG NYATA.</b> Order ditempatkan ASLI di Binance Futures.
+          Circuit breaker &amp; guard tetap aktif, tapi risiko penuh milikmu. Saldo diambil dari akun live.
+        </div>
+      )}
+      {form.mode === "live" && !isLive && (
+        <div className="danger">
+          ⚠ Mode <b>live</b> dipilih — berlaku setelah <b>Simpan</b> &amp; bot beralih (butuh
+          BINANCE_LIVE_KEY/SECRET di .env). Bila key tak ada, bot tetap paper.
+        </div>
+      )}
       {warn && <div className="danger">{warn}</div>}
       <div className="grid">
+        <label>
+          Mode
+          <select value={form.mode} onChange={(e) => setMode(e.target.value)}>
+            <option value="">ikut .env</option>
+            <option value="dry">dry (paper)</option>
+            <option value="test">test (paper)</option>
+            <option value="live">live (UANG NYATA)</option>
+          </select>
+        </label>
         <label>
           Status
           <select value={String(form.enabled)} onChange={(e) => set("enabled", e.target.value === "true")}>
@@ -198,7 +230,7 @@ export function ControlPanel({
           <input type="number" min={1} max={20} step={1} value={form.max_open_positions} onChange={(e) => set("max_open_positions", +e.target.value)} />
         </label>
         <label>
-          Interval screening (dtk)
+          Interval refresh bot (dtk) · <span className="sub">sinyal dievaluasi per bar TF</span>
           <input type="number" min={5} max={3600} step={1} value={form.poll_seconds} onChange={(e) => set("poll_seconds", +e.target.value)} />
         </label>
         <label>

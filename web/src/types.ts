@@ -24,6 +24,7 @@ export interface Settings {
   target_profit_pct: number;
   max_open_positions: number;
   poll_seconds: number;
+  mode: string;
   order_type: string;
   taker_fee_pct: number;
   maker_fee_pct: number;
@@ -66,6 +67,10 @@ export interface Status {
   poll_seconds?: number;
   order_type?: string;
   fee_pct?: number;
+  day_pnl?: number;
+  day_trades?: number;
+  circuit_breaker?: string | null;
+  corr_threshold?: number;
   news_veto?: { active: boolean; note: string };
   symbols?: PairStatus[];
 }

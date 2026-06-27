@@ -112,6 +112,35 @@ harga), **market → taker** (+ slippage). Baris Status menampilkan
 
 ---
 
+## Manajemen risiko (selalu aktif)
+
+- **Circuit breaker harian** (`config.yaml: risk.daily_max_loss_pct` / `daily_max_trades`):
+  stop buka posisi bila rugi harian ≥ % saldo awal hari, atau jumlah open harian
+  tercapai. Reset tiap hari UTC, **tahan restart** (disimpan di `botstate`). Status
+  menampilkan PnL hari ini + status breaker.
+- **Guard korelasi** (`risk.corr_threshold` / `corr_lookback`): blok entry **searah**
+  bila korelasi return ≥ threshold (default 0.85) dengan posisi terbuka — mencegah
+  banyak alt USDC jadi satu taruhan BTC tersamar saat screening semua pair.
+
+## Mode live (UANG NYATA) — toggle dari UI
+
+Selector **Mode** di Kontrol Bot: `ikut .env` / `dry` / `test` (paper) / **`live`**.
+Memilih `live` butuh **konfirmasi ganda** + `BINANCE_LIVE_KEY/SECRET` di `.env`.
+
+Saat live (`bot/forward.py`):
+- **Entry order NYATA**: LIMIT post-only (maker) atau market, + **SL/TP sisi-exchange**
+  (`STOP_MARKET`/`TAKE_PROFIT_MARKET`, tetap aktif walau bot mati).
+- **Rekonsiliasi tiap siklus**: tarik posisi nyata dari Binance, deteksi yang tertutup
+  (SL/TP/likuidasi), bersihkan order yatim, saldo = equity Binance nyata.
+- **Close manual** → reduceOnly market nyata + cancel order.
+- Circuit breaker & guard korelasi tetap aktif.
+
+> ⚠️ **Peringatan keras.** Kode live ini **belum teruji dengan uang nyata** —
+> **wajib uji dengan bet sangat kecil dulu**. Deteksi closure mengikuti interval
+> screening (perpendek `poll` saat live). PnL harian live dihitung dari delta equity
+> (termasuk unrealized — breaker bisa lebih konservatif). API key: **Futures-only,
+> withdrawal OFF, IP-locked**. METHODOLOGY: strategi **belum ada edge** — live = risiko penuh.
+
 ## Pemantauan Token Gemini
 
 Gemini dipakai dua layer: **regime veto** (`bot/gemini_layer.py`) dan **news veto**

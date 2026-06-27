@@ -86,6 +86,18 @@ export function BotStatus({ status, onAction }: { status: Status | null; onActio
           {status.max_open} · Order: <b>{status.order_type || "—"}</b> (fee {f(status.fee_pct, 3)}%) · News: {nv} ·{" "}
           <span className="sub">update {(status.ts || "").slice(11, 19)} UTC</span>
         </div>
+        <div className="line" style={{ marginTop: 4 }}>
+          PnL hari ini:{" "}
+          <b className={status.day_pnl != null ? (status.day_pnl >= 0 ? "pos" : "neg") : ""}>
+            {status.day_pnl != null ? (status.day_pnl >= 0 ? "+" : "") + f(status.day_pnl, 2) : "—"}
+          </b>{" "}
+          · Trade hari ini: <b>{status.day_trades ?? 0}</b> · Guard korelasi: ≥{f(status.corr_threshold, 2)} ·{" "}
+          {status.circuit_breaker ? (
+            <span className="neg">⛔ {status.circuit_breaker}</span>
+          ) : (
+            <span className="pos">circuit breaker: clear</span>
+          )}
+        </div>
       </div>
       <div className="panel">
         <h2>

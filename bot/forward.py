@@ -65,6 +65,11 @@ class ForwardTester:
         self.max_open = self.cfg["rotate"]["max_open_positions"]
         self.bt = Backtester(self.cfg, fee_pct=self.fee, slippage_pct=self.slippage)
         self.risk_frac = self.cfg["risk"]["account_risk_pct"] / 100.0
+        _r = self.cfg["risk"]
+        self.daily_max_loss_pct = float(_r.get("daily_max_loss_pct", 0) or 0)
+        self.daily_max_trades = int(_r.get("daily_max_trades", 0) or 0)
+        self.corr_threshold = float(_r.get("corr_threshold", 0) or 0)
+        self.corr_lookback = int(_r.get("corr_lookback", 0) or 0)
         self.news = NewsVeto(self.settings, self.cfg)
         self.notify = TelegramNotifier()
         self.rs: RuntimeSettings | None = None
@@ -73,6 +78,13 @@ class ForwardTester:
         self._last_news = None         # dedup histori news veto
         self._last_screen: dict = {}   # dedup histori screening per simbol
         self._base_slippage = self.slippage   # slippage market; limit (maker) = 0
+        # state circuit breaker harian (reset tiap hari UTC) — default sebelum restore
+        self._day = pd.Timestamp.utcnow().date()
+        self._day_pnl = 0.0
+        self._day_trades = 0
+        self._day_start_balance = 0.0
+        self._eff_mode = self.settings.mode          # mode efektif berjalan
+        self.live = (self.settings.mode == "live")   # True = order UANG NYATA
         if self.use_store:
             self.rs = load_settings()
             self.symbols = self.rs.symbols or self.ex.usdc_symbols()   # kosong = semua USDC
@@ -80,7 +92,8 @@ class ForwardTester:
             self.tf = self.rs.timeframe()
             self.balance_usd = self.rs.balance_usd
             self._last_cfg_balance = self.rs.balance_usd
-            self._restore_state()           # pulihkan saldo+posisi hidup dari SQLite (tahan-restart)
+            self._day_start_balance = self.balance_usd
+            self._restore_state()           # pulihkan saldo+posisi+state-harian dari SQLite (tahan-restart)
         else:
             self.tf = self.cfg["market"]["timeframe"]
         self.bt.sl_mult = self.params["sl_atr_mult"]
@@ -186,6 +199,9 @@ class ForwardTester:
 
     def _apply_settings(self) -> RuntimeSettings:
         rs = load_settings()
+        eff = rs.mode or self.settings.mode               # mode diminta dari UI (atau .env)
+        if eff != self._eff_mode:
+            self._switch_mode(eff)
         resolved = rs.symbols or self.ex.usdc_symbols()   # kosong = semua USDC
         if rs.timeframe() != self.tf or set(resolved) != set(self.symbols):
             self.tf = rs.timeframe()
@@ -226,6 +242,11 @@ class ForwardTester:
         if abs(st.get("cfg_balance", self._last_cfg_balance) - self._last_cfg_balance) < 1e-9:
             self.balance_usd = float(st.get("balance", self.balance_usd))
         self.open = st.get("open", {}) or {}
+        # pulihkan state circuit breaker harian bila masih hari yang sama (UTC)
+        if st.get("day") == str(pd.Timestamp.utcnow().date()):
+            self._day_pnl = float(st.get("day_pnl", 0.0))
+            self._day_trades = int(st.get("day_trades", 0))
+            self._day_start_balance = float(st.get("day_start_balance", self.balance_usd))
         if self.open:
             log.info(f"State dipulihkan dari SQLite: saldo ${self.balance_usd:.2f}, "
                      f"{len(self.open)} posisi terbuka")
@@ -253,9 +274,115 @@ class ForwardTester:
             from .store import set_kv
             set_kv("botstate", {"balance": round(self.balance_usd, 6),
                                 "open": self.open,
-                                "cfg_balance": self._last_cfg_balance})
+                                "cfg_balance": self._last_cfg_balance,
+                                "day": str(self._day), "day_pnl": round(self._day_pnl, 4),
+                                "day_trades": self._day_trades,
+                                "day_start_balance": round(self._day_start_balance, 6)})
         except Exception as e:  # boundary
             log.warning(f"persist state gagal: {e}")
+
+    # ---------- mode switching & eksekusi LIVE (UANG NYATA) ----------
+
+    def _switch_mode(self, eff: str) -> None:
+        """Beralih mode berjalan. live = uang nyata (butuh BINANCE_LIVE_KEY/SECRET)."""
+        import os
+        try:
+            if eff == "live" and not (os.getenv("BINANCE_LIVE_KEY") and os.getenv("BINANCE_LIVE_SECRET")):
+                log.error("Mode LIVE diminta tapi BINANCE_LIVE_KEY/SECRET kosong — tetap paper.")
+                return
+            new = Settings(mode=eff, raw=self.cfg, gemini_keys=self.settings.gemini_keys,
+                           gemini_enabled=self.settings.gemini_enabled)
+            self.ex = Exchange(new)
+            self.settings = new
+            self.live = (eff == "live")
+            self.open = {}                      # posisi lama (paper/mode lain) tak valid
+            if self.live:
+                self.balance_usd = self.ex.equity_usdc(self.balance_usd)
+                self._sync_live_positions()     # ambil posisi nyata yang sudah ada
+            self._day = pd.Timestamp.utcnow().date()
+            self._day_pnl = 0.0
+            self._day_trades = 0
+            self._day_start_balance = self.balance_usd
+            self._eff_mode = eff
+            if self.live:
+                log.warning(f"=== BERALIH KE LIVE (UANG NYATA) — saldo Binance ${self.balance_usd:.2f} ===")
+                self.notify.send(f"⚠️ <b>MODE LIVE AKTIF — UANG NYATA</b>\nSaldo Binance ${self.balance_usd:.2f}")
+            else:
+                log.warning(f"=== beralih ke {eff.upper()} (paper) ===")
+        except Exception as e:  # boundary
+            log.error(f"gagal beralih mode {eff}: {e}")
+
+    def _sync_live_positions(self) -> None:
+        """Tarik posisi terbuka nyata dari Binance ke self.open."""
+        try:
+            for p in self.ex.positions():
+                sym = p.get("symbol")
+                contracts = float(p.get("contracts") or 0)
+                if not sym or contracts == 0:
+                    continue
+                side = "long" if (p.get("side") == "long" or contracts > 0) else "short"
+                entry = float(p.get("entryPrice") or 0)
+                self.open[sym] = {"side": side, "entry": entry, "qty": abs(contracts),
+                                  "sl": 0.0, "tp": 0.0, "liq": float(p.get("liquidationPrice") or 0),
+                                  "bet": float(p.get("initialMargin") or 0)}
+        except Exception as e:  # boundary
+            log.error(f"sync posisi live gagal: {e}")
+
+    def _live_open(self, sym, is_long, qty, entry, sl, tp, rs) -> tuple[bool, float]:
+        """Tempatkan order ENTRY nyata + SL/TP sisi-exchange. Return (ok, fill_price)."""
+        try:
+            self.ex.set_leverage(sym, rs.leverage)
+            side_str = "buy" if is_long else "sell"
+            if rs.order_type == "limit":
+                order = self.ex.client.create_order(sym, "limit", side_str, qty, entry, {"timeInForce": "GTX"})
+            else:
+                order = self.ex.client.create_order(sym, "market", side_str, qty)
+            fill = float(order.get("average") or entry)
+            close_side = "sell" if is_long else "buy"
+            # SL/TP dijaga exchange (tetap aktif walau bot mati)
+            self.ex.client.create_order(sym, "STOP_MARKET", close_side, qty, None,
+                                        {"stopPrice": sl, "reduceOnly": True})
+            self.ex.client.create_order(sym, "TAKE_PROFIT_MARKET", close_side, qty, None,
+                                        {"stopPrice": tp, "reduceOnly": True})
+            return True, fill
+        except Exception as e:  # boundary
+            log.error(f"LIVE OPEN {sym} gagal: {e}")
+            self.notify.send(f"❌ <b>LIVE OPEN GAGAL</b> {sym}\n{str(e)[:140]}")
+            return False, entry
+
+    def _live_close(self, sym: str, pos: dict) -> None:
+        """Tutup posisi nyata (reduceOnly market) + batalkan SL/TP tersisa."""
+        try:
+            close_side = "sell" if pos["side"] == "long" else "buy"
+            self.ex.client.create_order(sym, "market", close_side, pos["qty"], None, {"reduceOnly": True})
+            self.ex.client.cancel_all_orders(sym)
+        except Exception as e:  # boundary
+            log.error(f"LIVE CLOSE {sym} gagal: {e}")
+
+    def _live_reconcile(self) -> None:
+        """Sinkron posisi nyata dari Binance: deteksi yang sudah tertutup (SL/TP/liq),
+        update saldo dari equity nyata, bersihkan order yatim."""
+        try:
+            real = {}
+            for p in self.ex.positions():
+                if float(p.get("contracts") or 0) != 0:
+                    real[p.get("symbol")] = p
+        except Exception as e:  # boundary
+            log.error(f"reconcile live gagal: {e}")
+            return
+        for sym in list(self.open):
+            if sym not in real:                 # posisi hilang → tertutup di exchange
+                self.open.pop(sym, None)
+                try:
+                    self.ex.client.cancel_all_orders(sym)   # bersihkan SL/TP yatim
+                except Exception:
+                    pass
+                journal("forward_close", {"symbol": sym, "reason": "live_exit",
+                                          "equity": round(self.balance_usd, 2)})
+                log.info(f"LIVE CLOSE terdeteksi {sym}")
+                self.notify.send(f"✋ <b>LIVE CLOSE</b> {sym} (SL/TP/manual)")
+        self.balance_usd = self.ex.equity_usdc(self.balance_usd)
+        self._day_pnl = self.balance_usd - self._day_start_balance   # PnL harian dari equity nyata
 
     def _open_usd(self, sym: str, side: int, atr: float, rs: RuntimeSettings) -> None:
         if self.balance_usd < rs.bet_usd:
@@ -271,8 +398,19 @@ class ForwardTester:
         else:
             tp = entry + atr * self.bt.tp_mult if is_long else entry - atr * self.bt.tp_mult
         liq = liquidation_price(entry, is_long, rs.liquidation_frac())
+        if self.live:                               # UANG NYATA: order asli + SL/TP exchange
+            try:
+                qty = float(self.ex.client.amount_to_precision(sym, qty))
+            except Exception:
+                pass
+            if qty <= 0:
+                return
+            ok, entry = self._live_open(sym, is_long, qty, entry, sl, tp, rs)
+            if not ok:
+                return
         self.open[sym] = {"side": "long" if is_long else "short", "entry": entry, "qty": qty,
                           "sl": sl, "tp": tp, "liq": liq, "bet": rs.bet_usd}
+        self._day_trades += 1                       # untuk circuit breaker harian
         journal("forward_open", {"symbol": sym, "side": self.open[sym]["side"], "entry": entry,
                                  "sl": sl, "tp": tp, "liq": liq, "lev": rs.leverage, "bet": rs.bet_usd})
         log.info(f"OPEN {self.open[sym]['side'].upper()} {sym} x{rs.leverage} bet=${rs.bet_usd} "
@@ -283,6 +421,11 @@ class ForwardTester:
             f"LIQ {liq:.4f} · bet ${rs.bet_usd}")
 
     def _close_usd(self, sym: str, price: float, reason: str) -> None:
+        if self.live:                               # close NYATA; reconcile yang catat
+            pos = self.open.get(sym)
+            if pos:
+                self._live_close(sym, pos)
+            return
         pos = self.open.pop(sym)
         is_long = pos["side"] == "long"
         exit_fill = price * (1 - self.slippage / 100 if is_long else 1 + self.slippage / 100)
@@ -293,6 +436,7 @@ class ForwardTester:
             fee = self.fee / 100 * (pos["entry"] + exit_fill) * pos["qty"]
             pnl = max(pos["qty"] * move - fee, -pos["bet"])  # rugi maksimum = margin
         self.balance_usd += pnl
+        self._day_pnl += pnl                        # untuk circuit breaker harian
         r = pnl / pos["bet"] if pos["bet"] else 0.0
         self.trades.append(namedtuple("T", ["r"])(r))
         journal("forward_close", {"symbol": sym, "exit": round(exit_fill, 6), "reason": reason,
@@ -304,6 +448,8 @@ class ForwardTester:
         self.notify.send(f"{icon} {sym}\nPnL ${pnl:+.2f} · R {r:+.2f} · saldo ${self.balance_usd:.2f}")
 
     def _monitor_usd(self, sym: str) -> None:
+        if self.live:                               # live: SL/TP/liq ditangani exchange + reconcile
+            return
         if sym not in self.open:
             return
         try:
@@ -363,9 +509,54 @@ class ForwardTester:
         except Exception as e:  # boundary
             log.warning(f"tulis close_requests gagal: {e}")
 
+    def _corr_conflict(self, sym: str, side: int) -> str | None:
+        """Guard korelasi: bila ada posisi terbuka SEARAH yg return-nya berkorelasi
+        >= threshold dengan kandidat, kembalikan simbolnya (blok entry). None = aman."""
+        if self.corr_threshold <= 0 or self.corr_lookback < 20:
+            return None
+        cand = self.buffers.get(sym)
+        if cand is None or len(cand) < 20:
+            return None
+        want = "long" if side == 1 else "short"
+        a = cand["close"].pct_change().dropna().tail(self.corr_lookback).reset_index(drop=True)
+        for osym, pos in self.open.items():
+            if osym == sym or pos["side"] != want:
+                continue
+            ob = self.buffers.get(osym)
+            if ob is None or len(ob) < 20:
+                continue
+            b = ob["close"].pct_change().dropna().tail(self.corr_lookback).reset_index(drop=True)
+            n = min(len(a), len(b))
+            if n < 20:
+                continue
+            corr = a.tail(n).reset_index(drop=True).corr(b.tail(n).reset_index(drop=True))
+            if corr is not None and corr == corr and corr >= self.corr_threshold:
+                return osym
+        return None
+
+    def _circuit_breaker(self) -> str | None:
+        """Kembalikan alasan stop bila circuit breaker harian aktif, else None."""
+        if self.daily_max_trades and self._day_trades >= self.daily_max_trades:
+            return f"limit trade harian ({self._day_trades}/{self.daily_max_trades})"
+        if self.daily_max_loss_pct > 0 and self._day_start_balance > 0:
+            limit = self._day_start_balance * self.daily_max_loss_pct / 100
+            if self._day_pnl <= -limit:
+                return f"circuit breaker: rugi harian ${-self._day_pnl:.2f} ≥ ${limit:.2f}"
+        return None
+
     def _on_cycle_store(self) -> None:
         rs = self._apply_settings()
         self._process_close_requests()
+        if self.live:
+            self._live_reconcile()        # sinkron posisi & saldo nyata dari Binance
+        # rollover hari UTC → reset state circuit breaker
+        today = pd.Timestamp.utcnow().date()
+        if today != self._day:
+            self._day, self._day_pnl, self._day_trades = today, 0.0, 0
+            self._day_start_balance = self.balance_usd
+        cb = self._circuit_breaker()
+        if cb:
+            log.info(f"Circuit breaker aktif ({cb}) — tidak buka posisi baru")
         news_veto, note = (self.news.check() if rs.enabled else (False, "off"))
         if news_veto:
             log.info(f"News veto aktif ({note}) — tidak buka posisi baru siklus ini")
@@ -389,6 +580,8 @@ class ForwardTester:
                     blocked = "bot OFF"
                 elif news_veto:
                     blocked = f"news veto ({note})"
+                elif cb:
+                    blocked = cb
                 elif sym in self.open:
                     blocked = "sudah ada posisi"
                 elif len(self.open) >= self.max_open:
@@ -397,6 +590,8 @@ class ForwardTester:
                     blocked = "tak ada sinyal"
                 elif atr <= 0:
                     blocked = "ATR nol"
+                elif (conflict := self._corr_conflict(sym, side)):
+                    blocked = f"korelasi tinggi dgn {conflict.split('/')[0]}"
                 c["blocked"] = blocked
                 if blocked is None:
                     self._open_usd(sym, side, atr, rs)
@@ -434,6 +629,10 @@ class ForwardTester:
             "poll_seconds": rs.poll_seconds,
             "order_type": rs.order_type,
             "fee_pct": rs.fee_pct(),
+            "day_pnl": round(self._day_pnl, 2),
+            "day_trades": self._day_trades,
+            "circuit_breaker": self._circuit_breaker(),
+            "corr_threshold": self.corr_threshold,
             "news_veto": {"active": news_active, "note": news_note},
             "symbols": syms,
         }
