@@ -181,7 +181,18 @@ def api_ohlcv(symbol: str, tf: str = "15m", limit: int = 120) -> JSONResponse:
         bars = [{"x": int(i.timestamp() * 1000), "o": float(o), "h": float(h),
                  "l": float(low), "c": float(c)}
                 for i, o, h, low, c in zip(df.index, df["open"], df["high"], df["low"], df["close"])]
-        data = {"symbol": symbol, "tf": tf, "bars": bars}
+        from . import indicators as ind
+        from .config import load_settings
+        sig = load_settings().raw["signals"]
+        close = df["close"]
+        rnd = lambda s: [round(float(x), 6) for x in s]
+        data = {"symbol": symbol, "tf": tf, "bars": bars,
+                "ema_fast": rnd(ind.ema(close, sig["ema_fast"])),
+                "ema_mid": rnd(ind.ema(close, sig["ema_mid"])),
+                "ema_slow": rnd(ind.ema(close, sig["ema_slow"])),
+                "rsi": [round(float(x), 2) for x in ind.rsi(close, sig["rsi_period"])],
+                "periods": {"fast": sig["ema_fast"], "mid": sig["ema_mid"],
+                            "slow": sig["ema_slow"], "rsi": sig["rsi_period"]}}
         _ohlcv_cache[ck] = (time.time(), data)
         return JSONResponse(data)
     except Exception as e:  # boundary
@@ -332,7 +343,9 @@ PAGE = """<!doctype html>
         <option>5m</option><option selected>15m</option><option>1h</option><option>4h</option>
       </select>
     </div>
-    <canvas id="px" height="90"></canvas></div>
+    <canvas id="px" height="90"></canvas>
+    <div class="sub" id="emacap" style="margin-top:6px"></div>
+    <canvas id="rsi" height="34" style="margin-top:10px"></canvas></div>
   <div class="cards" id="cards"></div>
   <div class="panel"><h2>Kurva Equity</h2><canvas id="eq" height="90"></canvas></div>
   <div class="panel"><h2>Posisi Terbuka</h2><div id="open"></div></div>
@@ -413,7 +426,7 @@ async function loadSettings(){
   if(!csel.options.length && s.symbols && s.symbols.length)
     csel.innerHTML=s.symbols.map(x=>`<option>${x}</option>`).join('');
 }
-let pxChart;
+let pxChart, rsiChart;
 async function loadChart(){
   const sym=document.getElementById('chartsym').value; if(!sym)return;
   const tf=document.getElementById('charttf').value||'15m';
@@ -423,6 +436,13 @@ async function loadChart(){
              color:{up:'#22c55e',down:'#ef4444',unchanged:'#94a3b8'},
              borderColor:{up:'#22c55e',down:'#ef4444',unchanged:'#94a3b8'}}];
   const x0=d.bars[0].x, x1=d.bars[d.bars.length-1].x;
+  const mkema=(arr,col)=>({type:'line',label:'',data:arr.map((y,i)=>({x:d.bars[i].x,y})),
+    borderColor:col,borderWidth:1,pointRadius:0,tension:.2});
+  if(d.ema_fast){
+    ds.push(mkema(d.ema_fast,'#eab308'),mkema(d.ema_mid,'#3b82f6'),mkema(d.ema_slow,'#a855f7'));
+    document.getElementById('emacap').innerHTML=
+      `EMA${d.periods.fast} <span style="color:#eab308">━</span>  EMA${d.periods.mid} <span style="color:#3b82f6">━</span>  EMA${d.periods.slow} <span style="color:#a855f7">━</span>`;
+  }
   const st=window.lastStatus;
   const sm=st&&st.symbols&&st.symbols.find(x=>x.symbol===sym&&x.in_position);
   if(sm&&sm.position){const p=sm.position;
@@ -435,6 +455,17 @@ async function loadChart(){
             y:{grid:{color:'#243049'},ticks:{color:'#8aa0c0'}}}};
   if(pxChart){pxChart.data.datasets=ds;pxChart.update();}
   else pxChart=new Chart(document.getElementById('px'),{type:'candlestick',data:{datasets:ds},options:opts});
+  if(d.rsi){
+    const rd=d.rsi.map((y,i)=>({x:d.bars[i].x,y}));
+    const flat=v=>[{x:x0,y:v},{x:x1,y:v}];
+    const rds=[{label:'RSI',data:rd,borderColor:'#06b6d4',borderWidth:1.2,pointRadius:0,tension:.2},
+      {label:'',data:flat(70),borderColor:'#ef4444',borderWidth:.6,pointRadius:0,borderDash:[3,3]},
+      {label:'',data:flat(30),borderColor:'#22c55e',borderWidth:.6,pointRadius:0,borderDash:[3,3]}];
+    const ropts={plugins:{legend:{display:false},tooltip:{enabled:false}},
+      scales:{x:{type:'time',display:false},y:{min:0,max:100,grid:{color:'#243049'},ticks:{color:'#8aa0c0',stepSize:50}}}};
+    if(rsiChart){rsiChart.data.datasets=rds;rsiChart.update();}
+    else rsiChart=new Chart(document.getElementById('rsi'),{type:'line',data:{datasets:rds},options:ropts});
+  }
 }
 async function closePos(sym){
   if(!confirm('Tutup paksa posisi '+sym+'? (diproses ≤1 siklus)'))return;
