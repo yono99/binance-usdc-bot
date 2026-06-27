@@ -13,6 +13,11 @@ Satu basis kode, **tiga mode** lewat satu variabel `MODE`:
 
 ---
 
+> **Artefak utama proyek ini = [METHODOLOGY.md](METHODOLOGY.md)** (asumsi, batasan,
+> temuan, cara reproduksi). Nilai di sini adalah *sistem pengujian yang jujur & reproducible*,
+> bukan klaim profit. Pada data yang dapat di-backtest, **tidak ditemukan edge tradeable** —
+> dan itu didokumentasikan, bukan disembunyikan.
+
 ## ⚠️ Baca dulu — jujur soal ekspektasi
 
 - **Tidak ada bot yang menjamin "win rate tinggi" atau "profit konsisten tiap hari."** Yang dirancang di sini adalah *survival* (tidak blow-up) + *expectancy positif* lewat risk/reward dan disiplin eksekusi. Akan ada hari/minggu merah — itu normal dan sudah diantisipasi lewat circuit breaker.
@@ -75,6 +80,21 @@ yang belum dilihat, lalu menggeser jendela maju. Verdict = expectancy **OOS**.
 > Temuan saat ini: in-sample selalu positif tapi **OOS ≈ −0.21R** → klasik
 > **overfitting**. Pelajaran: edge harus datang dari *fitur sinyal yang benar*,
 > bukan dari tuning angka. Inilah pengaman utama sebelum membuang uang live.
+
+## Collector L2 orderbook (riset microstructure)
+
+Kumpulkan snapshot depth orderbook — data yang **tak tersedia historis** dari exchange,
+jadi harus direkam forward (sekali terlewat, hilang).
+
+```bash
+python l2collect.py --symbols "BTC/USDC:USDC" --levels 10 --interval 1
+```
+
+Output `data/l2/<symbol>_<tanggal>.jsonl.gz` (~50–200 MB/hari/pair). Tiap baris =
+snapshot raw (depth N level) **plus** fitur turunan (imbalance, micro-price, spread).
+
+> Catatan rate-limit: REST-poll banyak simbol/cepat bisa kena ban IP (418) — Binance
+> menyarankan WebSocket untuk skala (lihat `bot/l2.py`). Untuk beberapa simbol @ ≥1s aman.
 
 ## News veto (Gemini, real-time)
 
@@ -226,7 +246,9 @@ python -m svc.run
 - [x] Deploy Docker (bot + dashboard, volume bersama) — `Dockerfile` + `docker-compose.yml`
 - [x] Panel kontrol UI: teknik (scalping/swing/auto), leverage, bet, target profit + likuidasi
 - [x] News veto via Gemini (real-time, forward-test) — `bot/news.py`
-- [ ] Jalankan forward-test berhari-hari → simpulkan edge dari sampel forward
+- [x] Collector L2 orderbook (data forward microstructure) — `l2collect.py`
+- [x] Dokumen metodologi reproducible — [METHODOLOGY.md](METHODOLOGY.md)
+- [ ] Jalankan forward-test/collector berhari-hari → riset microstructure & sampel lebih besar
 
 ### Lintasan edge (OOS, walk-forward — BTC/ETH/SOL)
 

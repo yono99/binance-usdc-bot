@@ -22,6 +22,19 @@ services:
       - ./config.yaml:/app/config.yaml:ro
     restart: unless-stopped
 
+  # collector L2 orderbook (data forward untuk riset microstructure).
+  # Opsional — hapus bila tak perlu. Lihat catatan rate-limit di bot/l2.py.
+  collector:
+    image: usdc-bot:latest
+    command: python l2collect.py --interval 2
+    depends_on:
+      - bot
+    environment:
+      MODE: ${MODE:-dry}
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+
   dashboard:
     image: usdc-bot:latest
     command: python dashboard.py --host 0.0.0.0 --port 8000
