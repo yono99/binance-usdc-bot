@@ -42,19 +42,30 @@ class RuntimeSettings:
     balance_usd: float = 12.0                   # saldo akun (paper)
     target_profit_pct: float = 0.0              # 0 = pakai TP dari ATR; >0 = TP = entry×(1+ini%)
     max_open_positions: int = 2                 # slot posisi paralel maksimum
-    poll_seconds: int = 30                      # interval screening/siklus (detik)
+    poll_seconds: int = 900                     # interval screening/siklus (detik) — default 15 menit
+    order_type: str = "limit"                   # default maker (limit) | market (taker)
+    taker_fee_pct: float = 0.05                 # fee taker (%) — market order
+    maker_fee_pct: float = 0.02                 # fee maker (%) — limit order
+    gemini_model: str = ""                      # model Gemini (kosong = default config.yaml)
 
     def clamp(self) -> "RuntimeSettings":
         self.technique = self.technique if self.technique in PRESETS else "auto"
         self.leverage = int(max(1, min(125, self.leverage)))
-        self.bet_usd = max(0.1, float(self.bet_usd))
+        self.bet_usd = max(0.01, float(self.bet_usd))
         self.balance_usd = max(0.0, float(self.balance_usd))
-        self.target_profit_pct = max(0.0, float(self.target_profit_pct))
+        self.target_profit_pct = max(0.0, min(100.0, float(self.target_profit_pct)))   # >100% gerak harga = tak masuk akal
         self.max_open_positions = int(max(1, min(20, self.max_open_positions)))
         self.poll_seconds = int(max(5, min(3600, self.poll_seconds)))
-        if not self.symbols:
-            self.symbols = ["BTC/USDC:USDC"]
+        self.order_type = self.order_type if self.order_type in ("market", "limit") else "market"
+        self.taker_fee_pct = max(0.0, float(self.taker_fee_pct))
+        self.maker_fee_pct = max(0.0, float(self.maker_fee_pct))
+        self.gemini_model = str(self.gemini_model or "").strip()
+        # symbols kosong = "screening SEMUA pair USDC" (di-resolve oleh bot)
         return self
+
+    def fee_pct(self) -> float:
+        """Fee per sisi sesuai jenis order: maker (limit) vs taker (market)."""
+        return self.maker_fee_pct if self.order_type == "limit" else self.taker_fee_pct
 
     def preset(self) -> dict:
         return PRESETS[self.technique]

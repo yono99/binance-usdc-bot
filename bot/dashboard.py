@@ -16,6 +16,7 @@ import io
 
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
 
 from .settings_store import PRESETS, RuntimeSettings, load_settings, save_settings
 from . import store
@@ -229,6 +230,25 @@ def _get_ex():
     return _ex_cache["ex"]
 
 
+_symbols_cache: dict = {"ts": 0.0, "data": None}
+
+
+@app.get("/api/symbols")
+def api_symbols() -> JSONResponse:
+    """Daftar pair USDC-M perpetual yang tersedia (untuk pemilih + pencarian di UI)."""
+    import time
+    if _symbols_cache["data"] and time.time() - _symbols_cache["ts"] < 600:
+        return JSONResponse(_symbols_cache["data"])
+    try:
+        m = _get_ex().client.markets
+        syms = sorted(s for s, v in m.items() if v.get("settle") == "USDC" and v.get("swap"))
+    except Exception as e:  # boundary
+        return JSONResponse({"symbols": [], "error": str(e)[:140]})
+    data = {"symbols": syms}
+    _symbols_cache.update(ts=time.time(), data=data)
+    return JSONResponse(data)
+
+
 @app.get("/api/ohlcv")
 def api_ohlcv(symbol: str, tf: str = "15m", limit: int = 120) -> JSONResponse:
     import time
@@ -310,6 +330,53 @@ def api_close_all() -> JSONResponse:
     return JSONResponse({"ok": True})
 
 
+@app.get("/api/news-log")
+def api_news_log(limit: int = 200) -> JSONResponse:
+    """Histori keputusan news veto (hanya saat berubah)."""
+    return JSONResponse({"log": store.news_log(limit)})
+
+
+@app.get("/api/screen-log")
+def api_screen_log(symbol: str = None, limit: int = 500) -> JSONResponse:
+    """Histori screening per pair (sinyal/alasan tak-entry, hanya saat berubah)."""
+    return JSONResponse({"log": store.screen_log(symbol, limit)})
+
+
+@app.get("/api/gemini-usage")
+def api_gemini_usage(recent: int = 30) -> JSONResponse:
+    """Pemantauan token Gemini: total, hari ini, per-model/key/tujuan, panggilan terakhir."""
+    return JSONResponse(store.gemini_usage_stats(recent))
+
+
+from .gemini_client import FALLBACK_MODELS as _STATIC_GEMINI_MODELS  # selaras elearning
+_gemini_models_cache: dict = {"ts": 0.0, "data": None}
+
+
+@app.get("/api/gemini-models")
+def api_gemini_models() -> JSONResponse:
+    """Daftar model Gemini tersedia (dari API key bila ada; fallback daftar statis)."""
+    import time
+    if _gemini_models_cache["data"] and time.time() - _gemini_models_cache["ts"] < 600:
+        return JSONResponse(_gemini_models_cache["data"])
+    models: list[str] = []
+    try:
+        from .config import load_settings as _load
+        from google import genai
+        s = _load()
+        if s.gemini_keys:
+            client = genai.Client(api_key=s.gemini_keys[0])
+            for m in client.models.list():
+                name = (getattr(m, "name", "") or "").replace("models/", "")
+                if "gemini" in name.lower() and "embedding" not in name.lower():
+                    models.append(name)
+    except Exception as e:  # boundary
+        log.warning(f"list model Gemini gagal, pakai daftar statis: {e}")
+    models = sorted(set(models) or set(_STATIC_GEMINI_MODELS))
+    data = {"models": models}
+    _gemini_models_cache.update(ts=time.time(), data=data)
+    return JSONResponse(data)
+
+
 @app.delete("/api/trades/{trade_id}")
 def api_delete_trade(trade_id: int) -> JSONResponse:
     """Hapus satu trade dari riwayat (event close + open pasangannya)."""
@@ -331,14 +398,10 @@ def api_set_settings(payload: dict) -> JSONResponse:
     s = RuntimeSettings(**{k: v for k, v in payload.items() if k in known}).clamp()
     save_settings(s)
     d = asdict(s)
+    d["techniques"] = list(PRESETS)
     d["timeframe"] = s.timeframe()
     d["liq_pct"] = round(s.liquidation_frac() * 100, 3)
     return JSONResponse(d)
-
-
-@app.get("/", response_class=HTMLResponse)
-def index() -> str:
-    return PAGE
 
 
 PAGE = """<!doctype html>
@@ -691,3 +754,15 @@ loadSettings();
 function refresh(){load();loadStatus();loadChart();loadTrades();}
 refresh();setInterval(refresh,10000);
 </script></body></html>"""
+
+
+# ---------- penyajian frontend ----------
+# Jika build React/Vite ada (web/dist), sajikan SPA itu; jika belum, fallback ke
+# halaman HTML lama (PAGE). API /api/* di atas tetap diprioritaskan (terdaftar lebih dulu).
+DIST = ROOT / "web" / "dist"
+if (DIST / "index.html").exists():
+    app.mount("/", StaticFiles(directory=str(DIST), html=True), name="spa")
+else:
+    @app.get("/", response_class=HTMLResponse)
+    def index() -> str:
+        return PAGE

@@ -9,19 +9,14 @@ PENTING & jujur:
 """
 from __future__ import annotations
 
-import itertools
 import json
 import urllib.request
 import xml.etree.ElementTree as ET
 from time import time
 
 from .config import Settings
+from .gemini_client import GeminiClient
 from .logger import log
-
-try:
-    from google import genai
-except Exception:
-    genai = None
 
 FEEDS = [
     "https://www.coindesk.com/arc/outboundfeeds/rss/",
@@ -46,10 +41,9 @@ def parse_titles(xml_bytes: bytes, limit: int = 15) -> list[str]:
 class NewsVeto:
     def __init__(self, settings: Settings, cfg: dict):
         gcfg = cfg.get("gemini", {})
-        self.model = gcfg.get("model", "gemini-2.5-flash")
+        self.client = GeminiClient(settings.gemini_keys, gcfg.get("model", "gemini-2.5-flash"))
         self.enabled = (settings.gemini_enabled and bool(gcfg.get("news_veto", False))
-                        and genai is not None)
-        self._keys = itertools.cycle(settings.gemini_keys) if settings.gemini_keys else None
+                        and self.client.available)
         self.ttl = 900  # cache 15 menit (hemat token, berita tak berubah tiap detik)
         self._cache: tuple[float, bool, str] | None = None
 
@@ -66,7 +60,7 @@ class NewsVeto:
 
     def check(self) -> tuple[bool, str]:
         """(veto, note). veto=True → jangan buka posisi siklus ini."""
-        if not self.enabled or self._keys is None:
+        if not self.enabled:
             return False, "off"
         if self._cache and time() - self._cache[0] < self.ttl:
             return self._cache[1], self._cache[2]
@@ -82,10 +76,10 @@ class NewsVeto:
             'Balas HANYA JSON: {"veto": true|false, "score": <0..1>, "note": "<singkat>"}.\n'
             + "\n".join(f"- {h}" for h in headlines)
         )
+        text = self.client.generate(prompt, purpose="news_veto")
+        if not text:
+            return False, "error"
         try:
-            client = genai.Client(api_key=next(self._keys))
-            resp = client.models.generate_content(model=self.model, contents=prompt)
-            text = (resp.text or "").strip()
             data = json.loads(text[text.find("{"):text.rfind("}") + 1])
             veto = bool(data.get("veto", False))
             note = str(data.get("note", ""))[:80]
@@ -93,5 +87,5 @@ class NewsVeto:
             log.info(f"News veto={veto} ({note})")
             return veto, note
         except Exception as e:  # boundary — jangan blokir trading karena AI error
-            log.warning(f"news veto Gemini gagal, allow: {e}")
+            log.warning(f"news veto parse gagal, allow: {e}")
             return False, "error"

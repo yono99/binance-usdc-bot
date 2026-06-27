@@ -1,0 +1,57 @@
+import type {
+  Account,
+  GeminiUsage,
+  NewsLogEntry,
+  Ohlcv,
+  ScreenLogEntry,
+  Settings,
+  Stats,
+  Status,
+  TradesResp,
+} from "./types";
+
+async function getJSON<T>(url: string): Promise<T> {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`${r.status} ${url}`);
+  return r.json();
+}
+
+async function postJSON<T>(url: string, body?: unknown): Promise<T> {
+  const r = await fetch(url, {
+    method: "POST",
+    headers: body ? { "Content-Type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  return r.json();
+}
+
+export const api = {
+  stats: () => getJSON<Stats>("/api/stats"),
+  status: () => getJSON<Status>("/api/status"),
+  account: () => getJSON<Account>("/api/account"),
+  settings: () => getJSON<Settings>("/api/settings"),
+  symbols: () => getJSON<{ symbols: string[]; error?: string }>("/api/symbols"),
+  ohlcv: (symbol: string, tf: string, limit = 120) =>
+    getJSON<Ohlcv>(`/api/ohlcv?symbol=${encodeURIComponent(symbol)}&tf=${tf}&limit=${limit}`),
+  trades: (q: string) => getJSON<TradesResp>(`/api/trades${q ? "?" + q : ""}`),
+  csvHref: (q: string) => `/api/trades.csv${q ? "?" + q : ""}`,
+  newsLog: (limit = 100) => getJSON<{ log: NewsLogEntry[] }>(`/api/news-log?limit=${limit}`),
+  screenLog: (limit = 200) => getJSON<{ log: ScreenLogEntry[] }>(`/api/screen-log?limit=${limit}`),
+  geminiUsage: (recent = 30) => getJSON<GeminiUsage>(`/api/gemini-usage?recent=${recent}`),
+  geminiModels: () => getJSON<{ models: string[] }>("/api/gemini-models"),
+
+  saveSettings: (body: Record<string, unknown>) => postJSON<Settings>("/api/settings", body),
+  validateKey: (key: string, secret: string) =>
+    postJSON<{ valid: boolean; balance_usdc?: number; error?: string }>("/api/validate-key", { key, secret }),
+  notifyTest: () => postJSON<{ ok: boolean; error?: string }>("/api/notify-test"),
+  close: (symbol: string) => postJSON<{ ok: boolean }>("/api/close", { symbol }),
+  closeAll: () => postJSON<{ ok: boolean }>("/api/close-all"),
+  deleteTrade: (id: number) =>
+    fetch(`/api/trades/${id}`, { method: "DELETE" }).then((r) => r.json()),
+  clearTrades: () => postJSON<{ ok: boolean; removed: number }>("/api/trades/clear"),
+};
+
+export const f = (n: number | null | undefined, d = 2): string =>
+  n == null || Number.isNaN(Number(n)) ? "—" : Number(n).toFixed(d);
+export const cls = (v: number | null | undefined): string =>
+  v == null ? "" : v > 0 ? "pos" : v < 0 ? "neg" : "";

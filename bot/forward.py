@@ -70,9 +70,12 @@ class ForwardTester:
         self.rs: RuntimeSettings | None = None
         self.balance_usd = 0.0
         self._last_cfg_balance = 0.0   # untuk deteksi saat user mengubah saldo dari UI
+        self._last_news = None         # dedup histori news veto
+        self._last_screen: dict = {}   # dedup histori screening per simbol
+        self._base_slippage = self.slippage   # slippage market; limit (maker) = 0
         if self.use_store:
             self.rs = load_settings()
-            self.symbols = self.rs.symbols
+            self.symbols = self.rs.symbols or self.ex.usdc_symbols()   # kosong = semua USDC
             self.params = self.rs.params()
             self.tf = self.rs.timeframe()
             self.balance_usd = self.rs.balance_usd
@@ -183,9 +186,10 @@ class ForwardTester:
 
     def _apply_settings(self) -> RuntimeSettings:
         rs = load_settings()
-        if rs.timeframe() != self.tf or set(rs.symbols) != set(self.symbols):
+        resolved = rs.symbols or self.ex.usdc_symbols()   # kosong = semua USDC
+        if rs.timeframe() != self.tf or set(resolved) != set(self.symbols):
             self.tf = rs.timeframe()
-            self.symbols = rs.symbols
+            self.symbols = resolved
             self.buffers.clear()
             self.last_closed.clear()
             self.alt_raw.clear()
@@ -194,6 +198,10 @@ class ForwardTester:
         self.bt.sl_mult = rs.params()["sl_atr_mult"]
         self.bt.tp_mult = rs.params()["tp_atr_mult"]
         self.max_open = rs.max_open_positions   # hot-reload dari UI
+        self.fee = rs.fee_pct()                 # taker (market) / maker (limit)
+        self.slippage = 0.0 if rs.order_type == "limit" else self._base_slippage
+        if rs.gemini_model:                     # model Gemini pilihan UI (hot-reload) + fallback
+            self.news.client.set_model(rs.gemini_model)
         # Jika user mengubah Saldo dari UI -> terapkan ke saldo hidup (tanpa restart).
         # PnL biasa tidak menyentuh _last_cfg_balance, jadi tak terdeteksi sebagai edit.
         if abs(rs.balance_usd - self._last_cfg_balance) > 1e-9:
@@ -221,6 +229,24 @@ class ForwardTester:
         if self.open:
             log.info(f"State dipulihkan dari SQLite: saldo ${self.balance_usd:.2f}, "
                      f"{len(self.open)} posisi terbuka")
+
+    def _persist_logs(self, news_veto: bool, note: str) -> None:
+        """Simpan histori news veto & screening ke SQLite, hanya saat BERUBAH
+        (hindari banjir 1 baris/siklus). Boundary aman: gagal log tak ganggu bot."""
+        try:
+            from . import store
+            if (news_veto, note) != self._last_news:
+                store.log_news(news_veto, note)
+                self._last_news = (news_veto, note)
+            for sym in self.symbols:
+                c = self.sig_cache.get(sym, {})
+                cur = (c.get("side"), c.get("blocked"))
+                if cur != self._last_screen.get(sym):
+                    store.log_screen(sym, c.get("side"), c.get("price"),
+                                     c.get("atr_pct"), c.get("blocked"))
+                    self._last_screen[sym] = cur
+        except Exception as e:  # boundary
+            log.warning(f"persist logs gagal: {e}")
 
     def _persist_state(self) -> None:
         try:
@@ -377,6 +403,7 @@ class ForwardTester:
                     c["blocked"] = "→ posisi dibuka"
         self._write_status(rs, news_veto, note)
         self._persist_state()        # saldo+posisi durable -> tahan restart
+        self._persist_logs(news_veto, note)   # histori news + screening (on-change)
 
     def _write_status(self, rs, news_active: bool, news_note: str) -> None:
         syms = []
@@ -405,6 +432,8 @@ class ForwardTester:
             "open_count": len(self.open),
             "max_open": self.max_open,
             "poll_seconds": rs.poll_seconds,
+            "order_type": rs.order_type,
+            "fee_pct": rs.fee_pct(),
             "news_veto": {"active": news_active, "note": news_note},
             "symbols": syms,
         }

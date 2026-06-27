@@ -16,9 +16,9 @@ def test_presets_have_required_keys():
 def test_clamp_bounds():
     s = RuntimeSettings(leverage=999, bet_usd=-5, technique="ngawur", symbols=[]).clamp()
     assert s.leverage == 125
-    assert s.bet_usd >= 0.1
+    assert s.bet_usd >= 0.01
     assert s.technique == "auto"
-    assert s.symbols == ["BTC/USDC:USDC"]
+    assert s.symbols == []          # kosong = screening semua USDC (di-resolve bot)
     assert RuntimeSettings(leverage=0).clamp().leverage == 1
 
 

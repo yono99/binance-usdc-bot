@@ -31,7 +31,13 @@ class Executor:
 
         try:
             self.ex.set_leverage(sym, self.cfg["risk"]["leverage"])
-            order = self.ex.client.create_order(sym, "market", side, qty)
+            ecfg = self.cfg.get("execution", {})
+            if ecfg.get("order_type", "market") == "limit":
+                # LIMIT (maker) di harga sinyal; post-only (GTX) → tolak bila jadi taker
+                params = {"timeInForce": "GTX"} if ecfg.get("post_only", True) else {}
+                order = self.ex.client.create_order(sym, "limit", side, qty, sig.price, params)
+            else:
+                order = self.ex.client.create_order(sym, "market", side, qty)
             filled = float(order.get("average") or sig.price)
             if abs(filled - sig.price) / sig.price * 100 > self.slippage_guard_pct:
                 log.warning(f"{sym}: slippage {filled} vs {sig.price} > guard — pasang proteksi tetap")

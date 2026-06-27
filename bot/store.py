@@ -32,6 +32,39 @@ CREATE TABLE IF NOT EXISTS kv (
     value      TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS news_log (
+    id     INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts     TEXT NOT NULL,
+    active INTEGER NOT NULL,
+    note   TEXT
+);
+
+CREATE TABLE IF NOT EXISTS screen_log (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts      TEXT NOT NULL,
+    symbol  TEXT NOT NULL,
+    signal  TEXT,
+    price   REAL,
+    atr_pct REAL,
+    blocked TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_screen_symbol ON screen_log(symbol);
+CREATE INDEX IF NOT EXISTS idx_news_ts       ON news_log(ts);
+
+CREATE TABLE IF NOT EXISTS gemini_usage (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts            TEXT NOT NULL,
+    model         TEXT,
+    purpose       TEXT,
+    key_idx       INTEGER,
+    prompt_tokens INTEGER DEFAULT 0,
+    output_tokens INTEGER DEFAULT 0,
+    total_tokens  INTEGER DEFAULT 0,
+    ok            INTEGER DEFAULT 1,
+    error         TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_gemini_ts ON gemini_usage(ts);
 """
 
 
@@ -124,6 +157,90 @@ def get_kv(key: str) -> dict | None:
     with _conn() as c:
         row = c.execute("SELECT value FROM kv WHERE key=?", (key,)).fetchone()
     return json.loads(row["value"]) if row else None
+
+
+# ---------- histori news veto & screening (append, sudah di-dedup pemanggil) ----------
+
+def log_news(active: bool, note: str) -> None:
+    init_db()
+    with _conn() as c:
+        c.execute("INSERT INTO news_log (ts, active, note) VALUES (?,?,?)",
+                  (datetime.now(timezone.utc).isoformat(), 1 if active else 0, note))
+
+
+def log_screen(symbol: str, signal: str | None, price: float | None,
+               atr_pct: float | None, blocked: str | None) -> None:
+    init_db()
+    with _conn() as c:
+        c.execute("INSERT INTO screen_log (ts, symbol, signal, price, atr_pct, blocked) "
+                  "VALUES (?,?,?,?,?,?)",
+                  (datetime.now(timezone.utc).isoformat(), symbol, signal, price, atr_pct, blocked))
+
+
+def news_log(limit: int = 200) -> list[dict]:
+    init_db()
+    with _conn() as c:
+        rows = c.execute("SELECT id, ts, active, note FROM news_log ORDER BY id DESC LIMIT ?",
+                         (limit,)).fetchall()
+    return [{"id": r["id"], "ts": r["ts"], "active": bool(r["active"]), "note": r["note"]} for r in rows]
+
+
+def screen_log(symbol: str | None = None, limit: int = 500) -> list[dict]:
+    init_db()
+    q = "SELECT id, ts, symbol, signal, price, atr_pct, blocked FROM screen_log"
+    args: list = []
+    if symbol:
+        q += " WHERE symbol=?"
+        args.append(symbol)
+    q += " ORDER BY id DESC LIMIT ?"
+    args.append(limit)
+    with _conn() as c:
+        rows = c.execute(q, args).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------- pemantauan token Gemini ----------
+
+def log_gemini_usage(model: str, purpose: str, key_idx: int, prompt_tokens: int,
+                     output_tokens: int, total_tokens: int, ok: bool = True,
+                     error: str = "") -> None:
+    init_db()
+    with _conn() as c:
+        c.execute(
+            "INSERT INTO gemini_usage (ts, model, purpose, key_idx, prompt_tokens, "
+            "output_tokens, total_tokens, ok, error) VALUES (?,?,?,?,?,?,?,?,?)",
+            (datetime.now(timezone.utc).isoformat(), model, purpose, key_idx,
+             prompt_tokens, output_tokens, total_tokens, 1 if ok else 0, error))
+
+
+def gemini_usage_stats(recent: int = 30) -> dict:
+    init_db()
+    today = datetime.now(timezone.utc).date().isoformat()
+    with _conn() as c:
+        tot = c.execute("SELECT COUNT(*) calls, COALESCE(SUM(total_tokens),0) tok, "
+                        "COALESCE(SUM(ok=0),0) errs FROM gemini_usage").fetchone()
+        td = c.execute("SELECT COUNT(*) calls, COALESCE(SUM(total_tokens),0) tok "
+                       "FROM gemini_usage WHERE ts LIKE ?", (today + "%",)).fetchone()
+        per_model = c.execute(
+            "SELECT model, COUNT(*) calls, COALESCE(SUM(total_tokens),0) tok "
+            "FROM gemini_usage GROUP BY model ORDER BY tok DESC").fetchall()
+        per_key = c.execute(
+            "SELECT key_idx, COUNT(*) calls, COALESCE(SUM(total_tokens),0) tok, "
+            "COALESCE(SUM(ok=0),0) errs FROM gemini_usage GROUP BY key_idx ORDER BY key_idx").fetchall()
+        per_purpose = c.execute(
+            "SELECT purpose, COUNT(*) calls, COALESCE(SUM(total_tokens),0) tok "
+            "FROM gemini_usage GROUP BY purpose ORDER BY tok DESC").fetchall()
+        rows = c.execute("SELECT id, ts, model, purpose, key_idx, prompt_tokens, "
+                         "output_tokens, total_tokens, ok, error FROM gemini_usage "
+                         "ORDER BY id DESC LIMIT ?", (recent,)).fetchall()
+    return {
+        "total": {"calls": tot["calls"], "tokens": tot["tok"], "errors": tot["errs"]},
+        "today": {"calls": td["calls"], "tokens": td["tok"]},
+        "per_model": [dict(r) for r in per_model],
+        "per_key": [dict(r) for r in per_key],
+        "per_purpose": [dict(r) for r in per_purpose],
+        "recent": [dict(r) for r in rows],
+    }
 
 
 def migrate_jsonl(path: Path) -> int:

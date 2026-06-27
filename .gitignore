@@ -11,3 +11,6 @@ logs/
 state.json
 .venv/
 venv/
+# frontend (node_modules besar & cache; dist di-commit agar dashboard jalan tanpa Node)
+web/node_modules/
+web/.vite/

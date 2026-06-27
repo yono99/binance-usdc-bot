@@ -30,6 +30,11 @@ class Exchange:
             log.info("Exchange: DRY — data publik nyata, order disimulasi")
         self.markets = self.client.load_markets()
 
+    def usdc_symbols(self) -> list[str]:
+        """Semua pair USDC-M perpetual yang tersedia (untuk mode 'screening semua')."""
+        return sorted(s for s, v in self.markets.items()
+                      if v.get("settle") == "USDC" and v.get("swap"))
+
     # ---------- data publik (tidak butuh key) ----------
     def ohlcv(self, symbol: str, timeframe: str, limit: int = 200) -> pd.DataFrame:
         raw = self.client.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
