@@ -63,6 +63,19 @@ termasuk fee+slippage, tanpa lookahead). `exp_R > 0` = ada edge.
 > `config.yaml` adalah titik awal, bukan strategi jadi. Jangan jalankan `live`
 > sampai backtest (idealnya walk-forward) menunjukkan expectancy positif yang stabil.
 
+### Sweep + walk-forward (anti-overfit)
+
+```bash
+python optimize.py --symbols "BTC/USDC:USDC" --bars 5000 --train 1000 --test 300
+```
+
+Memilih parameter terbaik di data **train**, lalu mengujinya di data **test**
+yang belum dilihat, lalu menggeser jendela maju. Verdict = expectancy **OOS**.
+
+> Temuan saat ini: in-sample selalu positif tapi **OOS ≈ −0.21R** → klasik
+> **overfitting**. Pelajaran: edge harus datang dari *fitur sinyal yang benar*,
+> bukan dari tuning angka. Inilah pengaman utama sebelum membuang uang live.
+
 ## Konfigurasi (`config.yaml`)
 
 Semua strategi & batas risiko ada di sini — tidak ada angka ajaib di kode.
@@ -119,9 +132,10 @@ python -m svc.run
 - [x] Mono Python 7-layer (dry/test/live)
 - [x] Rust core hot-path (ingest/normalize/risk/exec) + ZeroMQ IPC — **build + `cargo test` 8/8**
 - [x] Jembatan Python `svc/` (SUB candle/event, PUSH intent)
-- [x] Unit test: Python **20** (`pytest`) + Rust **8** (`cargo test`)
+- [x] Unit test: Python **23** (`pytest`) + Rust **8** (`cargo test`)
 - [x] Backtester expectancy (R-multiple, fee+slippage, tanpa lookahead) — `backtest.py`
-- [ ] Tuning/walk-forward params (default belum punya edge — lihat di bawah)
+- [x] Sweep + walk-forward (anti-overfit, verdict OOS) — `optimize.py`
+- [ ] **Perbaikan fitur sinyal** (tuning terbukti tak cukup — IS positif, OOS negatif)
 - [ ] Close/exit event dari core → svc (slot release otomatis di mode polyglot)
 - [ ] User-data stream (fill realtime) + trailing stop sisi exchange
 - [ ] Dashboard PnL + notifikasi Telegram
