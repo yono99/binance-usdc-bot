@@ -298,7 +298,12 @@ PAGE = """<!doctype html>
   <div class="panel"><h2>Status Bot</h2><div id="botstatus" class="line"></div></div>
   <div class="panel"><h2>Aktivitas per Pair — screening & sinyal</h2><div id="pairs"></div></div>
   <div class="panel"><h2>Chart Harga per Pair</h2>
-    <select id="chartsym" style="margin-bottom:10px"></select>
+    <div style="margin-bottom:10px;display:flex;gap:8px">
+      <select id="chartsym"></select>
+      <select id="charttf">
+        <option>5m</option><option selected>15m</option><option>1h</option><option>4h</option>
+      </select>
+    </div>
     <canvas id="px" height="90"></canvas></div>
   <div class="cards" id="cards"></div>
   <div class="panel"><h2>Kurva Equity</h2><canvas id="eq" height="90"></canvas></div>
@@ -383,7 +388,8 @@ async function loadSettings(){
 let pxChart;
 async function loadChart(){
   const sym=document.getElementById('chartsym').value; if(!sym)return;
-  const d=await (await fetch('/api/ohlcv?symbol='+encodeURIComponent(sym)+'&tf=15m&limit=120')).json();
+  const tf=document.getElementById('charttf').value||'15m';
+  const d=await (await fetch('/api/ohlcv?symbol='+encodeURIComponent(sym)+'&tf='+tf+'&limit=120')).json();
   if(!d.bars||!d.bars.length)return;
   const ds=[{label:sym,type:'candlestick',data:d.bars,
              color:{up:'#22c55e',down:'#ef4444',unchanged:'#94a3b8'},
@@ -397,12 +403,13 @@ async function loadChart(){
     ds.push(hl(p.entry,'#94a3b8',[4,3]),hl(p.sl,'#ef4444'),hl(p.tp,'#22c55e'),hl(p.liq,'#b91c1c',[2,2]));
   }
   const opts={plugins:{legend:{display:false},tooltip:{enabled:true}},
-    scales:{x:{type:'time',time:{unit:'hour'},grid:{display:false},ticks:{color:'#8aa0c0',maxRotation:0}},
+    scales:{x:{type:'time',grid:{display:false},ticks:{color:'#8aa0c0',maxRotation:0}},
             y:{grid:{color:'#243049'},ticks:{color:'#8aa0c0'}}}};
   if(pxChart){pxChart.data.datasets=ds;pxChart.update();}
   else pxChart=new Chart(document.getElementById('px'),{type:'candlestick',data:{datasets:ds},options:opts});
 }
 document.getElementById('chartsym').addEventListener('change',loadChart);
+document.getElementById('charttf').addEventListener('change',loadChart);
 document.getElementById('vbtn').addEventListener('click',async()=>{
   const body={key:document.getElementById('vkey').value.trim(),secret:document.getElementById('vsecret').value.trim()};
   const el=document.getElementById('vres'); el.textContent='memvalidasi…';
