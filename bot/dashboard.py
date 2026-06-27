@@ -156,6 +156,56 @@ def api_account() -> JSONResponse:
     return JSONResponse(data)
 
 
+_ex_cache: dict = {"ex": None}
+_ohlcv_cache: dict = {}
+
+
+def _get_ex():
+    if _ex_cache["ex"] is None:
+        from .config import load_settings
+        from .exchange import Exchange
+        _ex_cache["ex"] = Exchange(load_settings())
+    return _ex_cache["ex"]
+
+
+@app.get("/api/ohlcv")
+def api_ohlcv(symbol: str, tf: str = "15m", limit: int = 120) -> JSONResponse:
+    import time
+    ck = (symbol, tf, limit)
+    c = _ohlcv_cache.get(ck)
+    if c and time.time() - c[0] < 30:
+        return JSONResponse(c[1])
+    try:
+        df = _get_ex().ohlcv(symbol, tf, limit=limit)
+        data = {"symbol": symbol, "tf": tf,
+                "t": [i.isoformat() for i in df.index],
+                "close": [float(x) for x in df["close"]]}
+        _ohlcv_cache[ck] = (time.time(), data)
+        return JSONResponse(data)
+    except Exception as e:  # boundary
+        return JSONResponse({"symbol": symbol, "error": str(e)[:140], "t": [], "close": []})
+
+
+@app.post("/api/validate-key")
+def api_validate_key(payload: dict) -> JSONResponse:
+    """Validasi key/secret (transien — TIDAK disimpan/di-log). Kosong = pakai .env live."""
+    import os
+    key = (payload.get("key") or os.getenv("BINANCE_LIVE_KEY", "")).strip()
+    secret = (payload.get("secret") or os.getenv("BINANCE_LIVE_SECRET", "")).strip()
+    if not key or not secret:
+        return JSONResponse({"valid": False, "error": "key/secret kosong (isi form atau .env)"})
+    try:
+        import ccxt
+        c = ccxt.binanceusdm({"apiKey": key, "secret": secret, "enableRateLimit": True,
+                              "options": {"defaultType": "future"}})
+        bal = c.fetch_balance()
+        total = bal.get("total", {})
+        usdc = float(total.get("USDC") or total.get("USDT") or 0)
+        return JSONResponse({"valid": True, "balance_usdc": round(usdc, 2)})
+    except Exception as e:  # boundary
+        return JSONResponse({"valid": False, "error": str(e)[:160]})
+
+
 @app.post("/api/settings")
 def api_set_settings(payload: dict) -> JSONResponse:
     known = set(RuntimeSettings().__dict__)
@@ -233,9 +283,19 @@ PAGE = """<!doctype html>
     <button id="save">Simpan pengaturan</button>
     <span id="saved" class="sub"></span>
   </div>
-  <div class="panel"><h2>Akun / API</h2><div id="acct" class="line"></div></div>
+  <div class="panel"><h2>Akun / API</h2>
+    <div id="acct" class="line"></div>
+    <div class="grid" style="margin-top:10px">
+      <label>API Key (validasi)<input id="vkey" placeholder="kosong = pakai .env live"></label>
+      <label>API Secret<input id="vsecret" type="password" placeholder="kosong = pakai .env live"></label>
+    </div>
+    <button id="vbtn">Validasi API Key</button> <span id="vres" class="sub"></span>
+  </div>
   <div class="panel"><h2>Status Bot</h2><div id="botstatus" class="line"></div></div>
   <div class="panel"><h2>Aktivitas per Pair — screening & sinyal</h2><div id="pairs"></div></div>
+  <div class="panel"><h2>Chart Harga per Pair</h2>
+    <select id="chartsym" style="margin-bottom:10px"></select>
+    <canvas id="px" height="90"></canvas></div>
   <div class="cards" id="cards"></div>
   <div class="panel"><h2>Kurva Equity</h2><canvas id="eq" height="90"></canvas></div>
   <div class="panel"><h2>Posisi Terbuka</h2><div id="open"></div></div>
@@ -312,7 +372,41 @@ async function loadSettings(){
   document.getElementById('target_profit_pct').value=s.target_profit_pct;
   document.getElementById('tf').value=s.timeframe;
   riskWarn(s.leverage, s.liq_pct);
+  const csel=document.getElementById('chartsym');
+  if(!csel.options.length && s.symbols && s.symbols.length)
+    csel.innerHTML=s.symbols.map(x=>`<option>${x}</option>`).join('');
 }
+let pxChart;
+async function loadChart(){
+  const sym=document.getElementById('chartsym').value; if(!sym)return;
+  const d=await (await fetch('/api/ohlcv?symbol='+encodeURIComponent(sym)+'&tf=15m&limit=120')).json();
+  if(!d.close||!d.close.length)return;
+  const labels=d.t.map(x=>x.slice(11,16));
+  const flat=v=>d.close.map(()=>v);
+  const ds=[{label:'harga',data:d.close,borderColor:'#6366f1',backgroundColor:'rgba(99,102,241,.1)',
+             fill:true,tension:.2,pointRadius:0,borderWidth:2}];
+  const st=window.lastStatus;
+  const sm=st&&st.symbols&&st.symbols.find(x=>x.symbol===sym&&x.in_position);
+  if(sm&&sm.position){const p=sm.position;
+    ds.push({label:'entry',data:flat(p.entry),borderColor:'#94a3b8',borderWidth:1,pointRadius:0,borderDash:[4,3]});
+    ds.push({label:'SL',data:flat(p.sl),borderColor:'#ef4444',borderWidth:1,pointRadius:0});
+    ds.push({label:'TP',data:flat(p.tp),borderColor:'#22c55e',borderWidth:1,pointRadius:0});
+    ds.push({label:'LIQ',data:flat(p.liq),borderColor:'#b91c1c',borderWidth:1.5,pointRadius:0,borderDash:[2,2]});
+  }
+  if(pxChart){pxChart.data.labels=labels;pxChart.data.datasets=ds;pxChart.update();}
+  else pxChart=new Chart(document.getElementById('px'),{type:'line',data:{labels,datasets:ds},
+    options:{plugins:{legend:{display:true,labels:{color:'#8aa0c0',boxWidth:10,font:{size:10}}}},
+      scales:{x:{display:false},y:{grid:{color:'#243049'},ticks:{color:'#8aa0c0'}}}}});
+}
+document.getElementById('chartsym').addEventListener('change',loadChart);
+document.getElementById('vbtn').addEventListener('click',async()=>{
+  const body={key:document.getElementById('vkey').value.trim(),secret:document.getElementById('vsecret').value.trim()};
+  const el=document.getElementById('vres'); el.textContent='memvalidasi…';
+  try{
+    const r=await (await fetch('/api/validate-key',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+    el.innerHTML=r.valid?`<span class="pos">VALID — saldo $${f(r.balance_usdc,2)}</span>`:`<span class="neg">INVALID: ${r.error||'gagal'}</span>`;
+  }catch(e){el.innerHTML='<span class="neg">error koneksi</span>';}
+});
 document.getElementById('leverage').addEventListener('input',e=>{
   const lev=+e.target.value||1; riskWarn(lev, (Math.max(1/lev-0.005,0.0005)*100).toFixed(3));
 });
@@ -335,6 +429,7 @@ document.getElementById('save').addEventListener('click',async()=>{
 async function loadStatus(){
   const a=await (await fetch('/api/account')).json();
   const s=await (await fetch('/api/status')).json();
+  window.lastStatus=s;
   const api=a.api_valid===true?'<span class="pos">VALID</span>':(a.api_valid===false?'<span class="neg">INVALID</span>':'paper (tanpa key)');
   let bal=a.balance_usdc!=null?('$'+f(a.balance_usdc,2)):(s.balance_usd!=null?('$'+f(s.balance_usd,2)+' <span class="sub">paper</span>'):'—');
   document.getElementById('acct').innerHTML=
@@ -361,6 +456,6 @@ async function loadStatus(){
     s.symbols||[]);
 }
 loadSettings();
-function refresh(){load();loadStatus();}
+function refresh(){load();loadStatus();loadChart();}
 refresh();setInterval(refresh,10000);
 </script></body></html>"""
