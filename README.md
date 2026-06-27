@@ -49,6 +49,20 @@ python run.py               # loop penuh (simulasi)
 
 ---
 
+## Backtest dulu (wajib sebelum live)
+
+```bash
+python backtest.py --symbols "BTC/USDC:USDC" --bars 3000 --tf 15m
+python backtest.py --bars 5000 --csv trades.csv     # semua whitelist + dump
+```
+
+Metrik kunci = **`exp_R`** (expectancy per trade dalam kelipatan risiko, sudah
+termasuk fee+slippage, tanpa lookahead). `exp_R > 0` = ada edge.
+
+> Status default saat ini: **`exp_R ≈ -0.19` (BELUM ada edge).** Parameter di
+> `config.yaml` adalah titik awal, bukan strategi jadi. Jangan jalankan `live`
+> sampai backtest (idealnya walk-forward) menunjukkan expectancy positif yang stabil.
+
 ## Konfigurasi (`config.yaml`)
 
 Semua strategi & batas risiko ada di sini — tidak ada angka ajaib di kode.
@@ -105,9 +119,10 @@ python -m svc.run
 - [x] Mono Python 7-layer (dry/test/live)
 - [x] Rust core hot-path (ingest/normalize/risk/exec) + ZeroMQ IPC — **build + `cargo test` 8/8**
 - [x] Jembatan Python `svc/` (SUB candle/event, PUSH intent)
-- [x] Unit test: Python **14** (`pytest`) + Rust **8** (`cargo test`)
+- [x] Unit test: Python **20** (`pytest`) + Rust **8** (`cargo test`)
+- [x] Backtester expectancy (R-multiple, fee+slippage, tanpa lookahead) — `backtest.py`
+- [ ] Tuning/walk-forward params (default belum punya edge — lihat di bawah)
 - [ ] Close/exit event dari core → svc (slot release otomatis di mode polyglot)
-- [ ] Backtester di data historis (validasi expectancy sebelum live)
 - [ ] User-data stream (fill realtime) + trailing stop sisi exchange
 - [ ] Dashboard PnL + notifikasi Telegram
 - [ ] Walk-forward parameter tuning
