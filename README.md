@@ -54,6 +54,28 @@ python run.py               # loop penuh (simulasi)
 
 ---
 
+## Cheatsheet — komponen & perintah
+
+| Perintah | Fungsi |
+|---|---|
+| `python run.py` | Engine mono Python (riset cepat, strategi v1) |
+| `python backtest.py --bars 1500` | Backtest expectancy (R, fee+slippage, no-lookahead) |
+| `python optimize.py --strategy v4 --bars 3500` | Sweep + walk-forward (verdict OOS) |
+| `python forwardtest.py --poll 30 --use-store` | Forward-test paper di data live (diatur dari UI) |
+| `python dashboard.py` | Dashboard web + panel kontrol → `http://127.0.0.1:8000` |
+| `python l2collect.py` | Collector orderbook L2 (data forward microstructure) |
+| `pytest -q` | 59 unit test Python |
+| `cd core && cargo test` | 8 unit test Rust (hot-path) |
+| `docker compose up -d --build` | Deploy bot + collector + dashboard 24/7 |
+
+**Dokumentasi:** [METHODOLOGY.md](METHODOLOGY.md) (asumsi/batasan/temuan) ·
+[DEPLOY.md](DEPLOY.md) (Proxmox/Debian) · `core/README.md` (Rust core).
+
+**Gemini (opsional):** isi `GEMINI_API_KEYS` + `GEMINI_ENABLED=true` di `.env` →
+mengaktifkan regime veto & news veto (`config.yaml: gemini.news_veto`). Tanpa key → non-aktif (allow).
+
+---
+
 ## Backtest dulu (wajib sebelum live)
 
 ```bash
