@@ -69,18 +69,20 @@ class ForwardTester:
         self.notify = TelegramNotifier()
         self.rs: RuntimeSettings | None = None
         self.balance_usd = 0.0
+        self._last_cfg_balance = 0.0   # untuk deteksi saat user mengubah saldo dari UI
         if self.use_store:
             self.rs = load_settings()
             self.symbols = self.rs.symbols
             self.params = self.rs.params()
             self.tf = self.rs.timeframe()
             self.balance_usd = self.rs.balance_usd
+            self._last_cfg_balance = self.rs.balance_usd
+            self._restore_state()           # pulihkan saldo+posisi hidup dari SQLite (tahan-restart)
         else:
             self.tf = self.cfg["market"]["timeframe"]
         self.bt.sl_mult = self.params["sl_atr_mult"]
         self.bt.tp_mult = self.params["tp_atr_mult"]
         self.sig_cache: dict = {}                 # sinyal terakhir per simbol (utk status UI)
-        self.status_path = LOG_DIR / "status.json"
 
     def seed(self) -> None:
         for sym in self.symbols:
@@ -191,8 +193,43 @@ class ForwardTester:
         self.params = rs.params()
         self.bt.sl_mult = rs.params()["sl_atr_mult"]
         self.bt.tp_mult = rs.params()["tp_atr_mult"]
+        self.max_open = rs.max_open_positions   # hot-reload dari UI
+        # Jika user mengubah Saldo dari UI -> terapkan ke saldo hidup (tanpa restart).
+        # PnL biasa tidak menyentuh _last_cfg_balance, jadi tak terdeteksi sebagai edit.
+        if abs(rs.balance_usd - self._last_cfg_balance) > 1e-9:
+            self.balance_usd = rs.balance_usd
+            log.info(f"Saldo diubah dari UI -> ${self.balance_usd:.2f}")
+        self._last_cfg_balance = rs.balance_usd
         self.rs = rs
         return rs
+
+    # ---------- state hidup (saldo + posisi) durable di SQLite ----------
+
+    def _restore_state(self) -> None:
+        try:
+            from .store import get_kv
+            st = get_kv("botstate")
+        except Exception as e:  # boundary
+            log.warning(f"restore state gagal: {e}")
+            return
+        if not st:
+            return
+        # hanya pulihkan bila konfigurasi saldo tak diubah user sejak terakhir simpan
+        if abs(st.get("cfg_balance", self._last_cfg_balance) - self._last_cfg_balance) < 1e-9:
+            self.balance_usd = float(st.get("balance", self.balance_usd))
+        self.open = st.get("open", {}) or {}
+        if self.open:
+            log.info(f"State dipulihkan dari SQLite: saldo ${self.balance_usd:.2f}, "
+                     f"{len(self.open)} posisi terbuka")
+
+    def _persist_state(self) -> None:
+        try:
+            from .store import set_kv
+            set_kv("botstate", {"balance": round(self.balance_usd, 6),
+                                "open": self.open,
+                                "cfg_balance": self._last_cfg_balance})
+        except Exception as e:  # boundary
+            log.warning(f"persist state gagal: {e}")
 
     def _open_usd(self, sym: str, side: int, atr: float, rs: RuntimeSettings) -> None:
         if self.balance_usd < rs.bet_usd:
@@ -339,6 +376,7 @@ class ForwardTester:
                     self._open_usd(sym, side, atr, rs)
                     c["blocked"] = "→ posisi dibuka"
         self._write_status(rs, news_veto, note)
+        self._persist_state()        # saldo+posisi durable -> tahan restart
 
     def _write_status(self, rs, news_active: bool, news_note: str) -> None:
         syms = []
@@ -366,11 +404,13 @@ class ForwardTester:
             "balance_usd": round(self.balance_usd, 2),
             "open_count": len(self.open),
             "max_open": self.max_open,
+            "poll_seconds": rs.poll_seconds,
             "news_veto": {"active": news_active, "note": news_note},
             "symbols": syms,
         }
         try:
-            self.status_path.write_text(_json.dumps(status), encoding="utf-8")
+            from .store import set_kv
+            set_kv("status", status)
         except Exception as e:  # boundary
             log.warning(f"tulis status gagal: {e}")
 
@@ -390,4 +430,6 @@ class ForwardTester:
                 break
             except Exception as e:  # boundary — loop tak boleh mati
                 log.error(f"cycle error: {e}")
-            time.sleep(poll_s)
+            # interval screening hot-reload dari UI bila pakai store
+            sleep_s = self.rs.poll_seconds if (self.use_store and self.rs) else poll_s
+            time.sleep(sleep_s)

@@ -1,4 +1,4 @@
-"""Pengaturan runtime yang bisa diubah dari UI web (disimpan ke runtime.json).
+"""Pengaturan runtime yang bisa diubah dari UI web (disimpan di SQLite, key 'runtime').
 
 UI menulis, bot membaca tiap siklus (hot-reload). Termasuk leverage, bet, teknik
 (scalping/swing/auto = smart autopilot), dan target profit. Semua di-clamp & divalidasi.
@@ -9,9 +9,11 @@ import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from . import store
+
 ROOT = Path(__file__).resolve().parent.parent
-# di folder logs/ agar bisa dibagi antar-kontainer (bot baca, dashboard tulis)
-STORE = ROOT / "logs" / "runtime.json"
+# file lama — hanya dipakai untuk migrasi sekali ke SQLite
+LEGACY_STORE = ROOT / "logs" / "runtime.json"
 
 # Preset teknik → timeframe + parameter strategi v4.
 PRESETS: dict[str, dict] = {
@@ -39,6 +41,8 @@ class RuntimeSettings:
     bet_usd: float = 12.0                       # margin per posisi
     balance_usd: float = 12.0                   # saldo akun (paper)
     target_profit_pct: float = 0.0              # 0 = pakai TP dari ATR; >0 = TP = entry×(1+ini%)
+    max_open_positions: int = 2                 # slot posisi paralel maksimum
+    poll_seconds: int = 30                      # interval screening/siklus (detik)
 
     def clamp(self) -> "RuntimeSettings":
         self.technique = self.technique if self.technique in PRESETS else "auto"
@@ -46,6 +50,8 @@ class RuntimeSettings:
         self.bet_usd = max(0.1, float(self.bet_usd))
         self.balance_usd = max(0.0, float(self.balance_usd))
         self.target_profit_pct = max(0.0, float(self.target_profit_pct))
+        self.max_open_positions = int(max(1, min(20, self.max_open_positions)))
+        self.poll_seconds = int(max(5, min(3600, self.poll_seconds)))
         if not self.symbols:
             self.symbols = ["BTC/USDC:USDC"]
         return self
@@ -70,17 +76,25 @@ def liquidation_price(entry: float, is_long: bool, frac: float) -> float:
     return entry * (1 - frac) if is_long else entry * (1 + frac)
 
 
+def _from_dict(data: dict) -> RuntimeSettings:
+    known = {f for f in RuntimeSettings().__dict__}
+    return RuntimeSettings(**{k: v for k, v in data.items() if k in known}).clamp()
+
+
 def load_settings() -> RuntimeSettings:
-    if not STORE.exists():
-        return RuntimeSettings()
     try:
-        data = json.loads(STORE.read_text(encoding="utf-8"))
-        known = {f for f in RuntimeSettings().__dict__}
-        return RuntimeSettings(**{k: v for k, v in data.items() if k in known}).clamp()
+        data = store.get_kv("runtime")
+        if data is None:
+            # migrasi sekali dari runtime.json lama bila ada
+            if LEGACY_STORE.exists():
+                data = json.loads(LEGACY_STORE.read_text(encoding="utf-8"))
+                store.set_kv("runtime", asdict(_from_dict(data)))
+            else:
+                return RuntimeSettings()
+        return _from_dict(data)
     except Exception:
         return RuntimeSettings()
 
 
 def save_settings(s: RuntimeSettings) -> None:
-    STORE.parent.mkdir(parents=True, exist_ok=True)
-    STORE.write_text(json.dumps(asdict(s.clamp()), indent=2), encoding="utf-8")
+    store.set_kv("runtime", asdict(s.clamp()))

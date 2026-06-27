@@ -18,10 +18,10 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 
 from .settings_store import PRESETS, RuntimeSettings, load_settings, save_settings
+from . import store
 
 ROOT = Path(__file__).resolve().parent.parent
 JOURNAL = ROOT / "logs" / "trades.jsonl"
-STATUS = ROOT / "logs" / "status.json"
 CLOSE_REQ = ROOT / "logs" / "close_requests.json"
 
 
@@ -42,7 +42,7 @@ def read_events(path: Path) -> list[dict]:
 
 
 def compute_stats(path: Path | None = None, start_equity: float = 1000.0) -> dict:
-    events = read_events(path or JOURNAL)
+    events = read_events(path) if path else store.all_events()
     opens = {}
     closes = []
     for e in events:
@@ -114,7 +114,7 @@ def build_trades(events: list[dict]) -> list[dict]:
         elif ev == "forward_close":
             o = open_map.pop(e["symbol"], {})
             trades.append({
-                "symbol": e.get("symbol"), "side": o.get("side"),
+                "id": e.get("id"), "symbol": e.get("symbol"), "side": o.get("side"),
                 "entry": o.get("entry"), "exit": e.get("exit"),
                 "sl": o.get("sl"), "tp": o.get("tp"), "liq": o.get("liq"),
                 "lev": o.get("lev"), "bet": o.get("bet"),
@@ -151,14 +151,14 @@ app = FastAPI(title="Bot Monitor")
 @app.get("/api/trades")
 def api_trades(symbol: str = None, reason: str = None, dfrom: str = None,
                dto: str = None, limit: int = 500) -> JSONResponse:
-    trades = filter_trades(build_trades(read_events(JOURNAL)), symbol, reason, dfrom, dto)
+    trades = filter_trades(build_trades(store.all_events()), symbol, reason, dfrom, dto)
     return JSONResponse({"count": len(trades), "trades": trades[-limit:][::-1]})
 
 
 @app.get("/api/trades.csv")
 def api_trades_csv(symbol: str = None, reason: str = None, dfrom: str = None,
                    dto: str = None) -> PlainTextResponse:
-    trades = filter_trades(build_trades(read_events(JOURNAL)), symbol, reason, dfrom, dto)
+    trades = filter_trades(build_trades(store.all_events()), symbol, reason, dfrom, dto)
     buf = io.StringIO()
     w = csvmod.writer(buf)
     w.writerow(_TRADE_COLS)
@@ -185,12 +185,7 @@ def api_get_settings() -> JSONResponse:
 
 @app.get("/api/status")
 def api_bot_status() -> JSONResponse:
-    if not STATUS.exists():
-        return JSONResponse({})
-    try:
-        return JSONResponse(json.loads(STATUS.read_text(encoding="utf-8")))
-    except Exception:
-        return JSONResponse({})
+    return JSONResponse(store.get_kv("status") or {})
 
 
 _acct = {"ts": 0.0, "data": None}
@@ -315,6 +310,19 @@ def api_close_all() -> JSONResponse:
     return JSONResponse({"ok": True})
 
 
+@app.delete("/api/trades/{trade_id}")
+def api_delete_trade(trade_id: int) -> JSONResponse:
+    """Hapus satu trade dari riwayat (event close + open pasangannya)."""
+    removed = store.delete_trade(trade_id)
+    return JSONResponse({"ok": removed > 0, "removed": removed})
+
+
+@app.post("/api/trades/clear")
+def api_clear_trades() -> JSONResponse:
+    """Kosongkan seluruh riwayat trade."""
+    return JSONResponse({"ok": True, "removed": store.clear_events()})
+
+
 @app.post("/api/settings")
 def api_set_settings(payload: dict) -> JSONResponse:
     known = set(RuntimeSettings().__dict__)
@@ -369,6 +377,8 @@ PAGE = """<!doctype html>
   input,select{background:#0b1220;border:1px solid var(--bd);color:var(--fg);border-radius:8px;padding:8px;font-size:14px}
   button{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:9px 16px;font-weight:600;cursor:pointer}
   button:hover{opacity:.9}
+  button.del{background:transparent;color:#fca5a5;padding:2px 7px;font-size:13px;border-radius:6px}
+  button.del:hover{background:rgba(239,68,68,.15)}
   .danger{background:rgba(239,68,68,.12);border:1px solid var(--red);color:#fca5a5;padding:10px 12px;border-radius:8px;margin-bottom:12px;font-size:13px}
   .ok{background:rgba(34,197,94,.1);border:1px solid var(--green);color:#86efac;padding:10px 12px;border-radius:8px;margin-bottom:12px;font-size:13px}
   .line{font-size:14px;line-height:1.9}.line b{color:var(--fg)}
@@ -391,6 +401,8 @@ PAGE = """<!doctype html>
       <label>Bet / margin (USD)<input id="bet_usd" type="number" min="0.1" step="0.1"></label>
       <label>Saldo (USD)<input id="balance_usd" type="number" min="0" step="0.1"></label>
       <label>Target profit % (0=ATR)<input id="target_profit_pct" type="number" min="0" step="0.1"></label>
+      <label>Max posisi terbuka<input id="max_open_positions" type="number" min="1" max="20" step="1"></label>
+      <label>Interval screening (dtk)<input id="poll_seconds" type="number" min="5" max="3600" step="1"></label>
       <label>Timeframe (otomatis)<input id="tf" disabled></label>
     </div>
     <button id="save">Simpan pengaturan</button>
@@ -432,7 +444,7 @@ PAGE = """<!doctype html>
       <label>Dari<input id="ffrom" type="date"></label>
       <label>Sampai<input id="fto" type="date"></label>
     </div>
-    <button id="fbtn">Filter</button> <span id="tcount" class="sub"></span>
+    <button id="fbtn">Filter</button> <button id="clrhist" class="danger">Hapus semua</button> <span id="tcount" class="sub"></span>
     <div id="thist" style="margin-top:10px"></div>
   </div>
 </div>
@@ -504,6 +516,8 @@ async function loadSettings(){
   document.getElementById('bet_usd').value=s.bet_usd;
   document.getElementById('balance_usd').value=s.balance_usd;
   document.getElementById('target_profit_pct').value=s.target_profit_pct;
+  document.getElementById('max_open_positions').value=s.max_open_positions;
+  document.getElementById('poll_seconds').value=s.poll_seconds;
   document.getElementById('tf').value=s.timeframe;
   riskWarn(s.leverage, s.liq_pct);
   const csel=document.getElementById('chartsym');
@@ -590,8 +604,11 @@ document.getElementById('save').addEventListener('click',async()=>{
     bet_usd:+document.getElementById('bet_usd').value,
     balance_usd:+document.getElementById('balance_usd').value,
     target_profit_pct:+document.getElementById('target_profit_pct').value,
+    max_open_positions:+document.getElementById('max_open_positions').value,
+    poll_seconds:+document.getElementById('poll_seconds').value,
   };
   const s=await (await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+  window.pendingBal=s.balance_usd;   // tahan tampilan saldo sampai bot menerapkan
   document.getElementById('tf').value=s.timeframe;
   riskWarn(s.leverage, s.liq_pct);
   const el=document.getElementById('saved'); el.textContent=' tersimpan ✓ (bot menerapkan tiap siklus)';
@@ -601,6 +618,11 @@ async function loadStatus(){
   const a=await (await fetch('/api/account')).json();
   const s=await (await fetch('/api/status')).json();
   window.lastStatus=s;
+  // form Saldo = saldo hidup (termasuk PnL); jangan timpa saat user mengetik
+  // atau saat masih menunggu bot menerapkan nilai yang baru disimpan (pendingBal).
+  const balEl=document.getElementById('balance_usd');
+  if(window.pendingBal!=null && Math.abs((s.balance_usd??0)-window.pendingBal)<1e-9) window.pendingBal=null;
+  if(s.balance_usd!=null && document.activeElement!==balEl && window.pendingBal==null) balEl.value=s.balance_usd;
   const api=a.api_valid===true?'<span class="pos">VALID</span>':(a.api_valid===false?'<span class="neg">INVALID</span>':'paper (tanpa key)');
   let bal=a.balance_usdc!=null?('$'+f(a.balance_usdc,2)):(s.balance_usd!=null?('$'+f(s.balance_usd,2)+' <span class="sub">paper</span>'):'—');
   document.getElementById('acct').innerHTML=
@@ -649,10 +671,22 @@ async function loadTrades(){
      {t:'PnL$',f:r=>r.pnl_usd!=null?((r.pnl_usd>=0?'+':'')+f(r.pnl_usd,2)):'—',cls:r=>r.pnl_usd!=null?(r.pnl_usd>=0?'pos':'neg'):''},
      {t:'Entry',f:r=>r.entry!=null?f(r.entry,4):'—'},
      {t:'Exit',f:r=>r.exit!=null?f(r.exit,4):'—'},
-     {t:'Equity',f:r=>r.equity!=null?f(r.equity,2):'—'}],
+     {t:'Equity',f:r=>r.equity!=null?f(r.equity,2):'—'},
+     {t:'',f:r=>r.id!=null?`<button class="del" onclick="delTrade(${r.id})" title="Hapus trade ini">✕</button>`:''}],
     d.trades, r=>r.reason==='liq'?'liqrow':'');
 }
+async function delTrade(id){
+  if(!confirm('Hapus trade ini dari riwayat?'))return;
+  await fetch('/api/trades/'+id,{method:'DELETE'});
+  loadTrades();load();
+}
+async function clearTrades(){
+  if(!confirm('Hapus SELURUH riwayat trade? Tidak bisa dibatalkan.'))return;
+  await fetch('/api/trades/clear',{method:'POST'});
+  loadTrades();load();
+}
 document.getElementById('fbtn').addEventListener('click',loadTrades);
+document.getElementById('clrhist').addEventListener('click',clearTrades);
 loadSettings();
 function refresh(){load();loadStatus();loadChart();loadTrades();}
 refresh();setInterval(refresh,10000);

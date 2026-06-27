@@ -33,7 +33,14 @@ log = logging.getLogger("bot")
 
 
 def journal(event: str, payload: dict) -> None:
-    """Tulis satu baris JSON ke logs/trades.jsonl (untuk audit & post-mortem)."""
+    """Catat satu event trade. Dual-write: JSONL (audit/post-mortem, append-only) +
+    SQLite (sumber query/hapus untuk dashboard). Kegagalan SQLite tak boleh menjatuhkan
+    bot — JSONL tetap jadi cadangan."""
     rec = {"ts": datetime.now(timezone.utc).isoformat(), "event": event, **payload}
     with open(LOG_DIR / "trades.jsonl", "a", encoding="utf-8") as f:
         f.write(json.dumps(rec, default=str) + "\n")
+    try:
+        from .store import insert_event
+        insert_event(event, payload, ts=rec["ts"])
+    except Exception as e:  # boundary — jangan ganggu hot-path trading
+        log.warning(f"store insert gagal (JSONL tetap aman): {e}")

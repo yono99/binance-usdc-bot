@@ -4,6 +4,10 @@ __pycache__/
 data/
 logs/
 *.log
+# database SQLite (jangan commit data) — pengaman bila aturan logs/ diubah
+*.db
+*.db-wal
+*.db-shm
 state.json
 .venv/
 venv/

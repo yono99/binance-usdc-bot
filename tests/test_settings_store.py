@@ -44,7 +44,8 @@ def test_default_leverage_is_100x():
 
 
 def test_save_load_roundtrip(tmp_path, monkeypatch):
-    monkeypatch.setattr(ss, "STORE", tmp_path / "runtime.json")
+    import bot.store as store
+    monkeypatch.setattr(store, "DB_PATH", tmp_path / "bot.db")
     ss.save_settings(RuntimeSettings(enabled=True, technique="swing", leverage=20,
                                      bet_usd=12, balance_usd=12, symbols=["ETH/USDC:USDC"]))
     got = ss.load_settings()
