@@ -42,10 +42,10 @@ python run.py --once        # satu tick
 python run.py               # loop penuh (simulasi)
 ```
 
-### Mode test (Binance Futures Testnet)
-1. Daftar & buat API key di https://testnet.binancefuture.com
-2. `.env` → `MODE=test`, isi `BINANCE_TEST_KEY/SECRET`
-3. `python run.py`
+### Paper (forward-test) — pakai `MODE=dry`
+> ⚠️ **Binance Futures Testnet sudah DEPRECATED** (ccxt tak lagi mendukung sandbox futures).
+> `MODE=test` kini otomatis = **paper di data LIVE** (sama dengan `dry`, order disimulasi).
+> Untuk paper/forward-test, gunakan **`MODE=dry`** — tanpa API key, data live nyata.
 
 ### Mode live (uang nyata)
 1. API key Binance: **aktifkan Futures saja**, **matikan withdrawal**, **kunci ke IP server**.

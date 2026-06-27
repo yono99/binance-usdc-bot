@@ -20,8 +20,10 @@ class Exchange:
             "options": {"defaultType": "future"},
         })
         if settings.mode == "test":
-            self.client.set_sandbox_mode(True)
-            log.info("Exchange: TESTNET (uang palsu)")
+            # Binance MENGHAPUS futures testnet; ccxt tak lagi mendukung sandbox futures.
+            # Jadi 'test' kini = PAPER di data LIVE (order disimulasi, tanpa uang nyata).
+            log.warning("Exchange: TEST — Binance futures testnet sudah deprecated. "
+                        "Berjalan sebagai PAPER di data LIVE (order disimulasi).")
         elif settings.mode == "live":
             log.warning("Exchange: LIVE — UANG NYATA")
         else:

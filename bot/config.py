@@ -25,14 +25,13 @@ class Settings:
 
     @property
     def is_dry(self) -> bool:
-        return self.mode == "dry"
+        # 'test' = paper (testnet Binance futures sudah deprecated) → diperlakukan seperti dry
+        return self.mode in ("dry", "test")
 
     def credentials(self) -> tuple[str, str]:
         if self.mode == "live":
             return os.getenv("BINANCE_LIVE_KEY", ""), os.getenv("BINANCE_LIVE_SECRET", "")
-        if self.mode == "test":
-            return os.getenv("BINANCE_TEST_KEY", ""), os.getenv("BINANCE_TEST_SECRET", "")
-        return "", ""
+        return "", ""   # dry & test = paper, tak butuh kredensial
 
     def __getitem__(self, key: str):
         return self.raw[key]

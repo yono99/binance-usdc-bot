@@ -1,4 +1,4 @@
-from bot.config import load_settings
+from bot.config import Settings, load_settings
 from bot.news import NewsVeto, parse_titles
 
 RSS = b"""<?xml version="1.0"?>
@@ -31,7 +31,9 @@ def test_parse_invalid_returns_empty():
 
 
 def test_veto_off_when_disabled():
-    # GEMINI_ENABLED default false di .env.example -> veto non-aktif, selalu allow
-    nv = NewsVeto(load_settings(), load_settings().raw)
+    # paksa Gemini non-aktif (independen dari .env nyata) -> selalu allow
+    raw = load_settings().raw
+    s = Settings(mode="dry", raw=raw, gemini_keys=[], gemini_enabled=False)
+    nv = NewsVeto(s, raw)
     assert nv.enabled is False
     assert nv.check() == (False, "off")
