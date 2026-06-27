@@ -51,6 +51,7 @@ def compute_stats(path: Path | None = None, start_equity: float = 1000.0) -> dic
     rs = [float(e.get("r", 0)) for e in closes]
     n = len(rs)
     wins = [r for r in rs if r > 0]
+    liquidations = sum(1 for e in closes if e.get("reason") == "liq")
     gross_w = sum(wins)
     gross_l = abs(sum(r for r in rs if r <= 0))
 
@@ -80,6 +81,7 @@ def compute_stats(path: Path | None = None, start_equity: float = 1000.0) -> dic
 
     return {
         "trades": n,
+        "liquidations": liquidations,
         "win_rate": round(len(wins) / n * 100, 1) if n else 0.0,
         "expectancy_r": round(sum(rs) / n, 4) if n else 0.0,
         "profit_factor": round(gross_w / gross_l, 2) if gross_l > 0 else (None if gross_w == 0 else float("inf")),
@@ -207,6 +209,7 @@ async function load(){
   const pf=s.profit_factor==null?'—':(s.profit_factor>1e6?'∞':f(s.profit_factor));
   document.getElementById('cards').innerHTML=
     card('Trades',s.trades)+
+    card('Liquidations',s.liquidations||0,(s.liquidations>0?'neg':''))+
     card('Win Rate',f(s.win_rate,1)+'%')+
     card('Expectancy R',(s.expectancy_r>0?'+':'')+f(s.expectancy_r,3),cls(s.expectancy_r))+
     card('Profit Factor',pf)+

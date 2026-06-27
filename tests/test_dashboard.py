@@ -16,16 +16,20 @@ def test_compute_stats_from_journal(tmp_path):
         {"event": "forward_open", "symbol": "ETHUSDC", "side": "short", "entry": 50, "sl": 51, "tp": 47},
         {"event": "forward_close", "symbol": "ETHUSDC", "r": -1.0, "reason": "sl", "equity": 1040,
          "ts": "2026-01-01T01:00:00+00:00"},
+        {"event": "forward_open", "symbol": "SOLUSDC", "side": "long", "entry": 10, "sl": 9, "tp": 12},
+        {"event": "forward_close", "symbol": "SOLUSDC", "r": -1.0, "reason": "liq", "equity": 1028,
+         "ts": "2026-01-01T02:00:00+00:00"},
         {"event": "forward_open", "symbol": "BTCUSDC", "side": "long", "entry": 101, "sl": 99, "tp": 106},
     ])
     s = compute_stats(p, start_equity=1000)
-    assert s["trades"] == 2
-    assert s["win_rate"] == 50.0
-    assert abs(s["expectancy_r"] - 0.25) < 1e-9
-    assert s["profit_factor"] == 1.5            # 1.5 / 1.0
-    assert s["equity"] == 1040
+    assert s["trades"] == 3
+    assert s["liquidations"] == 1
+    assert round(s["win_rate"], 1) == 33.3
+    assert abs(s["expectancy_r"] - (-0.5 / 3)) < 1e-3   # (1.5-1-1)/3, dibulatkan 4 desimal
+    assert s["profit_factor"] == 0.75                   # 1.5 / 2.0
+    assert s["equity"] == 1028
     assert len(s["open_positions"]) == 1 and s["open_positions"][0]["symbol"] == "BTCUSDC"
-    assert len(s["per_symbol"]) == 2
+    assert len(s["per_symbol"]) == 3
     assert s["equity_curve"][0] == 1000
 
 
