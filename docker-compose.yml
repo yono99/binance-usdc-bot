@@ -1,0 +1,39 @@
+# Stack: bot forward-test (menulis jurnal) + dashboard (membacanya).
+# Keduanya pakai image yang sama; berbagi volume logs/.
+#
+#   docker compose up -d --build
+#   docker compose logs -f bot
+#   dashboard: http://<host>:8000
+#
+# Forward-test paper butuh MODE=dry (data live, tanpa API key).
+
+services:
+  bot:
+    build: .
+    image: usdc-bot:latest
+    command: python forwardtest.py --poll 30
+    # forward-test paper hanya butuh MODE=dry (tanpa API key).
+    # Untuk testnet/live nanti: buat .env lalu aktifkan baris env_file di bawah.
+    # env_file: .env
+    environment:
+      MODE: ${MODE:-dry}
+    volumes:
+      - ./logs:/app/logs
+      - ./config.yaml:/app/config.yaml:ro
+    restart: unless-stopped
+
+  dashboard:
+    image: usdc-bot:latest
+    command: python dashboard.py --host 0.0.0.0 --port 8000
+    depends_on:
+      - bot
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./logs:/app/logs:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/api/stats')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

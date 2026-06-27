@@ -95,6 +95,20 @@ python forwardtest.py --symbols "BTC/USDC:USDC" "ETH/USDC:USDC"
 > Catatan: Binance Testnet sering tak punya pair USDC & harganya tak realistis, jadi
 > paper-on-live-data ini lebih sahih untuk menilai edge daripada order di testnet.
 
+## Deploy (Docker) — bot + dashboard 24/7
+
+```bash
+docker compose up -d --build      # jalankan bot (forward-test) + dashboard
+docker compose logs -f bot        # pantau log bot
+# dashboard: http://<host>:8000
+docker compose down               # stop
+```
+
+- Dua service dari satu image; berbagi volume `./logs` (bot menulis jurnal, dashboard membaca).
+- `restart: unless-stopped` → otomatis hidup lagi bila crash/reboot.
+- Default `MODE=dry` (forward-test paper, tanpa API key). Ganti via `MODE=test docker compose up -d`.
+- Cocok untuk VPS kecil mana saja (lihat catatan deploy: hindari serverless untuk proses always-on).
+
 ## Dashboard monitoring (web)
 
 ```bash
@@ -171,6 +185,7 @@ python -m svc.run
 - [x] Strategi v4: + order flow / CVD (taker buy/sell) — `bot/orderflow.py`
 - [x] Forward-test paper di data LIVE (parameter tetap, log R-multiple) — `forwardtest.py`
 - [x] Dashboard web monitoring (FastAPI, auto-refresh) — `dashboard.py`
+- [x] Deploy Docker (bot + dashboard, volume bersama) — `Dockerfile` + `docker-compose.yml`
 - [ ] Jalankan forward-test berhari-hari → simpulkan edge dari sampel forward
 
 ### Lintasan edge (OOS, walk-forward — BTC/ETH/SOL)
