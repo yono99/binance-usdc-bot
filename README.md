@@ -103,8 +103,9 @@ python -m svc.run
 ## Roadmap
 
 - [x] Mono Python 7-layer (dry/test/live)
-- [x] Rust core hot-path (ingest/normalize/risk/exec) + ZeroMQ IPC
+- [x] Rust core hot-path (ingest/normalize/risk/exec) + ZeroMQ IPC — **build + `cargo test` 8/8**
 - [x] Jembatan Python `svc/` (SUB candle/event, PUSH intent)
+- [x] Unit test: Python **14** (`pytest`) + Rust **8** (`cargo test`)
 - [ ] Close/exit event dari core → svc (slot release otomatis di mode polyglot)
 - [ ] Backtester di data historis (validasi expectancy sebelum live)
 - [ ] User-data stream (fill realtime) + trailing stop sisi exchange

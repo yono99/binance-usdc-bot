@@ -16,7 +16,10 @@ def rsi(close: pd.Series, period: int = 14) -> pd.Series:
     avg_gain = gain.ewm(alpha=1 / period, adjust=False).mean()
     avg_loss = loss.ewm(alpha=1 / period, adjust=False).mean()
     rs = avg_gain / avg_loss.replace(0, np.nan)
-    return (100 - 100 / (1 + rs)).fillna(50.0)
+    out = 100 - 100 / (1 + rs)
+    # avg_loss == 0: tak ada penurunan -> 100 (semua gain) atau 50 (datar penuh)
+    no_loss = np.where(avg_gain > 0, 100.0, 50.0)
+    return out.where(avg_loss != 0, other=no_loss).fillna(50.0)
 
 
 def macd(close: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9):

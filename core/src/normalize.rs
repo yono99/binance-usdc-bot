@@ -97,3 +97,49 @@ impl Normalizer {
         closed
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tick(ts: i64, price: f64) -> Tick {
+        Tick {
+            symbol: "BTCUSDC".into(),
+            price,
+            qty: 1.0,
+            ts,
+        }
+    }
+
+    #[test]
+    fn no_candle_within_same_minute() {
+        let mut n = Normalizer::new(1000, 100);
+        assert!(n.push(tick(0, 100.0)).is_none());
+        assert!(n.push(tick(30_000, 105.0)).is_none());
+        assert_eq!(n.last_price("BTCUSDC"), Some(105.0));
+    }
+
+    #[test]
+    fn closes_candle_on_minute_roll_with_ohlc() {
+        let mut n = Normalizer::new(1000, 100);
+        n.push(tick(0, 100.0));
+        n.push(tick(20_000, 110.0));
+        n.push(tick(40_000, 95.0));
+        let c = n.push(tick(60_000, 102.0)).expect("candle harus tertutup");
+        assert_eq!(c.open, 100.0);
+        assert_eq!(c.high, 110.0);
+        assert_eq!(c.low, 95.0);
+        assert_eq!(c.close, 95.0); // close = tick terakhir di bucket 0
+        assert_eq!(c.open_time, 0);
+    }
+
+    #[test]
+    fn ring_buffer_caps_ticks() {
+        let mut n = Normalizer::new(4, 10);
+        for i in 0..10 {
+            n.push(tick(i * 1000, 100.0 + i as f64));
+        }
+        let s = n.state.get("BTCUSDC").unwrap();
+        assert_eq!(s.ticks.len(), 4);
+    }
+}

@@ -27,15 +27,27 @@ Binance WS ──► ingest ──► normalize ──► [PUB market 5556] ─�
 
 ## Build & run
 
-Butuh Rust toolchain (belum terpasang di mesin ini):
-
 ```bash
-# 1. install Rust
-#    Windows: unduh & jalankan https://win.rustup.rs   (atau: winget install Rustlang.Rustup)
-# 2. dari folder core/
 cargo build --release
 cargo run --release          # MODE diambil dari ../.env
+cargo test                   # 8 unit test (risk gate + normalizer)
 ```
+
+### Toolchain di Windows (penting)
+
+Rust default memakai target **MSVC** yang butuh Visual Studio C++ Build Tools.
+Jika tidak ingin memasang VS (besar), pakai jalur **GNU + MinGW-w64** (lebih ringan):
+
+```powershell
+winget install Rustlang.Rustup
+rustup toolchain install stable-x86_64-pc-windows-gnu
+winget install BrechtSanders.WinLibs.POSIX.MSVCRT   # gcc + dlltool + ld
+# dari folder core/ — pin toolchain gnu untuk direktori ini:
+rustup override set stable-x86_64-pc-windows-gnu
+cargo build
+```
+
+> Repo ini sudah diverifikasi build & lulus `cargo test` (8/8) via jalur GNU di Windows.
 
 `MODE=dry` → konsumsi data publik nyata, order disimulasi (tanpa API key).
 `MODE=test` → Binance Futures Testnet. `MODE=live` → uang nyata.
@@ -50,6 +62,6 @@ Sisi Python tinggal `connect` SUB ke 5556/5558 dan PUSH ke 5557 (lihat roadmap r
 
 ## Status
 
-v0.1 scaffold — semua layer hot-path ada & saling tersambung. Belum di-build
-end-to-end (toolchain Rust belum ada saat scaffold). Setelah `cargo build`,
-iterasi kecil pada API crate (zeromq/tungstenite) mungkin diperlukan.
+v0.1 — **build sukses & `cargo test` 8/8 hijau** (jalur GNU di Windows).
+Semua layer hot-path tersambung. Belum dijalankan end-to-end melawan
+Binance live; uji di `dry`/`test` dulu.

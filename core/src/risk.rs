@@ -129,3 +129,76 @@ impl RiskGate {
         self.trades += 1;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{Side, SignalIntent};
+
+    fn params() -> RiskParams {
+        RiskParams {
+            account_risk_pct: 0.5,
+            leverage: 3,
+            max_portfolio_exposure_pct: 30.0,
+            daily_max_loss_pct: 3.0,
+            daily_max_trades: 20,
+            sl_atr_mult: 1.5,
+            tp_atr_mult: 2.6,
+        }
+    }
+
+    fn intent(side: Side) -> SignalIntent {
+        SignalIntent {
+            symbol: "BTCUSDC".into(),
+            side,
+            confidence: 0.7,
+            price: 100.0,
+            atr: 2.0,
+        }
+    }
+
+    #[test]
+    fn sizing_long_places_sl_below_tp_above() {
+        let g = RiskGate::new(params());
+        let d = g.evaluate(&intent(Side::Long), 1000.0, 0.0);
+        assert!(d.ok);
+        assert!(d.qty > 0.0);
+        assert!(d.sl < 100.0 && d.tp > 100.0);
+        // risk per unit = atr*1.5 = 3; budget = 0.5% * 1000 = 5; qty = 5/3
+        assert!((d.qty - (5.0 / 3.0)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn sizing_short_inverts_sl_tp() {
+        let g = RiskGate::new(params());
+        let d = g.evaluate(&intent(Side::Short), 1000.0, 0.0);
+        assert!(d.ok);
+        assert!(d.sl > 100.0 && d.tp < 100.0);
+    }
+
+    #[test]
+    fn exposure_cap_rejects_when_full() {
+        let g = RiskGate::new(params());
+        // open_notional sudah di atas cap (30% * 1000 = 300)
+        let d = g.evaluate(&intent(Side::Long), 1000.0, 300.0);
+        assert!(!d.ok);
+        assert_eq!(d.reason, "exposure cap");
+    }
+
+    #[test]
+    fn breaker_trips_after_daily_loss() {
+        let mut g = RiskGate::new(params());
+        assert!(!g.breaker_tripped(1000.0, 0));
+        g.record_close(-40.0, 0); // > 3% dari 1000
+        assert!(g.breaker_tripped(1000.0, 0));
+    }
+
+    #[test]
+    fn breaker_resets_next_day() {
+        let mut g = RiskGate::new(params());
+        g.record_close(-40.0, 0);
+        assert!(g.breaker_tripped(1000.0, 0));
+        let next_day = 86_400_000; // +1 hari ms
+        assert!(!g.breaker_tripped(1000.0, next_day));
+    }
+}
