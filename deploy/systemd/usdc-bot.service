@@ -1,0 +1,14 @@
+[Unit]
+Description=USDC Bot - forward-test paper (strategi v4, diatur dari UI)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=__DIR__
+ExecStart=__PY__ forwardtest.py --poll 30 --use-store
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

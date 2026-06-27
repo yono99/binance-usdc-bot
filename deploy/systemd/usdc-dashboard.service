@@ -1,0 +1,14 @@
+[Unit]
+Description=USDC Bot - Dashboard web (monitoring + kontrol)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=__DIR__
+ExecStart=__PY__ dashboard.py --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

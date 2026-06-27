@@ -84,3 +84,31 @@ docker compose down               # stop
 
 Auto-start saat boot: Docker service sudah `enabled` by default; `restart: unless-stopped`
 di compose memastikan kedua service hidup lagi setelah reboot Proxmox/CT.
+
+## 7. Auto-start tanpa Docker (systemd) — untuk venv
+
+Kalau jalan langsung dengan venv (bukan Docker), pasang service systemd supaya
+dashboard + bot **auto-start saat boot** dan **restart bila crash**:
+
+```bash
+cd ~/binance-usdc-bot
+sudo bash deploy/systemd/install.sh        # deteksi path & venv otomatis
+```
+
+Ini memasang & mengaktifkan `usdc-dashboard` + `usdc-bot`. Collector L2 opsional:
+```bash
+sudo systemctl enable --now usdc-collector
+```
+
+Operasional:
+```bash
+systemctl status usdc-bot                  # status
+journalctl -u usdc-bot -f                  # log realtime (bot)
+journalctl -u usdc-dashboard -f            # log dashboard
+sudo systemctl restart usdc-bot            # restart
+sudo systemctl disable --now usdc-bot      # matikan + cabut auto-start
+```
+
+> Service membaca repo apa adanya — setelah `git pull`, cukup
+> `sudo systemctl restart usdc-bot usdc-dashboard` untuk menerapkan update.
+> Venv diasumsikan di `./venv`; installer fallback ke `python3` sistem bila tak ada.
