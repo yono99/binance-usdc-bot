@@ -76,6 +76,21 @@ yang belum dilihat, lalu menggeser jendela maju. Verdict = expectancy **OOS**.
 > **overfitting**. Pelajaran: edge harus datang dari *fitur sinyal yang benar*,
 > bukan dari tuning angka. Inilah pengaman utama sebelum membuang uang live.
 
+## News veto (Gemini, real-time)
+
+Veto entry saat ada berita high-impact (FOMC/CPI, regulasi, hack, delisting). Headline
+dari RSS publik (CoinDesk/Cointelegraph, tanpa API key) → Gemini menilai → `{veto, note}`.
+
+```env
+GEMINI_ENABLED=true
+GEMINI_API_KEYS=key1,key2
+```
+Lalu di `config.yaml`: `gemini.news_veto: true`. Aktif di forward-test.
+
+> Jujur: ini **real-time, TIDAK bisa di-backtest** (tak ada histori headline berlabel).
+> Gunanya menambah **keamanan** (hindari trading saat chaos berita), **bukan** bukti edge.
+> Gagal jaringan/Gemini → otomatis *allow* (tak pernah blokir trading karena error infra).
+
 ## Forward-test (paper, data LIVE) — langkah sebelum mempertimbangkan uang
 
 ```bash
@@ -210,6 +225,7 @@ python -m svc.run
 - [x] Dashboard web monitoring (FastAPI, auto-refresh) — `dashboard.py`
 - [x] Deploy Docker (bot + dashboard, volume bersama) — `Dockerfile` + `docker-compose.yml`
 - [x] Panel kontrol UI: teknik (scalping/swing/auto), leverage, bet, target profit + likuidasi
+- [x] News veto via Gemini (real-time, forward-test) — `bot/news.py`
 - [ ] Jalankan forward-test berhari-hari → simpulkan edge dari sampel forward
 
 ### Lintasan edge (OOS, walk-forward — BTC/ETH/SOL)
@@ -220,7 +236,6 @@ python -m svc.run
 | v2 +HTF+regime+sesi | −0.105 | 0.86 | 36 | membaik |
 | v3 +funding+OI | −0.017 | 0.97 | 45 | nyaris impas |
 | **v4 +orderflow/CVD** | **−0.007** | **0.99** | 40 | **impas (mentok)** |
-| v5 +event guard (reflek pasar) | −0.153 | 0.79 | 35 | tak membantu — toggle nambah overfit |
 
 > Empat lapisan fitur menggeser hasil dari −0.21R ke ~0, tapi **konvergen di IMPAS,
 > BUKAN profit** (PF 0.99). Kenaikan v3→v4 cuma +0.01R = **diminishing returns**:

@@ -21,6 +21,7 @@ from .backtest import Backtester, Trade, fetch_history
 from .config import Settings
 from .exchange import Exchange
 from .logger import journal, log
+from .news import NewsVeto
 from .orderflow import cvd_from_series, fetch_taker
 from .settings_store import RuntimeSettings, liquidation_price, load_settings
 from .strategy_lab import decide_v4, precompute_v4
@@ -61,6 +62,7 @@ class ForwardTester:
         self.max_open = self.cfg["rotate"]["max_open_positions"]
         self.bt = Backtester(self.cfg, fee_pct=self.fee, slippage_pct=self.slippage)
         self.risk_frac = self.cfg["risk"]["account_risk_pct"] / 100.0
+        self.news = NewsVeto(self.settings, self.cfg)
         self.rs: RuntimeSettings | None = None
         self.balance_usd = 0.0
         if self.use_store:
@@ -245,6 +247,9 @@ class ForwardTester:
     def on_cycle(self) -> None:
         if self.use_store:
             return self._on_cycle_store()
+        news_veto, note = self.news.check()
+        if news_veto:
+            log.info(f"News veto aktif ({note}) — tidak buka posisi baru siklus ini")
         for sym in self.symbols:
             self._monitor(sym)
             buf = self._update_buffer(sym)
@@ -253,10 +258,14 @@ class ForwardTester:
             df_closed = buf.iloc[:-1]  # bar terakhir masih terbentuk
             if df_closed.index[-1] != self.last_closed.get(sym):
                 self.last_closed[sym] = df_closed.index[-1]
-                self._maybe_open(sym, df_closed)
+                if not news_veto:
+                    self._maybe_open(sym, df_closed)
 
     def _on_cycle_store(self) -> None:
         rs = self._apply_settings()
+        news_veto, note = (self.news.check() if rs.enabled else (False, "off"))
+        if news_veto:
+            log.info(f"News veto aktif ({note}) — tidak buka posisi baru siklus ini")
         for sym in self.symbols:
             self._monitor_usd(sym)
             buf = self._update_buffer(sym)
@@ -265,7 +274,7 @@ class ForwardTester:
             df_closed = buf.iloc[:-1]
             if df_closed.index[-1] != self.last_closed.get(sym):
                 self.last_closed[sym] = df_closed.index[-1]
-                if not rs.enabled or sym in self.open or len(self.open) >= self.max_open:
+                if news_veto or not rs.enabled or sym in self.open or len(self.open) >= self.max_open:
                     continue
                 side, atr = self._signal(sym, df_closed)
                 if side != 0 and atr > 0:

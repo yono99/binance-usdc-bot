@@ -6,20 +6,15 @@ from bot.strategy_lab import (
     build_grid_v2,
     build_grid_v3,
     build_grid_v4,
-    build_grid_v5,
     decide_v2,
     decide_v3,
     decide_v4,
-    decide_v5,
-    event_recent_flags,
     precompute_v2,
     precompute_v3,
     precompute_v4,
-    precompute_v5,
     walk_forward_v2,
     walk_forward_v3,
     walk_forward_v4,
-    walk_forward_v5,
 )
 
 
@@ -74,7 +69,7 @@ def test_walk_forward_v2_smoke(cfg, make_df):
 def _g(**kw):
     base = {"entry_confidence": 0.4, "sl_atr_mult": 1.5, "tp_atr_mult": 2.5,
             "use_htf": False, "regime": False, "use_funding": False, "use_oi": False,
-            "use_of": False, "use_event": False}
+            "use_of": False}
     base.update(kw)
     return base
 
@@ -164,48 +159,4 @@ def test_walk_forward_v4_smoke(cfg, make_df):
     results, oos = walk_forward_v4(df, cfg, grid, bt, 400, 150, 5, 4, None,
                                    np.zeros(n), np.zeros(n),
                                    rng.normal(0, 0.3, n), np.zeros(n, dtype=bool))
-    assert isinstance(results, list) and isinstance(oos, list)
-
-
-def _f5(df, cfg, n, event):
-    f5 = precompute_v5(df, cfg, 4, np.zeros(n), np.zeros(n), np.zeros(n), np.zeros(n, dtype=bool))
-    f5.event_recent = event
-    return f5
-
-
-def test_event_flags_detect_volume_spike(cfg, make_df):
-    df = make_df(_trend(200))
-    df["volume"] = 10.0
-    df.iloc[150, df.columns.get_loc("volume")] = 10000.0   # lonjakan ekstrem
-    flags = event_recent_flags(df, cfg)
-    assert bool(flags[150]) is True
-    assert bool(flags[50]) is False
-
-
-def test_v5_equals_v4_without_event(cfg, make_df):
-    df = make_df(_trend(400))
-    n = len(df)
-    f5 = _f5(df, cfg, n, np.zeros(n, dtype=bool))
-    g = _g()
-    assert np.array_equal(decide_v4(f5.v4, g, cfg, None), decide_v5(f5, g, cfg, None))
-
-
-def test_event_guard_blocks_entries(cfg, make_df):
-    df = make_df(_trend(400))
-    n = len(df)
-    f5 = _f5(df, cfg, n, np.ones(n, dtype=bool))   # selalu "event" -> blokir semua
-    side = decide_v5(f5, _g(use_event=True), cfg, None)
-    assert np.all(side == 0)
-
-
-def test_walk_forward_v5_smoke(cfg, make_df):
-    df = make_df(_trend(1500))
-    n = len(df)
-    bt = Backtester(cfg, fee_pct=0.04, slippage_pct=0.02)
-    grid = build_grid_v5([0.55, 0.6], [1.5], [2.5], [True], [False], [False], [False],
-                         [False, True], [False, True])
-    rng = np.random.default_rng(3)
-    results, oos = walk_forward_v5(df, cfg, grid, bt, 400, 150, 5, 4, None,
-                                   np.zeros(n), np.zeros(n), rng.normal(0, 0.3, n),
-                                   np.zeros(n, dtype=bool))
     assert isinstance(results, list) and isinstance(oos, list)

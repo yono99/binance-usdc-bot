@@ -66,13 +66,10 @@ strategy:
   # v4 — order flow / CVD
   cvd_lookback: 8          # bar untuk hitung imbalance taker buy/sell
   cvd_min: 0.05            # |imbalance| minimum untuk konfirmasi entry
-  # v5 — event/volatility guard ("reflek pasar": jejak berita di data)
-  event_vol_window: 50     # jendela baseline volume
-  event_vol_z: 3.0         # volume z-score > ini = lonjakan abnormal (kemungkinan berita)
-  event_lookback: 3        # blokir entry hingga N bar setelah lonjakan
 
 gemini:
   # peran: confirm | veto | off  (lihat README)
   role: "veto"
   model: "gemini-2.5-flash"
   min_regime_score: 0.4     # bila Gemini nilai regime < ini -> skip entry
+  news_veto: false          # true = veto entry saat ada berita high-impact (real-time, butuh GEMINI_ENABLED)
