@@ -24,6 +24,7 @@ import json as _json
 
 from .logger import LOG_DIR, journal, log
 from .news import NewsVeto
+from .notify import TelegramNotifier
 from .orderflow import cvd_from_series, fetch_taker
 from .settings_store import RuntimeSettings, liquidation_price, load_settings
 from .strategy_lab import decide_v4, precompute_v4
@@ -65,6 +66,7 @@ class ForwardTester:
         self.bt = Backtester(self.cfg, fee_pct=self.fee, slippage_pct=self.slippage)
         self.risk_frac = self.cfg["risk"]["account_risk_pct"] / 100.0
         self.news = NewsVeto(self.settings, self.cfg)
+        self.notify = TelegramNotifier()
         self.rs: RuntimeSettings | None = None
         self.balance_usd = 0.0
         if self.use_store:
@@ -212,6 +214,10 @@ class ForwardTester:
                                  "sl": sl, "tp": tp, "liq": liq, "lev": rs.leverage, "bet": rs.bet_usd})
         log.info(f"OPEN {self.open[sym]['side'].upper()} {sym} x{rs.leverage} bet=${rs.bet_usd} "
                  f"@ {entry:.4f} SL={sl:.4f} TP={tp:.4f} LIQ={liq:.4f}")
+        self.notify.send(
+            f"🟢 <b>OPEN {self.open[sym]['side'].upper()}</b> {sym} x{rs.leverage}\n"
+            f"Entry {entry:.4f} · SL {sl:.4f} · TP {tp:.4f}\n"
+            f"LIQ {liq:.4f} · bet ${rs.bet_usd}")
 
     def _close_usd(self, sym: str, price: float, reason: str) -> None:
         pos = self.open.pop(sym)
@@ -230,6 +236,9 @@ class ForwardTester:
                                   "pnl_usd": round(pnl, 4), "r": round(r, 4),
                                   "equity": round(self.balance_usd, 2)})
         log.info(f"CLOSE {reason.upper()} {sym} pnl=${pnl:+.2f} bal=${self.balance_usd:.2f}")
+        icon = {"liq": "💥 <b>LIKUIDASI</b>", "sl": "🛑 SL", "tp": "✅ TP",
+                "manual": "✋ CLOSE", "eod": "⏹ EOD"}.get(reason, reason)
+        self.notify.send(f"{icon} {sym}\nPnL ${pnl:+.2f} · R {r:+.2f} · saldo ${self.balance_usd:.2f}")
 
     def _monitor_usd(self, sym: str) -> None:
         if sym not in self.open:

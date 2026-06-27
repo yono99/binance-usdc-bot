@@ -302,6 +302,13 @@ def api_close(payload: dict) -> JSONResponse:
     return JSONResponse({"ok": True, "queued": sym})
 
 
+@app.post("/api/notify-test")
+def api_notify_test() -> JSONResponse:
+    from .notify import TelegramNotifier
+    ok, err = TelegramNotifier().send_sync("✅ Test notifikasi dari dashboard bot USDC.")
+    return JSONResponse({"ok": ok, "error": err})
+
+
 @app.post("/api/close-all")
 def api_close_all() -> JSONResponse:
     CLOSE_REQ.write_text(json.dumps(["*"]), encoding="utf-8")
@@ -396,6 +403,7 @@ PAGE = """<!doctype html>
       <label>API Secret<input id="vsecret" type="password" placeholder="kosong = pakai .env live"></label>
     </div>
     <button id="vbtn">Validasi API Key</button> <span id="vres" class="sub"></span>
+    <div style="margin-top:8px"><button id="tgbtn">Test Telegram</button> <span id="tgres" class="sub"></span></div>
   </div>
   <div class="panel"><h2>Status Bot</h2><div id="botstatus" class="line"></div></div>
   <div class="panel"><h2>Aktivitas per Pair — screening & sinyal
@@ -553,6 +561,13 @@ async function closeAll(){
   await fetch('/api/close-all',{method:'POST'});
   loadStatus();
 }
+document.getElementById('tgbtn').addEventListener('click',async()=>{
+  const el=document.getElementById('tgres'); el.textContent='mengirim…';
+  try{
+    const r=await (await fetch('/api/notify-test',{method:'POST'})).json();
+    el.innerHTML=r.ok?'<span class="pos">terkirim ✓ (cek Telegram)</span>':`<span class="neg">${r.error||'gagal'}</span>`;
+  }catch(e){el.innerHTML='<span class="neg">error koneksi</span>';}
+});
 document.getElementById('chartsym').addEventListener('change',loadChart);
 document.getElementById('charttf').addEventListener('change',loadChart);
 document.getElementById('vbtn').addEventListener('click',async()=>{
