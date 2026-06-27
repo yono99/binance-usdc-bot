@@ -62,9 +62,9 @@ python run.py               # loop penuh (simulasi)
 | `python backtest.py --bars 1500` | Backtest expectancy (R, fee+slippage, no-lookahead) |
 | `python optimize.py --strategy v4 --bars 3500` | Sweep + walk-forward (verdict OOS) |
 | `python forwardtest.py --poll 30 --use-store` | Forward-test paper di data live (diatur dari UI) |
-| `python dashboard.py` | Dashboard web + panel kontrol → `http://127.0.0.1:8000` |
+| `python dashboard.py` | Dashboard: status per-pair, chart (candle/EMA/RSI), kontrol, riwayat+CSV, Telegram → `:8000` |
 | `python l2collect.py` | Collector orderbook L2 (data forward microstructure) |
-| `pytest -q` | 59 unit test Python |
+| `pytest -q` | 62 unit test Python |
 | `cd core && cargo test` | 8 unit test Rust (hot-path) |
 | `docker compose up -d --build` | Deploy bot + collector + dashboard 24/7 |
 
@@ -192,14 +192,22 @@ likuidasi jujur**.
 ## Dashboard monitoring (web)
 
 ```bash
-python forwardtest.py --poll 30     # terminal 1: bot menulis logs/trades.jsonl
-python dashboard.py                  # terminal 2: buka http://127.0.0.1:8000
+python forwardtest.py --poll 30 --use-store   # terminal 1: bot (diatur dari UI)
+python dashboard.py --host 0.0.0.0             # terminal 2: http://<host>:8000
 ```
 
-Menampilkan (auto-refresh 10 dtk): kartu **trades / win% / expectancy R / profit factor /
-equity / return**, **kurva equity**, **posisi terbuka**, **rincian per-simbol**, dan
-**trade terakhir**. Dashboard hanya membaca jurnal (`logs/trades.jsonl`) — aman dijalankan
-terpisah dari bot, bahkan di mesin/port berbeda (`--host 0.0.0.0 --port 8080`).
+Fitur (auto-refresh 10 dtk):
+- **Kartu**: trades · liquidations · win% · expectancy R · profit factor · equity · return
+- **Kurva equity** (dot merah di titik likuidasi) + **trade terakhir** (baris likuidasi merah)
+- **Akun / API**: mode, saldo (live/paper), **validasi API key dari form**, status Gemini, **Test Telegram**
+- **Status Bot**: ON/OFF, teknik, TF, leverage, saldo, posisi, news veto
+- **Aktivitas per Pair**: harga · ATR% · sinyal (LONG/SHORT/skip) · posisi+PnL · **alasan tak-entry** · tombol **Close** / **Close All**
+- **Chart per pair**: candlestick multi-TF (5m/15m/1h/4h) + **EMA** overlay + panel **RSI** + garis entry/SL/TP/LIQ
+- **Riwayat Trade**: filter pair/reason/tanggal + **export CSV**
+- **Panel Kontrol**: teknik (scalping/swing/auto) · leverage · bet · saldo · target profit (hot-reload)
+
+Komunikasi via file (aman, proses terpisah): bot menulis `logs/status.json` + `logs/trades.jsonl`;
+UI menulis `logs/runtime.json` (pengaturan) + `logs/close_requests.json` (perintah close).
 
 ## Konfigurasi (`config.yaml`)
 
@@ -257,7 +265,7 @@ python -m svc.run
 - [x] Mono Python 7-layer (dry/test/live)
 - [x] Rust core hot-path (ingest/normalize/risk/exec) + ZeroMQ IPC — **build + `cargo test` 8/8**
 - [x] Jembatan Python `svc/` (SUB candle/event, PUSH intent)
-- [x] Unit test: Python **23** (`pytest`) + Rust **8** (`cargo test`)
+- [x] Unit test: Python **62** (`pytest`) + Rust **8** (`cargo test`)
 - [x] Backtester expectancy (R-multiple, fee+slippage, tanpa lookahead) — `backtest.py`
 - [x] Sweep + walk-forward (anti-overfit, verdict OOS) — `optimize.py`
 - [x] Strategi v2: filter HTF + regime trend/mean-reversion + sesi — `bot/strategy_lab.py`
@@ -270,6 +278,12 @@ python -m svc.run
 - [x] News veto via Gemini (real-time, forward-test) — `bot/news.py`
 - [x] Collector L2 orderbook (data forward microstructure) — `l2collect.py`
 - [x] Dokumen metodologi reproducible — [METHODOLOGY.md](METHODOLOGY.md)
+- [x] Dashboard observability: status per-pair (screening/sinyal/alasan tak-entry), akun/API + validasi key
+- [x] Chart candlestick multi-TF + EMA/RSI overlay + garis SL/TP/LIQ
+- [x] Riwayat trade + filter (pair/reason/tanggal) + export CSV
+- [x] Close posisi manual + Close All dari UI
+- [x] Notifikasi Telegram (open/close/likuidasi) + tombol test
+- [x] Auto-start systemd (dashboard/bot/collector) — `deploy/systemd/`
 - [ ] Jalankan forward-test/collector berhari-hari → riset microstructure & sampel lebih besar
 
 ### Lintasan edge (OOS, walk-forward — BTC/ETH/SOL)
@@ -286,9 +300,11 @@ python -m svc.run
 > data resolusi-bar sudah habis diperas. **JANGAN live** — expectancy ~0 berarti
 > tidak menghasilkan uang setelah biaya. Edge positif sejati kemungkinan butuh
 > microstructure tick (tak praktis di-backtest) atau gaya strategi berbeda.
+Sisa (polyglot/live, belum prioritas):
 - [ ] Close/exit event dari core → svc (slot release otomatis di mode polyglot)
 - [ ] User-data stream (fill realtime) + trailing stop sisi exchange
-- [ ] Dashboard PnL + notifikasi Telegram
-- [ ] Walk-forward parameter tuning
+- [ ] Eksekusi order nyata di `forward.py` untuk jalur live (kini hanya paper)
 
-Status saat ini: **v0.1 — mono Python jalan di `dry`/`test`; stack polyglot tersambung (core perlu `cargo build`).** Belum tervalidasi untuk profit; jangan `live` sebelum lewat testnet.
+Status: **stack riset + paper + dashboard lengkap & ter-deploy (Proxmox/Docker/systemd).**
+Strategi **impas** (belum ada edge tradeable) — paper-only. **JANGAN `live`** sampai
+forward-test/riset menunjukkan edge positif yang stabil. Lihat [METHODOLOGY.md](METHODOLOGY.md).

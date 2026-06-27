@@ -111,7 +111,7 @@ signal-engine diuji di `tests/test_optimize.py`.
 
 ```bash
 pip install -r requirements.txt
-pytest -q                                              # 59 test (logika inti)
+pytest -q                                              # 62 test (logika inti)
 python backtest.py --symbols "BTC/USDC:USDC" --bars 1500
 python optimize.py --strategy v4 --symbols "BTC/USDC:USDC" "ETH/USDC:USDC" "SOL/USDC:USDC" \
   --bars 3500 --train 1000 --test 300                  # verdict OOS
