@@ -5,12 +5,16 @@ from bot.optimize import decide, precompute, warmup
 from bot.strategy_lab import (
     build_grid_v2,
     build_grid_v3,
+    build_grid_v4,
     decide_v2,
     decide_v3,
+    decide_v4,
     precompute_v2,
     precompute_v3,
+    precompute_v4,
     walk_forward_v2,
     walk_forward_v3,
+    walk_forward_v4,
 )
 
 
@@ -64,7 +68,8 @@ def test_walk_forward_v2_smoke(cfg, make_df):
 
 def _g(**kw):
     base = {"entry_confidence": 0.4, "sl_atr_mult": 1.5, "tp_atr_mult": 2.5,
-            "use_htf": False, "regime": False, "use_funding": False, "use_oi": False}
+            "use_htf": False, "regime": False, "use_funding": False, "use_oi": False,
+            "use_of": False}
     base.update(kw)
     return base
 
@@ -104,4 +109,44 @@ def test_walk_forward_v3_smoke(cfg, make_df):
     rng = np.random.default_rng(1)
     results, oos = walk_forward_v3(df, cfg, grid, bt, 400, 150, 5, 4, None,
                                    rng.normal(0, 1, n), rng.normal(0, 0.05, n))
+    assert isinstance(results, list) and isinstance(oos, list)
+
+
+def _f4(df, cfg, n, imb, div):
+    return precompute_v4(df, cfg, 4, np.zeros(n), np.zeros(n), imb, div)
+
+
+def test_v4_equals_v3_without_orderflow(cfg, make_df):
+    df = make_df(_trend(400))
+    n = len(df)
+    f4 = _f4(df, cfg, n, np.zeros(n), np.zeros(n, dtype=bool))
+    g = _g()
+    assert np.array_equal(decide_v3(f4.v3, g, cfg, None), decide_v4(f4, g, cfg, None))
+
+
+def test_orderflow_blocks_longs_without_buying(cfg, make_df):
+    df = make_df(_trend(400))
+    n = len(df)
+    f4 = _f4(df, cfg, n, np.full(n, -0.5), np.zeros(n, dtype=bool))  # tekanan jual
+    side = decide_v4(f4, _g(use_of=True), cfg, None)
+    assert not np.any(side == 1)
+
+
+def test_orderflow_divergence_vetoes_all(cfg, make_df):
+    df = make_df(_trend(400))
+    n = len(df)
+    f4 = _f4(df, cfg, n, np.full(n, 0.5), np.ones(n, dtype=bool))    # divergensi di semua bar
+    side = decide_v4(f4, _g(use_of=True), cfg, None)
+    assert np.all(side == 0)
+
+
+def test_walk_forward_v4_smoke(cfg, make_df):
+    df = make_df(_trend(1500))
+    n = len(df)
+    bt = Backtester(cfg, fee_pct=0.04, slippage_pct=0.02)
+    grid = build_grid_v4([0.55, 0.6], [1.5], [2.5], [True], [False], [False], [False], [False, True])
+    rng = np.random.default_rng(2)
+    results, oos = walk_forward_v4(df, cfg, grid, bt, 400, 150, 5, 4, None,
+                                   np.zeros(n), np.zeros(n),
+                                   rng.normal(0, 0.3, n), np.zeros(n, dtype=bool))
     assert isinstance(results, list) and isinstance(oos, list)

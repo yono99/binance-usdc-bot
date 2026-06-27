@@ -21,15 +21,23 @@ from bot.config import load_settings
 from bot.exchange import Exchange
 from bot.logger import log
 from bot.optimize import build_grid, walk_forward
-from bot.strategy_lab import build_grid_v2, build_grid_v3, walk_forward_v2, walk_forward_v3
+from bot.orderflow import cvd_features
+from bot.strategy_lab import (
+    build_grid_v2,
+    build_grid_v3,
+    build_grid_v4,
+    walk_forward_v2,
+    walk_forward_v3,
+    walk_forward_v4,
+)
 
 console = Console()
 
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--strategy", choices=["v1", "v2", "v3"], default="v2",
-                   help="v1=trend, v2=HTF+regime+sesi, v3=+funding+OI")
+    p.add_argument("--strategy", choices=["v1", "v2", "v3", "v4"], default="v2",
+                   help="v1=trend, v2=HTF+regime+sesi, v3=+funding+OI, v4=+orderflow/CVD")
     p.add_argument("--symbols", nargs="*")
     p.add_argument("--tf")
     p.add_argument("--bars", type=int, default=5000)
@@ -53,6 +61,8 @@ def params_str(p: dict) -> str:
         base += f" htf={int(p['use_htf'])} reg={int(p['regime'])}"
     if "use_funding" in p:
         base += f" fnd={int(p['use_funding'])} oi={int(p['use_oi'])}"
+    if "use_of" in p:
+        base += f" of={int(p['use_of'])}"
     return base
 
 
@@ -68,7 +78,21 @@ def main() -> None:
 
     htf_mult = args.htf_mult or cfg["strategy"]["htf_mult"]
     sessions = set(args.sessions) if args.sessions else (set(cfg["strategy"]["sessions"]) or None)
-    if args.strategy == "v3":
+    if args.strategy == "v4":
+        grid = build_grid_v4(args.conf, args.sl, args.tp, [True], [True, False],
+                             [False, True], [False], [False, True])
+
+        def run_wf(df, sym):
+            since = int(df.index[0].timestamp() * 1000)
+            fz = funding_zscore(fetch_funding(ex, sym, since), cfg["strategy"]["funding_z_window"])
+            funding_z = align(df.index, fz, 0.0)
+            oid = oi_delta(df.index, fetch_oi(ex, sym, tf, since), cfg["strategy"]["oi_delta_lookback"])
+            imb, div = cvd_features(ex, sym, tf, df, cfg["strategy"]["cvd_lookback"])
+            log.info(f"{sym}: funding {int((funding_z!=0).sum())}/{len(df)}, "
+                     f"OI {int((oid!=0).sum())}/{len(df)}, CVD {int((imb!=0).sum())}/{len(df)} bar")
+            return walk_forward_v4(df, cfg, grid, bt, args.train, args.test, args.min_trades,
+                                   htf_mult, sessions, funding_z, oid, imb, div)
+    elif args.strategy == "v3":
         grid = build_grid_v3(args.conf, args.sl, args.tp, [True], [True, False],
                              [False, True], [False, True])
 

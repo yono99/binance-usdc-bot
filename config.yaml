@@ -63,6 +63,9 @@ strategy:
   funding_z_window: 30     # jendela z-score funding (8h/poin → ~10 hari)
   funding_z_block: 1.5     # |z| > ini → blokir entry searah kerumunan
   oi_delta_lookback: 4     # bar untuk hitung perubahan open interest
+  # v4 — order flow / CVD
+  cvd_lookback: 8          # bar untuk hitung imbalance taker buy/sell
+  cvd_min: 0.05            # |imbalance| minimum untuk konfirmasi entry
 
 gemini:
   # peran: confirm | veto | off  (lihat README)

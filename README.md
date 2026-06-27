@@ -136,9 +136,9 @@ python -m svc.run
 - [x] Backtester expectancy (R-multiple, fee+slippage, tanpa lookahead) — `backtest.py`
 - [x] Sweep + walk-forward (anti-overfit, verdict OOS) — `optimize.py`
 - [x] Strategi v2: filter HTF + regime trend/mean-reversion + sesi — `bot/strategy_lab.py`
-- [x] Strategi v3: + funding rate + open interest — `bot/altdata.py` + `strategy_lab.py`
-- [ ] Orderflow/CVD (data tick) + koleksi OI sendiri (>30 hari) untuk lewati impas
-- [ ] Validasi sampel lebih besar sebelum menyimpulkan edge
+- [x] Strategi v3: + funding rate + open interest — `bot/altdata.py`
+- [x] Strategi v4: + order flow / CVD (taker buy/sell) — `bot/orderflow.py`
+- [ ] (mentok) edge bar-resolution konvergen ke IMPAS; lanjut hanya via paper-trade/forward test
 
 ### Lintasan edge (OOS, walk-forward — BTC/ETH/SOL)
 
@@ -146,12 +146,14 @@ python -m svc.run
 |---|---|---|---|---|
 | v1 trend | −0.206 | 0.71 | 41 | jelas rugi |
 | v2 +HTF+regime+sesi | −0.105 | 0.86 | 36 | membaik |
-| **v3 +funding+OI** | **−0.017** | **0.97** | **45** | **nyaris impas** |
+| v3 +funding+OI | −0.017 | 0.97 | 45 | nyaris impas |
+| **v4 +orderflow/CVD** | **−0.007** | **0.99** | 40 | **impas (mentok)** |
 
-> Tiap lapisan fitur menggeser hasil ke arah benar, tapi v3 masih **break-even, bukan
-> profit** (−0.017R ≈ 0, sampel kecil ~100 trade, batas histori OI 30 hari). **JANGAN
-> live.** Edge positif yang andal kemungkinan butuh alpha lebih dalam (orderflow/CVD)
-> + sampel lebih besar.
+> Empat lapisan fitur menggeser hasil dari −0.21R ke ~0, tapi **konvergen di IMPAS,
+> BUKAN profit** (PF 0.99). Kenaikan v3→v4 cuma +0.01R = **diminishing returns**:
+> data resolusi-bar sudah habis diperas. **JANGAN live** — expectancy ~0 berarti
+> tidak menghasilkan uang setelah biaya. Edge positif sejati kemungkinan butuh
+> microstructure tick (tak praktis di-backtest) atau gaya strategi berbeda.
 - [ ] Close/exit event dari core → svc (slot release otomatis di mode polyglot)
 - [ ] User-data stream (fill realtime) + trailing stop sisi exchange
 - [ ] Dashboard PnL + notifikasi Telegram

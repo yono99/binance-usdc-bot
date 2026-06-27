@@ -169,3 +169,54 @@ def walk_forward_v3(df: pd.DataFrame, cfg: dict, grid: list[dict], bt: Backteste
     return run_walk(df, cfg, grid, bt, f3.v2.base,
                     lambda g: decide_v3(f3, g, cfg, sessions),
                     train_len, test_len, min_trades)
+
+
+# ----------------------- v4: + order flow / CVD -----------------------
+
+@dataclass
+class FeaturesV4:
+    v3: FeaturesV3
+    cvd_imb: np.ndarray   # imbalance taker buy/sell ∈ [-1,1]
+    cvd_div: np.ndarray   # divergensi harga vs CVD (bool)
+
+
+def precompute_v4(df: pd.DataFrame, cfg: dict, htf_mult: int, funding_z: np.ndarray,
+                  oi_delta: np.ndarray, cvd_imb: np.ndarray, cvd_div: np.ndarray) -> FeaturesV4:
+    return FeaturesV4(precompute_v3(df, cfg, htf_mult, funding_z, oi_delta), cvd_imb, cvd_div)
+
+
+def decide_v4(f4: FeaturesV4, g: dict, cfg: dict, sessions: set | None) -> np.ndarray:
+    """Keputusan v3, lalu konfirmasi order flow bila di-toggle:
+    long butuh net buying, short butuh net selling; veto bila divergensi."""
+    side = decide_v3(f4.v3, g, cfg, sessions).copy()
+    if g.get("use_of"):
+        st = cfg["strategy"]
+        imb, mn = f4.cvd_imb, st["cvd_min"]
+        side = np.where((side == 1) & (imb < mn), 0, side)     # long perlu imbalance beli
+        side = np.where((side == -1) & (imb > -mn), 0, side)   # short perlu imbalance jual
+        side = np.where((side != 0) & f4.cvd_div, 0, side)     # veto divergensi
+    return side.astype(int)
+
+
+def build_grid_v4(conf_list, sl_list, tp_list, htf_opts, regime_opts,
+                  funding_opts, oi_opts, of_opts) -> list[dict]:
+    grid = []
+    for conf, sl, tp, htf, reg, fund, oi, of in product(
+            conf_list, sl_list, tp_list, htf_opts, regime_opts, funding_opts, oi_opts, of_opts):
+        if tp <= sl * 0.6:
+            continue
+        grid.append({"entry_confidence": conf, "sl_atr_mult": sl, "tp_atr_mult": tp,
+                     "use_htf": htf, "regime": reg, "use_funding": fund,
+                     "use_oi": oi, "use_of": of})
+    return grid
+
+
+def walk_forward_v4(df: pd.DataFrame, cfg: dict, grid: list[dict], bt: Backtester,
+                    train_len: int, test_len: int, min_trades: int,
+                    htf_mult: int, sessions: set | None, funding_z: np.ndarray,
+                    oi_delta: np.ndarray, cvd_imb: np.ndarray, cvd_div: np.ndarray):
+    """Strategi v4 (v3 + order flow/CVD)."""
+    f4 = precompute_v4(df, cfg, htf_mult, funding_z, oi_delta, cvd_imb, cvd_div)
+    return run_walk(df, cfg, grid, bt, f4.v3.v2.base,
+                    lambda g: decide_v4(f4, g, cfg, sessions),
+                    train_len, test_len, min_trades)
