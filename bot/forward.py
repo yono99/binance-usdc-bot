@@ -276,8 +276,9 @@ class ForwardTester:
             return
         if not reqs:
             return
+        targets = list(self.open.keys()) if "*" in reqs else reqs  # "*" = tutup semua
         remaining = []
-        for sym in reqs:
+        for sym in targets:
             if sym in self.open:
                 try:
                     price = float(self.ex.ticker(sym)["last"])

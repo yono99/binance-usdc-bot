@@ -226,6 +226,12 @@ def api_close(payload: dict) -> JSONResponse:
     return JSONResponse({"ok": True, "queued": sym})
 
 
+@app.post("/api/close-all")
+def api_close_all() -> JSONResponse:
+    CLOSE_REQ.write_text(json.dumps(["*"]), encoding="utf-8")
+    return JSONResponse({"ok": True})
+
+
 @app.post("/api/settings")
 def api_set_settings(payload: dict) -> JSONResponse:
     known = set(RuntimeSettings().__dict__)
@@ -316,7 +322,9 @@ PAGE = """<!doctype html>
     <button id="vbtn">Validasi API Key</button> <span id="vres" class="sub"></span>
   </div>
   <div class="panel"><h2>Status Bot</h2><div id="botstatus" class="line"></div></div>
-  <div class="panel"><h2>Aktivitas per Pair — screening & sinyal</h2><div id="pairs"></div></div>
+  <div class="panel"><h2>Aktivitas per Pair — screening & sinyal
+    <button class="btnsm" style="float:right" onclick="closeAll()">Close All</button></h2>
+    <div id="pairs"></div></div>
   <div class="panel"><h2>Chart Harga per Pair</h2>
     <div style="margin-bottom:10px;display:flex;gap:8px">
       <select id="chartsym"></select>
@@ -431,6 +439,11 @@ async function loadChart(){
 async function closePos(sym){
   if(!confirm('Tutup paksa posisi '+sym+'? (diproses ≤1 siklus)'))return;
   await fetch('/api/close',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({symbol:sym})});
+  loadStatus();
+}
+async function closeAll(){
+  if(!confirm('Tutup SEMUA posisi? (diproses ≤1 siklus)'))return;
+  await fetch('/api/close-all',{method:'POST'});
   loadStatus();
 }
 document.getElementById('chartsym').addEventListener('change',loadChart);
