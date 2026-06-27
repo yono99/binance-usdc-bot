@@ -18,6 +18,7 @@ from .settings_store import PRESETS, RuntimeSettings, load_settings, save_settin
 
 ROOT = Path(__file__).resolve().parent.parent
 JOURNAL = ROOT / "logs" / "trades.jsonl"
+STATUS = ROOT / "logs" / "status.json"
 
 
 def read_events(path: Path) -> list[dict]:
@@ -116,6 +117,45 @@ def api_get_settings() -> JSONResponse:
     return JSONResponse(d)
 
 
+@app.get("/api/status")
+def api_bot_status() -> JSONResponse:
+    if not STATUS.exists():
+        return JSONResponse({})
+    try:
+        return JSONResponse(json.loads(STATUS.read_text(encoding="utf-8")))
+    except Exception:
+        return JSONResponse({})
+
+
+_acct = {"ts": 0.0, "data": None}
+
+
+@app.get("/api/account")
+def api_account() -> JSONResponse:
+    import os
+    import time
+    if _acct["data"] and time.time() - _acct["ts"] < 30:
+        return JSONResponse(_acct["data"])
+    from .config import load_settings
+    s = load_settings()
+    if s.mode == "live" and os.getenv("BINANCE_LIVE_KEY"):
+        try:
+            from .exchange import Exchange
+            bal = Exchange(s).client.fetch_balance()
+            total = bal.get("total", {})
+            usdc = float(total.get("USDC") or total.get("USDT") or 0)
+            data = {"mode": "live", "api_valid": True, "balance_usdc": round(usdc, 2),
+                    "gemini_enabled": s.gemini_enabled, "gemini_keys": len(s.gemini_keys)}
+        except Exception as e:  # boundary
+            data = {"mode": "live", "api_valid": False, "error": str(e)[:140],
+                    "gemini_enabled": s.gemini_enabled, "gemini_keys": len(s.gemini_keys)}
+    else:
+        data = {"mode": s.mode, "api_valid": None, "paper": True,
+                "gemini_enabled": s.gemini_enabled, "gemini_keys": len(s.gemini_keys)}
+    _acct.update(ts=time.time(), data=data)
+    return JSONResponse(data)
+
+
 @app.post("/api/settings")
 def api_set_settings(payload: dict) -> JSONResponse:
     known = set(RuntimeSettings().__dict__)
@@ -169,6 +209,7 @@ PAGE = """<!doctype html>
   button:hover{opacity:.9}
   .danger{background:rgba(239,68,68,.12);border:1px solid var(--red);color:#fca5a5;padding:10px 12px;border-radius:8px;margin-bottom:12px;font-size:13px}
   .ok{background:rgba(34,197,94,.1);border:1px solid var(--green);color:#86efac;padding:10px 12px;border-radius:8px;margin-bottom:12px;font-size:13px}
+  .line{font-size:14px;line-height:1.9}.line b{color:var(--fg)}
   .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);margin-right:6px;animation:p 2s infinite}
   @keyframes p{50%{opacity:.3}}
 </style></head>
@@ -192,6 +233,9 @@ PAGE = """<!doctype html>
     <button id="save">Simpan pengaturan</button>
     <span id="saved" class="sub"></span>
   </div>
+  <div class="panel"><h2>Akun / API</h2><div id="acct" class="line"></div></div>
+  <div class="panel"><h2>Status Bot</h2><div id="botstatus" class="line"></div></div>
+  <div class="panel"><h2>Aktivitas per Pair — screening & sinyal</h2><div id="pairs"></div></div>
   <div class="cards" id="cards"></div>
   <div class="panel"><h2>Kurva Equity</h2><canvas id="eq" height="90"></canvas></div>
   <div class="panel"><h2>Posisi Terbuka</h2><div id="open"></div></div>
@@ -288,6 +332,35 @@ document.getElementById('save').addEventListener('click',async()=>{
   const el=document.getElementById('saved'); el.textContent=' tersimpan ✓ (bot menerapkan tiap siklus)';
   setTimeout(()=>el.textContent='',4000);
 });
+async function loadStatus(){
+  const a=await (await fetch('/api/account')).json();
+  const s=await (await fetch('/api/status')).json();
+  const api=a.api_valid===true?'<span class="pos">VALID</span>':(a.api_valid===false?'<span class="neg">INVALID</span>':'paper (tanpa key)');
+  let bal=a.balance_usdc!=null?('$'+f(a.balance_usdc,2)):(s.balance_usd!=null?('$'+f(s.balance_usd,2)+' <span class="sub">paper</span>'):'—');
+  document.getElementById('acct').innerHTML=
+    `Mode: <b>${a.mode}</b> · API: ${api} · Saldo: <b>${bal}</b> · `+
+    `Gemini: ${a.gemini_enabled?('<span class="pos">on</span>, '+a.gemini_keys+' key'):'<span class="sub">off</span>'}`+
+    (a.error?`<div class="danger">${a.error}</div>`:'');
+  if(!s.ts){
+    document.getElementById('botstatus').innerHTML='<div class="empty">Bot belum jalan — `python forwardtest.py --poll 30 --use-store`</div>';
+    document.getElementById('pairs').innerHTML='';return;
+  }
+  const nv=s.news_veto&&s.news_veto.active?`<span class="neg">VETO (${s.news_veto.note})</span>`:'<span class="pos">clear</span>';
+  document.getElementById('botstatus').innerHTML=
+    `Status: ${s.enabled?'<span class="pos">ON</span>':'<span class="neg">OFF</span>'} · Teknik: <b>${s.technique}</b> · `+
+    `TF: ${s.timeframe} · Leverage: <b>${s.leverage}x</b> · Bet: $${f(s.bet_usd,2)} · Saldo: <b>$${f(s.balance_usd,2)}</b> · `+
+    `Posisi: ${s.open_count}/${s.max_open} · News: ${nv} · <span class="sub">update ${(s.ts||'').slice(11,19)} UTC</span>`;
+  document.getElementById('pairs').innerHTML=table(
+    [{t:'Pair',k:'symbol'},
+     {t:'Harga',f:r=>r.price!=null?f(r.price,4):'—'},
+     {t:'ATR%',f:r=>r.atr_pct!=null?f(r.atr_pct,2):'—'},
+     {t:'Sinyal',f:r=>r.signal||'—',cls:r=>r.signal==='LONG'?'pos':(r.signal==='SHORT'?'neg':'')},
+     {t:'Posisi (PnL)',f:r=>r.in_position?`${r.position.side.toUpperCase()} ${(r.position.pnl_usd>=0?'+':'')+f(r.position.pnl_usd,2)}`:'—',
+      cls:r=>r.in_position?(r.position.pnl_usd>=0?'pos':'neg'):''},
+     {t:'Keterangan',f:r=>r.blocked||'—'}],
+    s.symbols||[]);
+}
 loadSettings();
-load();setInterval(load,10000);
+function refresh(){load();loadStatus();}
+refresh();setInterval(refresh,10000);
 </script></body></html>"""

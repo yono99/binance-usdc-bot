@@ -20,7 +20,9 @@ from .altdata import align, fetch_funding, fetch_oi, funding_zscore, oi_delta
 from .backtest import Backtester, Trade, fetch_history
 from .config import Settings
 from .exchange import Exchange
-from .logger import journal, log
+import json as _json
+
+from .logger import LOG_DIR, journal, log
 from .news import NewsVeto
 from .orderflow import cvd_from_series, fetch_taker
 from .settings_store import RuntimeSettings, liquidation_price, load_settings
@@ -75,6 +77,8 @@ class ForwardTester:
             self.tf = self.cfg["market"]["timeframe"]
         self.bt.sl_mult = self.params["sl_atr_mult"]
         self.bt.tp_mult = self.params["tp_atr_mult"]
+        self.sig_cache: dict = {}                 # sinyal terakhir per simbol (utk status UI)
+        self.status_path = LOG_DIR / "status.json"
 
     def seed(self) -> None:
         for sym in self.symbols:
@@ -266,19 +270,73 @@ class ForwardTester:
         news_veto, note = (self.news.check() if rs.enabled else (False, "off"))
         if news_veto:
             log.info(f"News veto aktif ({note}) — tidak buka posisi baru siklus ini")
+        label = {1: "LONG", -1: "SHORT", 0: "skip"}
         for sym in self.symbols:
             self._monitor_usd(sym)
             buf = self._update_buffer(sym)
+            c = self.sig_cache.setdefault(sym, {})
             if buf is None or len(buf) < 60:
+                c["blocked"] = "data kurang"
                 continue
             df_closed = buf.iloc[:-1]
+            c["price"] = float(df_closed["close"].iloc[-1])
             if df_closed.index[-1] != self.last_closed.get(sym):
                 self.last_closed[sym] = df_closed.index[-1]
-                if news_veto or not rs.enabled or sym in self.open or len(self.open) >= self.max_open:
-                    continue
                 side, atr = self._signal(sym, df_closed)
-                if side != 0 and atr > 0:
+                c["side"] = label[side]
+                c["atr_pct"] = round(atr / c["price"] * 100, 3) if c["price"] else None
+                blocked = None
+                if not rs.enabled:
+                    blocked = "bot OFF"
+                elif news_veto:
+                    blocked = f"news veto ({note})"
+                elif sym in self.open:
+                    blocked = "sudah ada posisi"
+                elif len(self.open) >= self.max_open:
+                    blocked = "slot penuh"
+                elif side == 0:
+                    blocked = "tak ada sinyal"
+                elif atr <= 0:
+                    blocked = "ATR nol"
+                c["blocked"] = blocked
+                if blocked is None:
                     self._open_usd(sym, side, atr, rs)
+                    c["blocked"] = "→ posisi dibuka"
+        self._write_status(rs, news_veto, note)
+
+    def _write_status(self, rs, news_active: bool, news_note: str) -> None:
+        syms = []
+        for sym in self.symbols:
+            c = self.sig_cache.get(sym, {})
+            pos = self.open.get(sym)
+            price = c.get("price")
+            pos_view = None
+            if pos and price:
+                d = price - pos["entry"] if pos["side"] == "long" else pos["entry"] - price
+                pos_view = {"side": pos["side"], "entry": round(pos["entry"], 6),
+                            "sl": round(pos["sl"], 6), "tp": round(pos["tp"], 6),
+                            "liq": round(pos["liq"], 6), "pnl_usd": round(pos["qty"] * d, 4)}
+            syms.append({"symbol": sym, "price": price, "atr_pct": c.get("atr_pct"),
+                         "signal": c.get("side", "-"), "in_position": bool(pos),
+                         "blocked": c.get("blocked"), "position": pos_view})
+        status = {
+            "ts": pd.Timestamp.utcnow().isoformat(),
+            "mode": self.settings.mode,
+            "enabled": rs.enabled,
+            "technique": rs.technique,
+            "timeframe": self.tf,
+            "leverage": rs.leverage,
+            "bet_usd": rs.bet_usd,
+            "balance_usd": round(self.balance_usd, 2),
+            "open_count": len(self.open),
+            "max_open": self.max_open,
+            "news_veto": {"active": news_active, "note": news_note},
+            "symbols": syms,
+        }
+        try:
+            self.status_path.write_text(_json.dumps(status), encoding="utf-8")
+        except Exception as e:  # boundary
+            log.warning(f"tulis status gagal: {e}")
 
     def run(self, poll_s: int = 30) -> None:
         self.seed()
