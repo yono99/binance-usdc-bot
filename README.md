@@ -95,6 +95,18 @@ python forwardtest.py --symbols "BTC/USDC:USDC" "ETH/USDC:USDC"
 > Catatan: Binance Testnet sering tak punya pair USDC & harganya tak realistis, jadi
 > paper-on-live-data ini lebih sahih untuk menilai edge daripada order di testnet.
 
+## Dashboard monitoring (web)
+
+```bash
+python forwardtest.py --poll 30     # terminal 1: bot menulis logs/trades.jsonl
+python dashboard.py                  # terminal 2: buka http://127.0.0.1:8000
+```
+
+Menampilkan (auto-refresh 10 dtk): kartu **trades / win% / expectancy R / profit factor /
+equity / return**, **kurva equity**, **posisi terbuka**, **rincian per-simbol**, dan
+**trade terakhir**. Dashboard hanya membaca jurnal (`logs/trades.jsonl`) — aman dijalankan
+terpisah dari bot, bahkan di mesin/port berbeda (`--host 0.0.0.0 --port 8080`).
+
 ## Konfigurasi (`config.yaml`)
 
 Semua strategi & batas risiko ada di sini — tidak ada angka ajaib di kode.
@@ -158,6 +170,7 @@ python -m svc.run
 - [x] Strategi v3: + funding rate + open interest — `bot/altdata.py`
 - [x] Strategi v4: + order flow / CVD (taker buy/sell) — `bot/orderflow.py`
 - [x] Forward-test paper di data LIVE (parameter tetap, log R-multiple) — `forwardtest.py`
+- [x] Dashboard web monitoring (FastAPI, auto-refresh) — `dashboard.py`
 - [ ] Jalankan forward-test berhari-hari → simpulkan edge dari sampel forward
 
 ### Lintasan edge (OOS, walk-forward — BTC/ETH/SOL)
