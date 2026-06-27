@@ -157,6 +157,8 @@ PAGE = """<!doctype html>
   th:first-child,td:first-child{text-align:left}
   th{color:var(--mut);font-weight:600;font-size:12px}
   .empty{color:var(--mut);padding:18px;text-align:center}
+  tr.liqrow td{background:rgba(239,68,68,.18);color:#fecaca;font-weight:700}
+  tr.liqrow td:first-child{box-shadow:inset 3px 0 0 var(--red)}
   .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:12px}
   label{display:flex;flex-direction:column;gap:4px;color:var(--mut);font-size:12px}
   input,select{background:#0b1220;border:1px solid var(--bd);color:var(--fg);border-radius:8px;padding:8px;font-size:14px}
@@ -198,10 +200,10 @@ let chart;
 const f=(n,d=2)=>Number(n).toFixed(d);
 const cls=v=>v>0?'pos':(v<0?'neg':'');
 function card(lbl,val,c=''){return `<div class="card"><div class="lbl">${lbl}</div><div class="val ${c}">${val}</div></div>`}
-function table(cols,rows){
+function table(cols,rows,rowCls){
   if(!rows.length)return '<div class="empty">Belum ada data — jalankan forwardtest.py</div>';
   const h='<tr>'+cols.map(c=>`<th>${c.t}</th>`).join('')+'</tr>';
-  const b=rows.map(r=>'<tr>'+cols.map(c=>`<td class="${c.cls?c.cls(r):''}">${c.f?c.f(r):r[c.k]}</td>`).join('')+'</tr>').join('');
+  const b=rows.map(r=>`<tr class="${rowCls?rowCls(r):''}">`+cols.map(c=>`<td class="${c.cls?c.cls(r):''}">${c.f?c.f(r):r[c.k]}</td>`).join('')+'</tr>').join('');
   return `<table>${h}${b}</table>`
 }
 async function load(){
@@ -222,8 +224,10 @@ async function load(){
     [{t:'Simbol',k:'symbol'},{t:'Trades',k:'trades'},{t:'Win%',f:r=>f(r.win_rate,1)},
      {t:'Σ R',f:r=>(r.sum_r>0?'+':'')+f(r.sum_r,3),cls:r=>cls(r.sum_r)}],s.per_symbol);
   document.getElementById('recent').innerHTML=table(
-    [{t:'Waktu',f:r=>(r.ts||'').slice(11,19)},{t:'Simbol',k:'symbol'},{t:'Alasan',k:'reason'},
-     {t:'R',f:r=>(r.r>0?'+':'')+f(r.r,3),cls:r=>cls(r.r)},{t:'Equity',f:r=>f(r.equity,2)}],s.recent);
+    [{t:'Waktu',f:r=>(r.ts||'').slice(11,19)},{t:'Simbol',k:'symbol'},
+     {t:'Alasan',f:r=>r.reason==='liq'?'⚠ LIKUIDASI':r.reason},
+     {t:'R',f:r=>(r.r>0?'+':'')+f(r.r,3),cls:r=>cls(r.r)},{t:'Equity',f:r=>f(r.equity,2)}],
+    s.recent, r=>r.reason==='liq'?'liqrow':'');
   const ctx=document.getElementById('eq');
   const data=s.equity_curve, labels=data.map((_,i)=>i);
   if(chart){chart.data.labels=labels;chart.data.datasets[0].data=data;chart.update()}
