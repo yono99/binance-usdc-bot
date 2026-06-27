@@ -22,6 +22,7 @@ from .config import Settings
 from .exchange import Exchange
 from .logger import journal, log
 from .orderflow import cvd_from_series, fetch_taker
+from .settings_store import RuntimeSettings, liquidation_price, load_settings
 from .strategy_lab import decide_v4, precompute_v4
 
 _Sig = namedtuple("_Sig", ["side", "atr"])
@@ -44,6 +45,7 @@ class ForwardTester:
     fee: float = 0.04
     slippage: float = 0.02
     alt_refresh_s: int = 600
+    use_store: bool = False        # baca pengaturan UI (runtime.json) tiap siklus
 
     buffers: dict = field(default_factory=dict)
     last_closed: dict = field(default_factory=dict)
@@ -54,14 +56,23 @@ class ForwardTester:
     def __post_init__(self):
         self.ex = Exchange(self.settings)
         self.cfg = self.settings.raw
-        self.tf = self.cfg["market"]["timeframe"]
         self.htf_mult = self.cfg["strategy"]["htf_mult"]
         self.sessions = set(self.cfg["strategy"]["sessions"]) or None
         self.max_open = self.cfg["rotate"]["max_open_positions"]
         self.bt = Backtester(self.cfg, fee_pct=self.fee, slippage_pct=self.slippage)
+        self.risk_frac = self.cfg["risk"]["account_risk_pct"] / 100.0
+        self.rs: RuntimeSettings | None = None
+        self.balance_usd = 0.0
+        if self.use_store:
+            self.rs = load_settings()
+            self.symbols = self.rs.symbols
+            self.params = self.rs.params()
+            self.tf = self.rs.timeframe()
+            self.balance_usd = self.rs.balance_usd
+        else:
+            self.tf = self.cfg["market"]["timeframe"]
         self.bt.sl_mult = self.params["sl_atr_mult"]
         self.bt.tp_mult = self.params["tp_atr_mult"]
-        self.risk_frac = self.cfg["risk"]["account_risk_pct"] / 100.0
 
     def seed(self) -> None:
         for sym in self.symbols:
@@ -149,16 +160,91 @@ class ForwardTester:
         log.info(f"OPEN {sig.side.upper()} {sym} @ {pos['entry']:.6f} SL={pos['sl']:.6f} TP={pos['tp']:.6f}")
 
     def stats(self) -> dict:
+        eq = round(self.balance_usd, 2) if self.use_store else round(self.equity, 2)
         n = len(self.trades)
         if n == 0:
-            return {"trades": 0, "equity": self.equity}
+            return {"trades": 0, "equity": eq}
         rs = [t.r for t in self.trades]
         wins = [r for r in rs if r > 0]
         return {"trades": n, "win_rate": len(wins) / n * 100,
-                "expectancy_r": sum(rs) / n, "equity": round(self.equity, 2),
-                "open": len(self.open)}
+                "expectancy_r": sum(rs) / n, "equity": eq, "open": len(self.open)}
+
+    # ---------- mode store (USD leverage + likuidasi, diatur dari UI) ----------
+
+    def _apply_settings(self) -> RuntimeSettings:
+        rs = load_settings()
+        if rs.timeframe() != self.tf or set(rs.symbols) != set(self.symbols):
+            self.tf = rs.timeframe()
+            self.symbols = rs.symbols
+            self.buffers.clear()
+            self.last_closed.clear()
+            self.alt_raw.clear()
+            self.seed()
+        self.params = rs.params()
+        self.bt.sl_mult = rs.params()["sl_atr_mult"]
+        self.bt.tp_mult = rs.params()["tp_atr_mult"]
+        self.rs = rs
+        return rs
+
+    def _open_usd(self, sym: str, side: int, atr: float, rs: RuntimeSettings) -> None:
+        if self.balance_usd < rs.bet_usd:
+            return
+        price = float(self.ex.ticker(sym)["last"])
+        is_long = side == 1
+        slip = 1 + self.slippage / 100 if is_long else 1 - self.slippage / 100
+        entry = price * slip
+        qty = (rs.bet_usd * rs.leverage) / entry
+        sl = entry - atr * self.bt.sl_mult if is_long else entry + atr * self.bt.sl_mult
+        if rs.target_profit_pct > 0:
+            tp = entry * (1 + rs.target_profit_pct / 100) if is_long else entry * (1 - rs.target_profit_pct / 100)
+        else:
+            tp = entry + atr * self.bt.tp_mult if is_long else entry - atr * self.bt.tp_mult
+        liq = liquidation_price(entry, is_long, rs.liquidation_frac())
+        self.open[sym] = {"side": "long" if is_long else "short", "entry": entry, "qty": qty,
+                          "sl": sl, "tp": tp, "liq": liq, "bet": rs.bet_usd}
+        journal("forward_open", {"symbol": sym, "side": self.open[sym]["side"], "entry": entry,
+                                 "sl": sl, "tp": tp, "liq": liq, "lev": rs.leverage, "bet": rs.bet_usd})
+        log.info(f"OPEN {self.open[sym]['side'].upper()} {sym} x{rs.leverage} bet=${rs.bet_usd} "
+                 f"@ {entry:.4f} SL={sl:.4f} TP={tp:.4f} LIQ={liq:.4f}")
+
+    def _close_usd(self, sym: str, price: float, reason: str) -> None:
+        pos = self.open.pop(sym)
+        is_long = pos["side"] == "long"
+        exit_fill = price * (1 - self.slippage / 100 if is_long else 1 + self.slippage / 100)
+        if reason == "liq":
+            pnl = -pos["bet"]                       # rugi seluruh margin
+        else:
+            move = (exit_fill - pos["entry"]) if is_long else (pos["entry"] - exit_fill)
+            fee = self.fee / 100 * (pos["entry"] + exit_fill) * pos["qty"]
+            pnl = max(pos["qty"] * move - fee, -pos["bet"])  # rugi maksimum = margin
+        self.balance_usd += pnl
+        r = pnl / pos["bet"] if pos["bet"] else 0.0
+        self.trades.append(namedtuple("T", ["r"])(r))
+        journal("forward_close", {"symbol": sym, "exit": round(exit_fill, 6), "reason": reason,
+                                  "pnl_usd": round(pnl, 4), "r": round(r, 4),
+                                  "equity": round(self.balance_usd, 2)})
+        log.info(f"CLOSE {reason.upper()} {sym} pnl=${pnl:+.2f} bal=${self.balance_usd:.2f}")
+
+    def _monitor_usd(self, sym: str) -> None:
+        if sym not in self.open:
+            return
+        try:
+            price = float(self.ex.ticker(sym)["last"])
+        except Exception as e:  # boundary
+            log.warning(f"ticker {sym}: {e}")
+            return
+        pos = self.open[sym]
+        long = pos["side"] == "long"
+        if (price <= pos["liq"]) if long else (price >= pos["liq"]):
+            self._close_usd(sym, pos["liq"], "liq")           # likuidasi lebih dulu
+        elif (price <= pos["sl"]) if long else (price >= pos["sl"]):
+            self._close_usd(sym, pos["sl"], "sl")
+        elif (price >= pos["tp"]) if long else (price <= pos["tp"]):
+            self._close_usd(sym, pos["tp"], "tp")
 
     def on_cycle(self) -> None:
+        if self.use_store:
+            return self._on_cycle_store()
         for sym in self.symbols:
             self._monitor(sym)
             buf = self._update_buffer(sym)
@@ -168,6 +254,22 @@ class ForwardTester:
             if df_closed.index[-1] != self.last_closed.get(sym):
                 self.last_closed[sym] = df_closed.index[-1]
                 self._maybe_open(sym, df_closed)
+
+    def _on_cycle_store(self) -> None:
+        rs = self._apply_settings()
+        for sym in self.symbols:
+            self._monitor_usd(sym)
+            buf = self._update_buffer(sym)
+            if buf is None or len(buf) < 60:
+                continue
+            df_closed = buf.iloc[:-1]
+            if df_closed.index[-1] != self.last_closed.get(sym):
+                self.last_closed[sym] = df_closed.index[-1]
+                if not rs.enabled or sym in self.open or len(self.open) >= self.max_open:
+                    continue
+                side, atr = self._signal(sym, df_closed)
+                if side != 0 and atr > 0:
+                    self._open_usd(sym, side, atr, rs)
 
     def run(self, poll_s: int = 30) -> None:
         self.seed()

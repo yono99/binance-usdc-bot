@@ -11,7 +11,7 @@ services:
   bot:
     build: .
     image: usdc-bot:latest
-    command: python forwardtest.py --poll 30
+    command: python forwardtest.py --poll 30 --use-store
     # forward-test paper hanya butuh MODE=dry (tanpa API key).
     # Untuk testnet/live nanti: buat .env lalu aktifkan baris env_file di bawah.
     # env_file: .env
@@ -30,7 +30,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./logs:/app/logs:ro
+      - ./logs:/app/logs        # rw: dashboard menulis runtime.json (pengaturan UI)
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/api/stats')"]

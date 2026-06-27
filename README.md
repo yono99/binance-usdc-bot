@@ -109,6 +109,28 @@ docker compose down               # stop
 - Default `MODE=dry` (forward-test paper, tanpa API key). Ganti via `MODE=test docker compose up -d`.
 - Cocok untuk VPS kecil mana saja (lihat catatan deploy: hindari serverless untuk proses always-on).
 
+## Panel kontrol di dashboard (atur dari UI)
+
+Dashboard punya **Kontrol Bot**: atur dari browser, bot menerapkannya tiap siklus
+(hot-reload via `logs/runtime.json`). Jalankan bot dengan `--use-store`:
+
+```bash
+python forwardtest.py --poll 30 --use-store    # baca pengaturan UI
+python dashboard.py                            # atur di http://127.0.0.1:8000
+```
+
+Yang bisa diatur: **Status ON/OFF**, **Teknik** (`scalping` 5m · `swing` 1h · `auto`
+= smart autopilot 15m + regime trend/mean-reversion), **Pair**, **Leverage**, **Bet/margin
+(USD)**, **Saldo**, **Target profit %**. Sizing = `bet × leverage`, dengan **simulasi
+likuidasi jujur**.
+
+> ⚠️ **PERINGATAN LEVERAGE (ditampilkan juga di UI).** Leverage tinggi = judi, bukan trading.
+> Pada **x100**, gerakan melawan **~0.5%** sudah **likuidasi** (modal habis) — dan SL berbasis
+> ATR biasanya lebih lebar, jadi posisi kena likuidasi **lebih dulu**. Ini matematika, bukan
+> pendapat. "Smart autopilot" **bukan** mesin profit: backtest strategi ini masih **impas**.
+> Forward-test ini paper (uang palsu) — tempat aman untuk **melihat sendiri** x100 kena
+> likuidasi tanpa kehilangan uang nyata.
+
 ## Dashboard monitoring (web)
 
 ```bash
@@ -186,6 +208,7 @@ python -m svc.run
 - [x] Forward-test paper di data LIVE (parameter tetap, log R-multiple) — `forwardtest.py`
 - [x] Dashboard web monitoring (FastAPI, auto-refresh) — `dashboard.py`
 - [x] Deploy Docker (bot + dashboard, volume bersama) — `Dockerfile` + `docker-compose.yml`
+- [x] Panel kontrol UI: teknik (scalping/swing/auto), leverage, bet, target profit + likuidasi
 - [ ] Jalankan forward-test berhari-hari → simpulkan edge dari sampel forward
 
 ### Lintasan edge (OOS, walk-forward — BTC/ETH/SOL)

@@ -30,6 +30,8 @@ def parse_args():
     p.add_argument("--no-funding", action="store_true")
     p.add_argument("--oi", action="store_true")
     p.add_argument("--no-of", action="store_true")
+    p.add_argument("--use-store", action="store_true",
+                   help="baca pengaturan dari UI (runtime.json) tiap siklus")
     p.add_argument("--once", action="store_true")
     return p.parse_args()
 
@@ -52,7 +54,7 @@ def main() -> None:
     params["use_oi"] = args.oi
     params["use_of"] = not args.no_of
 
-    ft = ForwardTester(settings, symbols, params, equity=args.equity)
+    ft = ForwardTester(settings, symbols, params, equity=args.equity, use_store=args.use_store)
 
     if args.once:
         ft.seed()

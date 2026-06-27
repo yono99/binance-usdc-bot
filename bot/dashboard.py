@@ -9,8 +9,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from dataclasses import asdict
+
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
+
+from .settings_store import PRESETS, RuntimeSettings, load_settings, save_settings
 
 ROOT = Path(__file__).resolve().parent.parent
 JOURNAL = ROOT / "logs" / "trades.jsonl"
@@ -97,6 +101,29 @@ def api_stats() -> JSONResponse:
     return JSONResponse(compute_stats())
 
 
+@app.get("/api/settings")
+def api_get_settings() -> JSONResponse:
+    s = load_settings()
+    d = asdict(s)
+    d["techniques"] = list(PRESETS)
+    d["timeframe"] = s.timeframe()
+    d["liq_pct"] = round(s.liquidation_frac() * 100, 3)
+    return JSONResponse(d)
+
+
+@app.post("/api/settings")
+def api_set_settings(payload: dict) -> JSONResponse:
+    known = set(RuntimeSettings().__dict__)
+    if isinstance(payload.get("symbols"), str):
+        payload["symbols"] = [x.strip() for x in payload["symbols"].split(",") if x.strip()]
+    s = RuntimeSettings(**{k: v for k, v in payload.items() if k in known}).clamp()
+    save_settings(s)
+    d = asdict(s)
+    d["timeframe"] = s.timeframe()
+    d["liq_pct"] = round(s.liquidation_frac() * 100, 3)
+    return JSONResponse(d)
+
+
 @app.get("/", response_class=HTMLResponse)
 def index() -> str:
     return PAGE
@@ -128,6 +155,13 @@ PAGE = """<!doctype html>
   th:first-child,td:first-child{text-align:left}
   th{color:var(--mut);font-weight:600;font-size:12px}
   .empty{color:var(--mut);padding:18px;text-align:center}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:12px}
+  label{display:flex;flex-direction:column;gap:4px;color:var(--mut);font-size:12px}
+  input,select{background:#0b1220;border:1px solid var(--bd);color:var(--fg);border-radius:8px;padding:8px;font-size:14px}
+  button{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:9px 16px;font-weight:600;cursor:pointer}
+  button:hover{opacity:.9}
+  .danger{background:rgba(239,68,68,.12);border:1px solid var(--red);color:#fca5a5;padding:10px 12px;border-radius:8px;margin-bottom:12px;font-size:13px}
+  .ok{background:rgba(34,197,94,.1);border:1px solid var(--green);color:#86efac;padding:10px 12px;border-radius:8px;margin-bottom:12px;font-size:13px}
   .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);margin-right:6px;animation:p 2s infinite}
   @keyframes p{50%{opacity:.3}}
 </style></head>
@@ -135,6 +169,22 @@ PAGE = """<!doctype html>
 <header><div><h1>Bot Monitor</h1><div class="sub">Forward-test (paper) · data live</div></div>
   <div class="sub"><span class="dot"></span><span id="upd">memuat…</span></div></header>
 <div class="wrap">
+  <div class="panel" id="ctl">
+    <h2>Kontrol Bot (paper)</h2>
+    <div id="warn"></div>
+    <div class="grid">
+      <label>Status<select id="enabled"><option value="false">OFF</option><option value="true">ON (buka posisi)</option></select></label>
+      <label>Teknik<select id="technique"></select></label>
+      <label>Pair (pisah koma)<input id="symbols" placeholder="BTC/USDC:USDC,ETH/USDC:USDC"></label>
+      <label>Leverage (x)<input id="leverage" type="number" min="1" max="125"></label>
+      <label>Bet / margin (USD)<input id="bet_usd" type="number" min="0.1" step="0.1"></label>
+      <label>Saldo (USD)<input id="balance_usd" type="number" min="0" step="0.1"></label>
+      <label>Target profit % (0=ATR)<input id="target_profit_pct" type="number" min="0" step="0.1"></label>
+      <label>Timeframe (otomatis)<input id="tf" disabled></label>
+    </div>
+    <button id="save">Simpan pengaturan</button>
+    <span id="saved" class="sub"></span>
+  </div>
   <div class="cards" id="cards"></div>
   <div class="panel"><h2>Kurva Equity</h2><canvas id="eq" height="90"></canvas></div>
   <div class="panel"><h2>Posisi Terbuka</h2><div id="open"></div></div>
@@ -180,5 +230,45 @@ async function load(){
       y:{grid:{color:'#243049'},ticks:{color:'#8aa0c0'}}}}});
   document.getElementById('upd').textContent='diperbarui '+new Date().toLocaleTimeString();
 }
+function riskWarn(lev, liq){
+  const w=document.getElementById('warn');
+  if(lev>=50) w.innerHTML=`<div class="danger">⚠ Leverage ${lev}x: gerakan melawan ~${liq}% = LIKUIDASI (modal habis). SL berbasis ATR biasanya lebih lebar, jadi posisi kena likuidasi lebih dulu. Ini judi, bukan trading. Backtest strategi ini masih impas.</div>`;
+  else if(lev>=20) w.innerHTML=`<div class="danger">⚠ Leverage ${lev}x berisiko tinggi: likuidasi pada gerakan ~${liq}%.</div>`;
+  else w.innerHTML='';
+}
+async function loadSettings(){
+  const s=await (await fetch('/api/settings')).json();
+  const sel=document.getElementById('technique');
+  sel.innerHTML=s.techniques.map(t=>`<option value="${t}">${t}</option>`).join('');
+  document.getElementById('enabled').value=String(s.enabled);
+  sel.value=s.technique;
+  document.getElementById('symbols').value=(s.symbols||[]).join(',');
+  document.getElementById('leverage').value=s.leverage;
+  document.getElementById('bet_usd').value=s.bet_usd;
+  document.getElementById('balance_usd').value=s.balance_usd;
+  document.getElementById('target_profit_pct').value=s.target_profit_pct;
+  document.getElementById('tf').value=s.timeframe;
+  riskWarn(s.leverage, s.liq_pct);
+}
+document.getElementById('leverage').addEventListener('input',e=>{
+  const lev=+e.target.value||1; riskWarn(lev, (Math.max(1/lev-0.005,0.0005)*100).toFixed(3));
+});
+document.getElementById('save').addEventListener('click',async()=>{
+  const body={
+    enabled:document.getElementById('enabled').value==='true',
+    technique:document.getElementById('technique').value,
+    symbols:document.getElementById('symbols').value,
+    leverage:+document.getElementById('leverage').value,
+    bet_usd:+document.getElementById('bet_usd').value,
+    balance_usd:+document.getElementById('balance_usd').value,
+    target_profit_pct:+document.getElementById('target_profit_pct').value,
+  };
+  const s=await (await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+  document.getElementById('tf').value=s.timeframe;
+  riskWarn(s.leverage, s.liq_pct);
+  const el=document.getElementById('saved'); el.textContent=' tersimpan ✓ (bot menerapkan tiap siklus)';
+  setTimeout(()=>el.textContent='',4000);
+});
+loadSettings();
 load();setInterval(load,10000);
 </script></body></html>"""
