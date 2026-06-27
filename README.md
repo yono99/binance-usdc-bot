@@ -108,6 +108,7 @@ docker compose down               # stop
 - `restart: unless-stopped` → otomatis hidup lagi bila crash/reboot.
 - Default `MODE=dry` (forward-test paper, tanpa API key). Ganti via `MODE=test docker compose up -d`.
 - Cocok untuk VPS kecil mana saja (lihat catatan deploy: hindari serverless untuk proses always-on).
+- **Proxmox / server lokal (Debian, DNS 1.1.1.1): lihat [DEPLOY.md](DEPLOY.md).**
 
 ## Panel kontrol di dashboard (atur dari UI)
 
@@ -219,6 +220,7 @@ python -m svc.run
 | v2 +HTF+regime+sesi | −0.105 | 0.86 | 36 | membaik |
 | v3 +funding+OI | −0.017 | 0.97 | 45 | nyaris impas |
 | **v4 +orderflow/CVD** | **−0.007** | **0.99** | 40 | **impas (mentok)** |
+| v5 +event guard (reflek pasar) | −0.153 | 0.79 | 35 | tak membantu — toggle nambah overfit |
 
 > Empat lapisan fitur menggeser hasil dari −0.21R ke ~0, tapi **konvergen di IMPAS,
 > BUKAN profit** (PF 0.99). Kenaikan v3→v4 cuma +0.01R = **diminishing returns**:
