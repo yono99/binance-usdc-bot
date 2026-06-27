@@ -177,13 +177,14 @@ def api_ohlcv(symbol: str, tf: str = "15m", limit: int = 120) -> JSONResponse:
         return JSONResponse(c[1])
     try:
         df = _get_ex().ohlcv(symbol, tf, limit=limit)
-        data = {"symbol": symbol, "tf": tf,
-                "t": [i.isoformat() for i in df.index],
-                "close": [float(x) for x in df["close"]]}
+        bars = [{"x": int(i.timestamp() * 1000), "o": float(o), "h": float(h),
+                 "l": float(low), "c": float(c)}
+                for i, o, h, low, c in zip(df.index, df["open"], df["high"], df["low"], df["close"])]
+        data = {"symbol": symbol, "tf": tf, "bars": bars}
         _ohlcv_cache[ck] = (time.time(), data)
         return JSONResponse(data)
     except Exception as e:  # boundary
-        return JSONResponse({"symbol": symbol, "error": str(e)[:140], "t": [], "close": []})
+        return JSONResponse({"symbol": symbol, "error": str(e)[:140], "bars": []})
 
 
 @app.post("/api/validate-key")
@@ -228,7 +229,10 @@ PAGE = """<!doctype html>
 <html lang="id"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Bot Monitor — Forward Test</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3"></script>
+<script src="https://cdn.jsdelivr.net/npm/luxon@3"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@0.2.1"></script>
 <style>
   :root{--bg:#0b1220;--card:#131c2e;--bd:#243049;--fg:#e2e8f0;--mut:#8aa0c0;
         --green:#22c55e;--red:#ef4444;--accent:#6366f1}
@@ -380,23 +384,23 @@ let pxChart;
 async function loadChart(){
   const sym=document.getElementById('chartsym').value; if(!sym)return;
   const d=await (await fetch('/api/ohlcv?symbol='+encodeURIComponent(sym)+'&tf=15m&limit=120')).json();
-  if(!d.close||!d.close.length)return;
-  const labels=d.t.map(x=>x.slice(11,16));
-  const flat=v=>d.close.map(()=>v);
-  const ds=[{label:'harga',data:d.close,borderColor:'#6366f1',backgroundColor:'rgba(99,102,241,.1)',
-             fill:true,tension:.2,pointRadius:0,borderWidth:2}];
+  if(!d.bars||!d.bars.length)return;
+  const ds=[{label:sym,type:'candlestick',data:d.bars,
+             color:{up:'#22c55e',down:'#ef4444',unchanged:'#94a3b8'},
+             borderColor:{up:'#22c55e',down:'#ef4444',unchanged:'#94a3b8'}}];
+  const x0=d.bars[0].x, x1=d.bars[d.bars.length-1].x;
   const st=window.lastStatus;
   const sm=st&&st.symbols&&st.symbols.find(x=>x.symbol===sym&&x.in_position);
   if(sm&&sm.position){const p=sm.position;
-    ds.push({label:'entry',data:flat(p.entry),borderColor:'#94a3b8',borderWidth:1,pointRadius:0,borderDash:[4,3]});
-    ds.push({label:'SL',data:flat(p.sl),borderColor:'#ef4444',borderWidth:1,pointRadius:0});
-    ds.push({label:'TP',data:flat(p.tp),borderColor:'#22c55e',borderWidth:1,pointRadius:0});
-    ds.push({label:'LIQ',data:flat(p.liq),borderColor:'#b91c1c',borderWidth:1.5,pointRadius:0,borderDash:[2,2]});
+    const hl=(v,col,dash)=>({type:'line',label:'',data:[{x:x0,y:v},{x:x1,y:v}],
+      borderColor:col,borderWidth:1,pointRadius:0,borderDash:dash||[]});
+    ds.push(hl(p.entry,'#94a3b8',[4,3]),hl(p.sl,'#ef4444'),hl(p.tp,'#22c55e'),hl(p.liq,'#b91c1c',[2,2]));
   }
-  if(pxChart){pxChart.data.labels=labels;pxChart.data.datasets=ds;pxChart.update();}
-  else pxChart=new Chart(document.getElementById('px'),{type:'line',data:{labels,datasets:ds},
-    options:{plugins:{legend:{display:true,labels:{color:'#8aa0c0',boxWidth:10,font:{size:10}}}},
-      scales:{x:{display:false},y:{grid:{color:'#243049'},ticks:{color:'#8aa0c0'}}}}});
+  const opts={plugins:{legend:{display:false},tooltip:{enabled:true}},
+    scales:{x:{type:'time',time:{unit:'hour'},grid:{display:false},ticks:{color:'#8aa0c0',maxRotation:0}},
+            y:{grid:{color:'#243049'},ticks:{color:'#8aa0c0'}}}};
+  if(pxChart){pxChart.data.datasets=ds;pxChart.update();}
+  else pxChart=new Chart(document.getElementById('px'),{type:'candlestick',data:{datasets:ds},options:opts});
 }
 document.getElementById('chartsym').addEventListener('change',loadChart);
 document.getElementById('vbtn').addEventListener('click',async()=>{
