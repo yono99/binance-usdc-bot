@@ -157,15 +157,28 @@ def build_grid(conf_list, sl_list, tp_list) -> list[dict]:
     return grid
 
 
-def walk_forward(df: pd.DataFrame, cfg: dict, grid: list[dict], bt: Backtester,
-                 train_len: int, test_len: int, min_trades: int = 15):
-    f = precompute(df, cfg)
+def _side_key(g: dict):
+    """Kunci cache side: semua param kecuali yang hanya memengaruhi exit (sl/tp)."""
+    items = []
+    for k, v in g.items():
+        if k in ("sl_atr_mult", "tp_atr_mult"):
+            continue
+        items.append((k, tuple(v) if isinstance(v, (list, set)) else v))
+    return tuple(sorted(items))
+
+
+def run_walk(df: pd.DataFrame, cfg: dict, grid: list[dict], bt: Backtester, f: Features,
+             make_side, train_len: int, test_len: int, min_trades: int):
+    """Walk-forward generik. `make_side(g)->np.ndarray` menghasilkan side untuk param g."""
     warm = warmup(cfg)
     n = len(df)
+    cache: dict = {}
 
-    # cache side per entry_confidence unik (hemat hitung ulang)
-    confs = sorted({g["entry_confidence"] for g in grid})
-    side_cache = {c: decide(f, c) for c in confs}
+    def side_for(g: dict) -> np.ndarray:
+        key = _side_key(g)
+        if key not in cache:
+            cache[key] = make_side(g)
+        return cache[key]
 
     results: list[WindowResult] = []
     oos_trades: list[Trade] = []
@@ -177,8 +190,7 @@ def walk_forward(df: pd.DataFrame, cfg: dict, grid: list[dict], bt: Backtester,
 
         best, best_exp = None, float("-inf")
         for g in grid:
-            tr = simulate(bt, f, side_cache[g["entry_confidence"]], tr0, tr1,
-                          g["sl_atr_mult"], g["tp_atr_mult"])
+            tr = simulate(bt, f, side_for(g), tr0, tr1, g["sl_atr_mult"], g["tp_atr_mult"])
             if len(tr) < min_trades:
                 continue
             e = expectancy(tr)
@@ -186,16 +198,20 @@ def walk_forward(df: pd.DataFrame, cfg: dict, grid: list[dict], bt: Backtester,
                 best, best_exp = g, e
 
         if best is not None:
-            is_tr = simulate(bt, f, side_cache[best["entry_confidence"]], tr0, tr1,
-                             best["sl_atr_mult"], best["tp_atr_mult"])
-            te = simulate(bt, f, side_cache[best["entry_confidence"]], te0, te1,
-                          best["sl_atr_mult"], best["tp_atr_mult"])
+            is_tr = simulate(bt, f, side_for(best), tr0, tr1, best["sl_atr_mult"], best["tp_atr_mult"])
+            te = simulate(bt, f, side_for(best), te0, te1, best["sl_atr_mult"], best["tp_atr_mult"])
             oos_trades += te
-            results.append(WindowResult(
-                (tr0, tr1), (te0, te1), best, expectancy(is_tr), len(is_tr),
-                expectancy(te), len(te),
-            ))
+            results.append(WindowResult((tr0, tr1), (te0, te1), best,
+                                        expectancy(is_tr), len(is_tr), expectancy(te), len(te)))
 
         start += test_len
 
     return results, oos_trades
+
+
+def walk_forward(df: pd.DataFrame, cfg: dict, grid: list[dict], bt: Backtester,
+                 train_len: int, test_len: int, min_trades: int = 15):
+    """Strategi v1 (trend murni)."""
+    f = precompute(df, cfg)
+    return run_walk(df, cfg, grid, bt, f, lambda g: decide(f, g["entry_confidence"]),
+                    train_len, test_len, min_trades)

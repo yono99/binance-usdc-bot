@@ -20,12 +20,15 @@ from bot.config import load_settings
 from bot.exchange import Exchange
 from bot.logger import log
 from bot.optimize import build_grid, walk_forward
+from bot.strategy_lab import build_grid_v2, walk_forward_v2
 
 console = Console()
 
 
 def parse_args():
     p = argparse.ArgumentParser()
+    p.add_argument("--strategy", choices=["v1", "v2"], default="v2",
+                   help="v1=trend murni, v2=HTF+regime+sesi (default)")
     p.add_argument("--symbols", nargs="*")
     p.add_argument("--tf")
     p.add_argument("--bars", type=int, default=5000)
@@ -38,7 +41,16 @@ def parse_args():
     p.add_argument("--conf", nargs="*", type=float, default=[0.50, 0.55, 0.60, 0.65, 0.70])
     p.add_argument("--sl", nargs="*", type=float, default=[1.0, 1.5, 2.0])
     p.add_argument("--tp", nargs="*", type=float, default=[1.5, 2.0, 2.5, 3.0])
+    p.add_argument("--htf-mult", type=int, help="override strategy.htf_mult")
+    p.add_argument("--sessions", nargs="*", type=int, help="jam UTC diizinkan (v2)")
     return p.parse_args()
+
+
+def params_str(p: dict) -> str:
+    base = f"{p['entry_confidence']}/{p['sl_atr_mult']}/{p['tp_atr_mult']}"
+    if "use_htf" in p:
+        base += f" htf={int(p['use_htf'])} reg={int(p['regime'])}"
+    return base
 
 
 def main() -> None:
@@ -50,9 +62,23 @@ def main() -> None:
 
     ex = Exchange(settings)
     bt = Backtester(cfg, fee_pct=args.fee, slippage_pct=args.slippage)
-    grid = build_grid(args.conf, args.sl, args.tp)
-    log.info(f"Walk-forward tf={tf} bars={args.bars} train={args.train} test={args.test} "
-             f"grid={len(grid)} kombinasi/window symbols={symbols}")
+
+    htf_mult = args.htf_mult or cfg["strategy"]["htf_mult"]
+    sessions = set(args.sessions) if args.sessions else (set(cfg["strategy"]["sessions"]) or None)
+    if args.strategy == "v2":
+        grid = build_grid_v2(args.conf, args.sl, args.tp, [False, True], [False, True])
+
+        def run_wf(df):
+            return walk_forward_v2(df, cfg, grid, bt, args.train, args.test,
+                                   args.min_trades, htf_mult, sessions)
+    else:
+        grid = build_grid(args.conf, args.sl, args.tp)
+
+        def run_wf(df):
+            return walk_forward(df, cfg, grid, bt, args.train, args.test, args.min_trades)
+
+    log.info(f"Walk-forward strategy={args.strategy} tf={tf} bars={args.bars} "
+             f"train={args.train} test={args.test} grid={len(grid)}/window symbols={symbols}")
 
     all_oos = []
     chosen = Counter()
@@ -64,24 +90,20 @@ def main() -> None:
             log.error(f"fetch {sym} gagal: {e}")
             continue
 
-        results, oos = walk_forward(df, cfg, grid, bt, args.train, args.test, args.min_trades)
+        results, oos = run_wf(df)
         all_oos += oos
         if not results:
             log.warning(f"{sym}: data kurang untuk walk-forward")
             continue
 
         tbl = Table(title=f"{sym} — walk-forward ({len(results)} window)")
-        for c in ["window", "params (conf/sl/tp)", "IS exp_R", "IS n", "OOS exp_R", "OOS n"]:
+        for c in ["window", "params", "IS exp_R", "IS n", "OOS exp_R", "OOS n"]:
             tbl.add_column(c, justify="right")
         for i, w in enumerate(results):
             p = w.params
-            chosen[(p["entry_confidence"], p["sl_atr_mult"], p["tp_atr_mult"])] += 1
-            tbl.add_row(
-                str(i + 1),
-                f"{p['entry_confidence']}/{p['sl_atr_mult']}/{p['tp_atr_mult']}",
-                f"{w.is_exp:+.3f}", str(w.is_n),
-                f"{w.oos_exp:+.3f}", str(w.oos_n),
-            )
+            chosen[params_str(p)] += 1
+            tbl.add_row(str(i + 1), params_str(p), f"{w.is_exp:+.3f}", str(w.is_n),
+                        f"{w.oos_exp:+.3f}", str(w.oos_n))
         console.print(tbl)
 
     if not all_oos:

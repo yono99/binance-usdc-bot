@@ -135,7 +135,9 @@ python -m svc.run
 - [x] Unit test: Python **23** (`pytest`) + Rust **8** (`cargo test`)
 - [x] Backtester expectancy (R-multiple, fee+slippage, tanpa lookahead) — `backtest.py`
 - [x] Sweep + walk-forward (anti-overfit, verdict OOS) — `optimize.py`
-- [ ] **Perbaikan fitur sinyal** (tuning terbukti tak cukup — IS positif, OOS negatif)
+- [x] Strategi v2: filter HTF + regime trend/mean-reversion + sesi — `bot/strategy_lab.py`
+      (OOS membaik −0.21R→−0.10R, PF 0.71→0.86, tapi BELUM positif)
+- [ ] Fitur alpha tambahan (funding/OI/orderflow) — OHLCV saja belum cukup edge
 - [ ] Close/exit event dari core → svc (slot release otomatis di mode polyglot)
 - [ ] User-data stream (fill realtime) + trailing stop sisi exchange
 - [ ] Dashboard PnL + notifikasi Telegram

@@ -51,6 +51,15 @@ risk:
   trailing: true
   trailing_atr_mult: 1.2
 
+strategy:
+  # enhancement (dipakai optimize --strategy v2; live menyusul bila OOS positif)
+  htf_mult: 4              # timeframe filter = timeframe × ini (mis. 15m×4 = 1h)
+  adx_strong: 25           # adx ≥ ini -> mode trend-follow
+  adx_range: 18            # adx ≤ ini -> mode mean-reversion (fade ekstrem)
+  mr_rsi_low: 30           # MR long bila rsi < ini
+  mr_rsi_high: 70          # MR short bila rsi > ini
+  sessions: []             # jam UTC yang diizinkan; [] = semua jam
+
 gemini:
   # peran: confirm | veto | off  (lihat README)
   role: "veto"
