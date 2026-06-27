@@ -19,6 +19,7 @@ from .settings_store import PRESETS, RuntimeSettings, load_settings, save_settin
 ROOT = Path(__file__).resolve().parent.parent
 JOURNAL = ROOT / "logs" / "trades.jsonl"
 STATUS = ROOT / "logs" / "status.json"
+CLOSE_REQ = ROOT / "logs" / "close_requests.json"
 
 
 def read_events(path: Path) -> list[dict]:
@@ -207,6 +208,24 @@ def api_validate_key(payload: dict) -> JSONResponse:
         return JSONResponse({"valid": False, "error": str(e)[:160]})
 
 
+@app.post("/api/close")
+def api_close(payload: dict) -> JSONResponse:
+    """Antrekan permintaan tutup posisi; engine memprosesnya siklus berikutnya."""
+    sym = payload.get("symbol")
+    if not sym:
+        return JSONResponse({"ok": False, "error": "symbol kosong"})
+    reqs = []
+    if CLOSE_REQ.exists():
+        try:
+            reqs = json.loads(CLOSE_REQ.read_text(encoding="utf-8"))
+        except Exception:
+            reqs = []
+    if sym not in reqs:
+        reqs.append(sym)
+    CLOSE_REQ.write_text(json.dumps(reqs), encoding="utf-8")
+    return JSONResponse({"ok": True, "queued": sym})
+
+
 @app.post("/api/settings")
 def api_set_settings(payload: dict) -> JSONResponse:
     known = set(RuntimeSettings().__dict__)
@@ -264,6 +283,7 @@ PAGE = """<!doctype html>
   .danger{background:rgba(239,68,68,.12);border:1px solid var(--red);color:#fca5a5;padding:10px 12px;border-radius:8px;margin-bottom:12px;font-size:13px}
   .ok{background:rgba(34,197,94,.1);border:1px solid var(--green);color:#86efac;padding:10px 12px;border-radius:8px;margin-bottom:12px;font-size:13px}
   .line{font-size:14px;line-height:1.9}.line b{color:var(--fg)}
+  .btnsm{background:var(--red);padding:4px 10px;font-size:12px;border-radius:6px}
   .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);margin-right:6px;animation:p 2s infinite}
   @keyframes p{50%{opacity:.3}}
 </style></head>
@@ -408,6 +428,11 @@ async function loadChart(){
   if(pxChart){pxChart.data.datasets=ds;pxChart.update();}
   else pxChart=new Chart(document.getElementById('px'),{type:'candlestick',data:{datasets:ds},options:opts});
 }
+async function closePos(sym){
+  if(!confirm('Tutup paksa posisi '+sym+'? (diproses ≤1 siklus)'))return;
+  await fetch('/api/close',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({symbol:sym})});
+  loadStatus();
+}
 document.getElementById('chartsym').addEventListener('change',loadChart);
 document.getElementById('charttf').addEventListener('change',loadChart);
 document.getElementById('vbtn').addEventListener('click',async()=>{
@@ -463,7 +488,8 @@ async function loadStatus(){
      {t:'Sinyal',f:r=>r.signal||'—',cls:r=>r.signal==='LONG'?'pos':(r.signal==='SHORT'?'neg':'')},
      {t:'Posisi (PnL)',f:r=>r.in_position?`${r.position.side.toUpperCase()} ${(r.position.pnl_usd>=0?'+':'')+f(r.position.pnl_usd,2)}`:'—',
       cls:r=>r.in_position?(r.position.pnl_usd>=0?'pos':'neg'):''},
-     {t:'Keterangan',f:r=>r.blocked||'—'}],
+     {t:'Keterangan',f:r=>r.blocked||'—'},
+     {t:'Aksi',f:r=>r.in_position?`<button class="btnsm" onclick="closePos('${r.symbol}')">Close</button>`:'—'}],
     s.symbols||[]);
 }
 loadSettings();

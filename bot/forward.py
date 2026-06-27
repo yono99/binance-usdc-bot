@@ -265,8 +265,34 @@ class ForwardTester:
                 if not news_veto:
                     self._maybe_open(sym, df_closed)
 
+    def _process_close_requests(self) -> None:
+        """Tutup paksa posisi yang diminta dari UI (logs/close_requests.json)."""
+        p = LOG_DIR / "close_requests.json"
+        if not p.exists():
+            return
+        try:
+            reqs = _json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            return
+        if not reqs:
+            return
+        remaining = []
+        for sym in reqs:
+            if sym in self.open:
+                try:
+                    price = float(self.ex.ticker(sym)["last"])
+                except Exception:  # boundary — coba lagi siklus berikutnya
+                    remaining.append(sym)
+                    continue
+                self._close_usd(sym, price, "manual")
+        try:
+            p.write_text(_json.dumps(remaining), encoding="utf-8")
+        except Exception as e:  # boundary
+            log.warning(f"tulis close_requests gagal: {e}")
+
     def _on_cycle_store(self) -> None:
         rs = self._apply_settings()
+        self._process_close_requests()
         news_veto, note = (self.news.check() if rs.enabled else (False, "off"))
         if news_veto:
             log.info(f"News veto aktif ({note}) — tidak buka posisi baru siklus ini")
