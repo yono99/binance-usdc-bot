@@ -1,6 +1,6 @@
 import json
 
-from bot.dashboard import compute_stats
+from bot.dashboard import build_trades, compute_stats, filter_trades
 
 
 def _write(path, rows):
@@ -32,6 +32,26 @@ def test_compute_stats_from_journal(tmp_path):
     assert len(s["open_positions"]) == 1 and s["open_positions"][0]["symbol"] == "BTCUSDC"
     assert len(s["per_symbol"]) == 3
     assert s["equity_curve"][0] == 1000
+
+
+def test_build_and_filter_trades():
+    events = [
+        {"event": "forward_open", "symbol": "BTCUSDC", "side": "long", "entry": 100, "sl": 98,
+         "tp": 105, "ts": "2026-01-01T00:00:00+00:00"},
+        {"event": "forward_close", "symbol": "BTCUSDC", "exit": 105, "reason": "tp", "r": 1.5,
+         "pnl_usd": 18, "equity": 1018, "ts": "2026-01-01T01:00:00+00:00"},
+        {"event": "forward_open", "symbol": "ETHUSDC", "side": "short", "entry": 50, "sl": 51,
+         "tp": 47, "ts": "2026-01-02T00:00:00+00:00"},
+        {"event": "forward_close", "symbol": "ETHUSDC", "exit": 51, "reason": "liq", "r": -1,
+         "pnl_usd": -12, "equity": 1006, "ts": "2026-01-02T03:00:00+00:00"},
+    ]
+    tr = build_trades(events)
+    assert len(tr) == 2
+    assert tr[0]["symbol"] == "BTCUSDC" and tr[0]["entry"] == 100 and tr[0]["exit"] == 105
+    assert len(filter_trades(tr, reason="liq")) == 1
+    assert len(filter_trades(tr, symbol="eth")) == 1
+    assert len(filter_trades(tr, dfrom="2026-01-02")) == 1
+    assert len(filter_trades(tr, dto="2026-01-01")) == 1
 
 
 def test_compute_stats_empty(tmp_path):

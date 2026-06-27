@@ -11,8 +11,11 @@ from pathlib import Path
 
 from dataclasses import asdict
 
+import csv as csvmod
+import io
+
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 
 from .settings_store import PRESETS, RuntimeSettings, load_settings, save_settings
 
@@ -100,7 +103,69 @@ def compute_stats(path: Path | None = None, start_equity: float = 1000.0) -> dic
     }
 
 
+def build_trades(events: list[dict]) -> list[dict]:
+    """Rekonstruksi trade lengkap: pasangkan forward_open dengan forward_close (per simbol)."""
+    open_map: dict = {}
+    trades = []
+    for e in events:
+        ev = e.get("event")
+        if ev == "forward_open":
+            open_map[e["symbol"]] = e
+        elif ev == "forward_close":
+            o = open_map.pop(e["symbol"], {})
+            trades.append({
+                "symbol": e.get("symbol"), "side": o.get("side"),
+                "entry": o.get("entry"), "exit": e.get("exit"),
+                "sl": o.get("sl"), "tp": o.get("tp"), "liq": o.get("liq"),
+                "lev": o.get("lev"), "bet": o.get("bet"),
+                "r": e.get("r"), "pnl_usd": e.get("pnl_usd"),
+                "reason": e.get("reason"), "equity": e.get("equity"),
+                "open_ts": o.get("ts"), "close_ts": e.get("ts"),
+            })
+    return trades
+
+
+def filter_trades(trades: list[dict], symbol=None, reason=None, dfrom=None, dto=None) -> list[dict]:
+    out = []
+    for t in trades:
+        if symbol and symbol.lower() not in (t["symbol"] or "").lower():
+            continue
+        if reason and t["reason"] != reason:
+            continue
+        d = (t["close_ts"] or "")[:10]
+        if dfrom and d < dfrom:
+            continue
+        if dto and d > dto:
+            continue
+        out.append(t)
+    return out
+
+
+_TRADE_COLS = ["close_ts", "symbol", "side", "reason", "r", "pnl_usd", "entry", "exit",
+               "sl", "tp", "liq", "lev", "bet", "equity", "open_ts"]
+
+
 app = FastAPI(title="Bot Monitor")
+
+
+@app.get("/api/trades")
+def api_trades(symbol: str = None, reason: str = None, dfrom: str = None,
+               dto: str = None, limit: int = 500) -> JSONResponse:
+    trades = filter_trades(build_trades(read_events(JOURNAL)), symbol, reason, dfrom, dto)
+    return JSONResponse({"count": len(trades), "trades": trades[-limit:][::-1]})
+
+
+@app.get("/api/trades.csv")
+def api_trades_csv(symbol: str = None, reason: str = None, dfrom: str = None,
+                   dto: str = None) -> PlainTextResponse:
+    trades = filter_trades(build_trades(read_events(JOURNAL)), symbol, reason, dfrom, dto)
+    buf = io.StringIO()
+    w = csvmod.writer(buf)
+    w.writerow(_TRADE_COLS)
+    for t in trades:
+        w.writerow([t.get(c) for c in _TRADE_COLS])
+    return PlainTextResponse(buf.getvalue(), media_type="text/csv",
+                             headers={"Content-Disposition": "attachment; filename=trades.csv"})
 
 
 @app.get("/api/stats")
@@ -351,6 +416,17 @@ PAGE = """<!doctype html>
   <div class="panel"><h2>Posisi Terbuka</h2><div id="open"></div></div>
   <div class="panel"><h2>Per Simbol</h2><div id="sym"></div></div>
   <div class="panel"><h2>Trade Terakhir</h2><div id="recent"></div></div>
+  <div class="panel"><h2>Riwayat Trade
+    <a id="fcsv" href="/api/trades.csv" style="float:right;font-size:13px">⬇ Export CSV</a></h2>
+    <div class="grid" style="margin-bottom:12px">
+      <label>Pair<input id="fsym" placeholder="mis. BTC"></label>
+      <label>Reason<select id="freason"><option value="">semua</option><option>tp</option><option>sl</option><option>liq</option><option>manual</option><option>eod</option></select></label>
+      <label>Dari<input id="ffrom" type="date"></label>
+      <label>Sampai<input id="fto" type="date"></label>
+    </div>
+    <button id="fbtn">Filter</button> <span id="tcount" class="sub"></span>
+    <div id="thist" style="margin-top:10px"></div>
+  </div>
 </div>
 <script>
 let chart;
@@ -536,7 +612,33 @@ async function loadStatus(){
      {t:'Aksi',f:r=>r.in_position?`<button class="btnsm" onclick="closePos('${r.symbol}')">Close</button>`:'—'}],
     s.symbols||[]);
 }
+function tradeQ(){
+  const p=new URLSearchParams();
+  const s=document.getElementById('fsym').value.trim(); if(s)p.set('symbol',s);
+  const r=document.getElementById('freason').value; if(r)p.set('reason',r);
+  const a=document.getElementById('ffrom').value; if(a)p.set('dfrom',a);
+  const b=document.getElementById('fto').value; if(b)p.set('dto',b);
+  return p.toString();
+}
+async function loadTrades(){
+  const q=tradeQ();
+  document.getElementById('fcsv').href='/api/trades.csv'+(q?'?'+q:'');
+  const d=await (await fetch('/api/trades'+(q?'?'+q:''))).json();
+  document.getElementById('tcount').textContent=d.count+' trade';
+  document.getElementById('thist').innerHTML=table(
+    [{t:'Close',f:r=>(r.close_ts||'').slice(0,16).replace('T',' ')},
+     {t:'Pair',k:'symbol'},
+     {t:'Side',f:r=>(r.side||'').toUpperCase(),cls:r=>r.side==='long'?'pos':(r.side==='short'?'neg':'')},
+     {t:'Reason',f:r=>r.reason==='liq'?'⚠ LIQ':(r.reason||'—')},
+     {t:'R',f:r=>r.r!=null?((r.r>0?'+':'')+f(r.r,3)):'—',cls:r=>cls(r.r||0)},
+     {t:'PnL$',f:r=>r.pnl_usd!=null?((r.pnl_usd>=0?'+':'')+f(r.pnl_usd,2)):'—',cls:r=>r.pnl_usd!=null?(r.pnl_usd>=0?'pos':'neg'):''},
+     {t:'Entry',f:r=>r.entry!=null?f(r.entry,4):'—'},
+     {t:'Exit',f:r=>r.exit!=null?f(r.exit,4):'—'},
+     {t:'Equity',f:r=>r.equity!=null?f(r.equity,2):'—'}],
+    d.trades, r=>r.reason==='liq'?'liqrow':'');
+}
+document.getElementById('fbtn').addEventListener('click',loadTrades);
 loadSettings();
-function refresh(){load();loadStatus();loadChart();}
+function refresh(){load();loadStatus();loadChart();loadTrades();}
 refresh();setInterval(refresh,10000);
 </script></body></html>"""
