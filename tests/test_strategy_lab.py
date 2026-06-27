@@ -140,6 +140,16 @@ def test_orderflow_divergence_vetoes_all(cfg, make_df):
     assert np.all(side == 0)
 
 
+def test_default_forward_params_consumable(cfg, make_df):
+    from bot.forward import default_params
+    df = make_df(_trend(400))
+    n = len(df)
+    f4 = _f4(df, cfg, n, np.full(n, 0.1), np.zeros(n, dtype=bool))
+    side = decide_v4(f4, default_params(), cfg, None)
+    assert len(side) == n
+    assert set(np.unique(side)).issubset({-1, 0, 1})
+
+
 def test_walk_forward_v4_smoke(cfg, make_df):
     df = make_df(_trend(1500))
     n = len(df)

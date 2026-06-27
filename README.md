@@ -76,6 +76,25 @@ yang belum dilihat, lalu menggeser jendela maju. Verdict = expectancy **OOS**.
 > **overfitting**. Pelajaran: edge harus datang dari *fitur sinyal yang benar*,
 > bukan dari tuning angka. Inilah pengaman utama sebelum membuang uang live.
 
+## Forward-test (paper, data LIVE) — langkah sebelum mempertimbangkan uang
+
+```bash
+python forwardtest.py --once                 # uji satu siklus
+python forwardtest.py --poll 30              # jalan terus (Ctrl+C berhenti)
+python forwardtest.py --symbols "BTC/USDC:USDC" "ETH/USDC:USDC"
+```
+
+- **Data live nyata, eksekusi paper** (tanpa uang). Akuntansi identik backtest (fee+slippage).
+- **Parameter TETAP** selama jalan — TIDAK re-optimize (re-optimize sambil jalan = menipu diri).
+- Tiap trade dicatat ke `logs/forward_trades.jsonl` dengan R-multiple; statistik berjalan
+  (win%, expectancy R, equity) tercetak tiap siklus.
+
+> Cara pakai jujur: jalankan **berhari-hari/minggu** di beberapa pair. Bila `expectancy R`
+> tetap **> 0** pada sampel besar (puluhan+ trade) di data yang belum pernah dilihat,
+> barulah ada bukti edge. Bila ~0 atau negatif (seperti backtest), **jangan live.**
+> Catatan: Binance Testnet sering tak punya pair USDC & harganya tak realistis, jadi
+> paper-on-live-data ini lebih sahih untuk menilai edge daripada order di testnet.
+
 ## Konfigurasi (`config.yaml`)
 
 Semua strategi & batas risiko ada di sini — tidak ada angka ajaib di kode.
@@ -138,7 +157,8 @@ python -m svc.run
 - [x] Strategi v2: filter HTF + regime trend/mean-reversion + sesi — `bot/strategy_lab.py`
 - [x] Strategi v3: + funding rate + open interest — `bot/altdata.py`
 - [x] Strategi v4: + order flow / CVD (taker buy/sell) — `bot/orderflow.py`
-- [ ] (mentok) edge bar-resolution konvergen ke IMPAS; lanjut hanya via paper-trade/forward test
+- [x] Forward-test paper di data LIVE (parameter tetap, log R-multiple) — `forwardtest.py`
+- [ ] Jalankan forward-test berhari-hari → simpulkan edge dari sampel forward
 
 ### Lintasan edge (OOS, walk-forward — BTC/ETH/SOL)
 
