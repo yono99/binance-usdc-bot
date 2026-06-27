@@ -72,4 +72,4 @@ gemini:
   role: "veto"
   model: "gemini-2.5-flash"
   min_regime_score: 0.4     # bila Gemini nilai regime < ini -> skip entry
-  news_veto: false          # true = veto entry saat ada berita high-impact (real-time, butuh GEMINI_ENABLED)
+  news_veto: true           # veto entry saat ada berita high-impact (real-time, butuh GEMINI_ENABLED)
