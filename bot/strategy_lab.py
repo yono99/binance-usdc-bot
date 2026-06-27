@@ -220,3 +220,61 @@ def walk_forward_v4(df: pd.DataFrame, cfg: dict, grid: list[dict], bt: Backteste
     return run_walk(df, cfg, grid, bt, f4.v3.v2.base,
                     lambda g: decide_v4(f4, g, cfg, sessions),
                     train_len, test_len, min_trades)
+
+
+# ----------------------- v5: + event/volatility guard (reflek pasar) -----------------------
+
+@dataclass
+class FeaturesV5:
+    v4: FeaturesV4
+    event_recent: np.ndarray   # True bila ada lonjakan volume abnormal baru-baru ini
+
+
+def event_recent_flags(df: pd.DataFrame, cfg: dict) -> np.ndarray:
+    """Jejak berita di data: volume z-score > ambang = lonjakan; blokir N bar setelahnya."""
+    st = cfg["strategy"]
+    vol = df["volume"]
+    mean = vol.rolling(st["event_vol_window"]).mean()
+    std = vol.rolling(st["event_vol_window"]).std().replace(0, np.nan)
+    spike = ((vol - mean) / std > st["event_vol_z"]).fillna(False)
+    recent = spike.rolling(st["event_lookback"], min_periods=1).max().fillna(0)
+    return recent.to_numpy().astype(bool)
+
+
+def precompute_v5(df: pd.DataFrame, cfg: dict, htf_mult: int, funding_z: np.ndarray,
+                  oi_delta: np.ndarray, cvd_imb: np.ndarray, cvd_div: np.ndarray) -> FeaturesV5:
+    f4 = precompute_v4(df, cfg, htf_mult, funding_z, oi_delta, cvd_imb, cvd_div)
+    return FeaturesV5(f4, event_recent_flags(df, cfg))
+
+
+def decide_v5(f5: FeaturesV5, g: dict, cfg: dict, sessions: set | None) -> np.ndarray:
+    """Keputusan v4, lalu blokir entry saat pasar sedang bereaksi (lonjakan volume)."""
+    side = decide_v4(f5.v4, g, cfg, sessions).copy()
+    if g.get("use_event"):
+        side = np.where((side != 0) & f5.event_recent, 0, side)
+    return side.astype(int)
+
+
+def build_grid_v5(conf_list, sl_list, tp_list, htf_opts, regime_opts,
+                  funding_opts, oi_opts, of_opts, event_opts) -> list[dict]:
+    grid = []
+    for conf, sl, tp, htf, reg, fund, oi, of, ev in product(
+            conf_list, sl_list, tp_list, htf_opts, regime_opts,
+            funding_opts, oi_opts, of_opts, event_opts):
+        if tp <= sl * 0.6:
+            continue
+        grid.append({"entry_confidence": conf, "sl_atr_mult": sl, "tp_atr_mult": tp,
+                     "use_htf": htf, "regime": reg, "use_funding": fund,
+                     "use_oi": oi, "use_of": of, "use_event": ev})
+    return grid
+
+
+def walk_forward_v5(df: pd.DataFrame, cfg: dict, grid: list[dict], bt: Backtester,
+                    train_len: int, test_len: int, min_trades: int,
+                    htf_mult: int, sessions: set | None, funding_z: np.ndarray,
+                    oi_delta: np.ndarray, cvd_imb: np.ndarray, cvd_div: np.ndarray):
+    """Strategi v5 (v4 + event/volatility guard)."""
+    f5 = precompute_v5(df, cfg, htf_mult, funding_z, oi_delta, cvd_imb, cvd_div)
+    return run_walk(df, cfg, grid, bt, f5.v4.v3.v2.base,
+                    lambda g: decide_v5(f5, g, cfg, sessions),
+                    train_len, test_len, min_trades)
