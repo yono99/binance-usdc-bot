@@ -56,6 +56,8 @@ def compute_stats(path: Path | None = None, start_equity: float = 1000.0) -> dic
     gross_l = abs(sum(r for r in rs if r <= 0))
 
     equity_curve = [start_equity] + [float(e.get("equity", start_equity)) for e in closes]
+    # indeks titik likuidasi pada equity_curve (close ke-i -> titik i+1)
+    liq_points = [i + 1 for i, e in enumerate(closes) if e.get("reason") == "liq"]
 
     per: dict[str, list[float]] = {}
     for e in closes:
@@ -89,6 +91,7 @@ def compute_stats(path: Path | None = None, start_equity: float = 1000.0) -> dic
         "equity": round(equity_curve[-1], 2),
         "return_pct": round((equity_curve[-1] / start_equity - 1) * 100, 2),
         "equity_curve": equity_curve,
+        "liq_points": liq_points,
         "open_positions": open_positions,
         "per_symbol": per_symbol,
         "recent": recent,
@@ -230,11 +233,20 @@ async function load(){
     s.recent, r=>r.reason==='liq'?'liqrow':'');
   const ctx=document.getElementById('eq');
   const data=s.equity_curve, labels=data.map((_,i)=>i);
-  if(chart){chart.data.labels=labels;chart.data.datasets[0].data=data;chart.update()}
-  else chart=new Chart(ctx,{type:'line',data:{labels,datasets:[{data,borderColor:'#6366f1',
-    backgroundColor:'rgba(99,102,241,.15)',fill:true,tension:.25,pointRadius:0,borderWidth:2}]},
-    options:{plugins:{legend:{display:false}},scales:{x:{display:false},
-      y:{grid:{color:'#243049'},ticks:{color:'#8aa0c0'}}}}});
+  const liq=new Set(s.liq_points||[]);
+  const radii=data.map((_,i)=>liq.has(i)?5:0);
+  const colors=data.map((_,i)=>liq.has(i)?'#ef4444':'#6366f1');
+  if(chart){
+    chart.data.labels=labels;
+    const d=chart.data.datasets[0];
+    d.data=data;d.pointRadius=radii;d.pointBackgroundColor=colors;d.pointBorderColor=colors;
+    chart.update();
+  } else chart=new Chart(ctx,{type:'line',data:{labels,datasets:[{data,borderColor:'#6366f1',
+    backgroundColor:'rgba(99,102,241,.15)',fill:true,tension:.25,pointRadius:radii,
+    pointBackgroundColor:colors,pointBorderColor:colors,pointHoverRadius:6,borderWidth:2}]},
+    options:{plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>
+      (liq.has(c.dataIndex)?'⚠ LIKUIDASI · ':'')+'equity '+Number(c.parsed.y).toFixed(2)}}},
+      scales:{x:{display:false},y:{grid:{color:'#243049'},ticks:{color:'#8aa0c0'}}}}});
   document.getElementById('upd').textContent='diperbarui '+new Date().toLocaleTimeString();
 }
 function riskWarn(lev, liq){

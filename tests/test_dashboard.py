@@ -28,6 +28,7 @@ def test_compute_stats_from_journal(tmp_path):
     assert abs(s["expectancy_r"] - (-0.5 / 3)) < 1e-3   # (1.5-1-1)/3, dibulatkan 4 desimal
     assert s["profit_factor"] == 0.75                   # 1.5 / 2.0
     assert s["equity"] == 1028
+    assert s["liq_points"] == [3]          # close ke-3 (SOL liq) -> titik 3 di kurva
     assert len(s["open_positions"]) == 1 and s["open_positions"][0]["symbol"] == "BTCUSDC"
     assert len(s["per_symbol"]) == 3
     assert s["equity_curve"][0] == 1000
