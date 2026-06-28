@@ -148,7 +148,7 @@ Promosi ke live bertahap & non-negotiable (RISET→cost-stress→lockbox→paper
 
 ```bash
 pip install -r requirements.txt
-pytest -q                                              # 109 test (inti + anti-leakage + signifikansi + gerbang + trader)
+pytest -q                                              # 113 test (inti + anti-leakage + signifikansi + gerbang + trader)
 python backtest.py --symbols "BTC/USDC:USDC" --bars 1500
 python optimize.py --strategy v4 --symbols "BTC/USDC:USDC" "ETH/USDC:USDC" "SOL/USDC:USDC" \
   --bars 3500 --train 1000 --test 300                  # verdict OOS

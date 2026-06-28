@@ -66,7 +66,7 @@ python run.py               # loop penuh (simulasi)
 | `python dashboard.py` | Dashboard web (React/Vite + SQLite): status per-pair, chart, kontrol, riwayat, token Gemini → `:8000` ([DASHBOARD.md](DASHBOARD.md)) |
 | `cd web && npm run build` | Build frontend React/Vite (dashboard menyajikan `web/dist`) |
 | `python l2collect.py` | Collector orderbook L2 (data forward microstructure) |
-| `pytest -q` | 109 unit test Python (termasuk anti-leakage, signifikansi, gerbang verdict) |
+| `pytest -q` | 113 unit test Python (termasuk anti-leakage, signifikansi, gerbang verdict) |
 | `cd core && cargo test` | 8 unit test Rust (hot-path) |
 | `docker compose up -d --build` | Deploy bot + collector + dashboard 24/7 |
 

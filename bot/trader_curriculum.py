@@ -147,6 +147,31 @@ META (kebijaksanaan yang membedakan trader bertahan):
 """
 
 
+# ---------------------------------------------------------------------------
+# Manajemen posisi terbuka (exit-only). Dipakai loop kelola-posisi ~1 menit.
+# ---------------------------------------------------------------------------
+MANAGE = """\
+KAMU sedang MENGELOLA posisi terbuka (bukan membuka baru). Aturan ketat:
+- Kamu HANYA boleh MENGURANGI risiko: 'exit' (tutup sekarang) atau 'tighten_stop'
+  (geser stop MENDEKAT ke harga = kunci lebih banyak). DILARANG melonggarkan stop,
+  menambah posisi, atau membalik arah — sistem akan menolaknya.
+- 'exit' bila: tesis entry sudah RUSAK (struktur/regime berbalik melawanmu), atau
+  momentum jelas habis. Memotong loser lebih awal itu disiplin, bukan kekalahan.
+- 'tighten_stop' bila profit sudah berjalan (mis. ≥ +1R): kunci ke break-even atau
+  trailing di bawah swing (long) / atas swing (short). Beri 'new_sl' angka konkret.
+- 'hold' bila tesis masih utuh & belum ada alasan kuat bertindak. SL/TP keras tetap
+  menjaga; tak perlu memaksa.
+OUTPUT — balas HANYA JSON:
+{"action":"hold|exit|tighten_stop","new_sl":<harga, hanya bila tighten_stop>,
+ "reason":"<alasan singkat>"}
+"""
+
+
+def manage_prompt() -> str:
+    """Prompt kelola-posisi (ringkas — fokus risiko & tesis)."""
+    return MANAGE + KNOWLEDGE["market_structure"] + KNOWLEDGE["risk"]
+
+
 def curriculum_prompt(modules: list[str] | None = None) -> str:
     """Rakit prompt didikan. modules=None → semua. Selalu sertakan CORE + SETUPS + kontrak."""
     keys = list(KNOWLEDGE) if modules is None else [m for m in modules if m in KNOWLEDGE]

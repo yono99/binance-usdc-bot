@@ -104,6 +104,8 @@ class ForwardTester:
         self.use_gemini_trader = False
         self._gem_closes = 0                      # pemicu refleksi berkala
         self._last_news_note = ""
+        self._last_manage: dict = {}              # throttle kelola-posisi per simbol
+        self._manage_interval = 60                # detik minimum antar review posisi (~1 menit)
         # KESELAMATAN: Gemini-trader boleh order LIVE hanya bila di-set eksplisit di config.
         self._allow_live_gemini = bool(self.cfg.get("gemini", {}).get("allow_live_trader", False))
 
@@ -166,11 +168,60 @@ class ForwardTester:
         pos = self.open.get(sym)
         posview = {"side": pos["side"], "entry": round(pos["entry"], 6)} if pos else None
         ctx = self.gtrader.build_context(sym, df_closed, alt=alt, position=posview,
-                                         balance=self.balance_usd, news_note=self._last_news_note)
+                                         balance=self.balance_usd, news_note=self._last_news_note,
+                                         portfolio=self._portfolio_view())
         dec = self.gtrader.decide(ctx)
         atr_val = float(_atr(df_closed, self.cfg["signals"]["atr_period"]).iloc[-1])
         side = 1 if dec["side"] == "long" else (-1 if dec["side"] == "short" else 0)
         return side, atr_val, dec, ctx
+
+    def _portfolio_view(self) -> dict:
+        """Snapshot SEMUA posisi terbuka + eksposur — konteks korelasi/risiko untuk Gemini."""
+        positions = [{"symbol": s, "side": p["side"], "entry": round(p["entry"], 6),
+                      "bet": p.get("bet")} for s, p in self.open.items()]
+        return {"positions": positions, "count": len(positions),
+                "exposure_usd": round(sum(p.get("bet", 0) or 0 for p in self.open.values()), 2),
+                "balance_usd": round(self.balance_usd, 2), "max_open": self.max_open}
+
+    def _gemini_manage(self, sym: str, df_closed: pd.DataFrame) -> None:
+        """Review posisi terbuka Gemini (~1 menit). Hanya boleh KURANGI risiko."""
+        pos = self.open.get(sym)
+        if not pos or not pos.get("gdecision") or self.gtrader is None:
+            return
+        try:
+            price = float(self.ex.ticker(sym)["last"])
+        except Exception as e:  # boundary
+            log.warning(f"manage ticker {sym}: {e}")
+            return
+        from .gemini_trader import _market_summary
+        is_long = pos["side"] == "long"
+        risk = abs(pos["entry"] - pos["sl"]) or 1e-9
+        unreal_r = ((price - pos["entry"]) if is_long else (pos["entry"] - price)) / risk
+        ctx = {
+            "position": {"symbol": sym, "side": pos["side"], "entry": round(pos["entry"], 6),
+                         "sl": round(pos["sl"], 6), "tp": round(pos["tp"], 6),
+                         "mark": round(price, 6), "unrealized_r": round(unreal_r, 2),
+                         "setup": pos.get("setup")},
+            "market": _market_summary(df_closed, self.cfg),
+            "portfolio": self._portfolio_view(),
+        }
+        act = self.gtrader.manage(ctx)
+        self._apply_manage(sym, act, price)
+
+    def _apply_manage(self, sym: str, act: dict, price: float) -> None:
+        from .gemini_trader import valid_tighten
+        pos = self.open.get(sym)
+        if not pos:
+            return
+        action = act.get("action")
+        if action == "exit":
+            log.info(f"Gemini EXIT {sym} @ {price:.6f} — {act.get('reason', '')[:80]}")
+            self._close_usd(sym, price, "gemini_exit")
+        elif action == "tighten_stop" and not self.live:   # live = exit-only (jaga proteksi)
+            if valid_tighten(pos["side"], pos["sl"], act.get("new_sl"), price):
+                old = pos["sl"]
+                pos["sl"] = round(float(act["new_sl"]), 6)
+                log.info(f"Gemini tighten SL {sym}: {old:.6f} → {pos['sl']:.6f}")
 
     def _close_trade(self, sym: str, price: float, reason: str) -> None:
         pos = self.open.pop(sym)
@@ -647,6 +698,12 @@ class ForwardTester:
                 continue
             df_closed = buf.iloc[:-1]
             c["price"] = float(df_closed["close"].iloc[-1])
+            # kelola posisi terbuka Gemini (~1 menit, exit-only) — terpisah dari entry per-bar
+            now = time.time()
+            if (self.use_gemini_trader and sym in self.open and rs.enabled
+                    and now - self._last_manage.get(sym, 0) >= self._manage_interval):
+                self._last_manage[sym] = now
+                self._gemini_manage(sym, df_closed)
             if df_closed.index[-1] != self.last_closed.get(sym):
                 self.last_closed[sym] = df_closed.index[-1]
                 if self.use_gemini_trader and self.gtrader is not None:

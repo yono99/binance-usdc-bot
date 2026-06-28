@@ -113,6 +113,11 @@ Reuse: `gemini_usage` (token), `kv` (state), `events` (jurnal trade).
       **sizing skala conviction** (lantai 20%); SL/TP/leverage/circuit-breaker tetap
       deterministik; `commit` saat open → `settle` saat close → `reflect()` tiap 20 close.
       Jalur v4 tak tersentuh (guarded `use_gemini_trader`).
+- [x] **Konteks portofolio**: Gemini melihat SEMUA posisi terbuka + eksposur (bukan hanya
+      simbol yang diputuskan) → keputusan entry sadar korelasi/risiko (`_portfolio_view`).
+- [x] **Kelola posisi terbuka (exit-only, ~1 menit)**: loop terpisah dari entry per-bar;
+      Gemini boleh `exit` / `tighten_stop` saja — **tak pernah** melonggarkan stop / menambah /
+      membalik. Guardrail `valid_tighten` (pure, teruji) + live = exit-only (jaga proteksi).
 - [x] Status disurface untuk dashboard (`rationale`, `setup` per simbol).
 - [x] Endpoint `/api/gemini-trader` — track record + **verdict signifikansi** + per-setup +
       playbook aktif (`bot/gemini_trader.py: track_record`).
@@ -147,7 +152,8 @@ mencatat ke SQLite, dan merefleksi tiap 20 trade tertutup.
 ## Guardrail (di-enforce di KODE)
 
 1. **Risk deterministik**: arah dari Gemini, tapi ukuran/SL/TP/leverage/circuit-breaker
-   aturan keras. Gemini tak pernah menyentuh sizing atau stop.
+   aturan keras. Saat mengelola posisi, Gemini HANYA boleh mengurangi risiko (exit / geser
+   stop mendekat); `valid_tighten` menolak apa pun yang melonggarkan. SL/TP keras = lantai.
 2. **Evidence-gate pelajaran**: lesson aktif hanya bila `n_support ≥ MIN` dan efek nyata
    (dihitung kode dari `gemini_decisions`, bukan klaim Gemini).
 3. **Statistik dihitung kode**, bukan AI — refleksi berpijak pada angka nyata.

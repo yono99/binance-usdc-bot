@@ -219,7 +219,7 @@ def log_screen(symbol: str, signal: str | None, price: float | None,
 def news_log(limit: int = 200) -> list[dict]:
     init_db()
     with _conn() as c:
-        rows = c.execute("SELECT id, ts, active, note FROM news_log ORDER BY id DESC LIMIT ?",
+        rows = c.execute("SELECT id, ts, active, note FROM news_log ORDER BY ts DESC, id DESC LIMIT ?",
                          (limit,)).fetchall()
     return [{"id": r["id"], "ts": r["ts"], "active": bool(r["active"]), "note": r["note"]} for r in rows]
 
@@ -231,7 +231,7 @@ def screen_log(symbol: str | None = None, limit: int = 500) -> list[dict]:
     if symbol:
         q += " WHERE symbol=?"
         args.append(symbol)
-    q += " ORDER BY id DESC LIMIT ?"
+    q += " ORDER BY ts DESC, id DESC LIMIT ?"
     args.append(limit)
     with _conn() as c:
         rows = c.execute(q, args).fetchall()

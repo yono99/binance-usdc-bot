@@ -106,6 +106,39 @@ def test_market_summary_shape(db, trader):
     assert s["regime"] in ("trend", "range", "mixed", "chaos")
 
 
+def test_build_context_includes_portfolio(db, trader):
+    pf = {"positions": [{"symbol": "ETH/USDC:USDC", "side": "long"}], "count": 1, "exposure_usd": 10}
+    ctx = trader.build_context("BTC/USDC:USDC", _df(), portfolio=pf)
+    assert ctx["portfolio"]["count"] == 1
+
+
+# ---------- kelola posisi: GUARDRAIL exit-only / tighten tak boleh longgar ----------
+
+def test_valid_tighten_never_loosens():
+    from bot.gemini_trader import valid_tighten
+    # LONG: stop hanya boleh NAIK (mendekat harga) & di bawah harga
+    assert valid_tighten("long", old_sl=100.0, new_sl=102.0, price=105.0) is True
+    assert valid_tighten("long", old_sl=100.0, new_sl=98.0, price=105.0) is False   # turun = longgar
+    assert valid_tighten("long", old_sl=100.0, new_sl=106.0, price=105.0) is False  # di atas harga
+    # SHORT: stop hanya boleh TURUN (mendekat harga) & di atas harga
+    assert valid_tighten("short", old_sl=100.0, new_sl=98.0, price=95.0) is True
+    assert valid_tighten("short", old_sl=100.0, new_sl=102.0, price=95.0) is False  # naik = longgar
+    assert valid_tighten("short", old_sl=100.0, new_sl=94.0, price=95.0) is False   # di bawah harga
+    assert valid_tighten("long", old_sl=100.0, new_sl=None, price=105.0) is False   # invalid
+
+
+def test_sanitize_manage_fail_safe(trader):
+    assert trader._sanitize_manage({"action": "buy_more"})["action"] == "hold"      # aksi terlarang
+    assert trader._sanitize_manage({"action": "tighten_stop"})["action"] == "hold"  # tanpa new_sl
+    assert trader._sanitize_manage({"action": "exit", "reason": "x"})["action"] == "exit"
+    t = trader._sanitize_manage({"action": "tighten_stop", "new_sl": 101.5})
+    assert t["action"] == "tighten_stop" and t["new_sl"] == 101.5
+
+
+def test_manage_flat_when_disabled(trader):
+    assert trader.manage({"position": {}})["action"] == "hold"
+
+
 # ---------- kurikulum ----------
 
 def test_track_record_verdict(db):

@@ -19,9 +19,21 @@ from .config import Settings
 from .gemini_client import GeminiClient
 from .indicators import adx, atr, ema, rsi
 from .logger import log
-from .trader_curriculum import SETUPS, curriculum_prompt
+from .trader_curriculum import SETUPS, curriculum_prompt, manage_prompt
 
 _FLAT = {"setup": "no_trade", "side": "flat", "conviction": 0.0, "rationale": ""}
+
+
+def valid_tighten(side: str, old_sl: float, new_sl, price: float) -> bool:
+    """GUARDRAIL: True hanya bila stop bergerak MENDEKAT harga (kurangi risiko) & belum
+    terpicu. Menjamin Gemini TAK PERNAH bisa melonggarkan stop. Pure → mudah diuji."""
+    try:
+        new_sl = float(new_sl)
+    except (TypeError, ValueError):
+        return False
+    if side == "long":
+        return old_sl < new_sl < price       # naik (lebih ketat), masih di bawah harga
+    return price < new_sl < old_sl            # turun (lebih ketat), masih di atas harga
 
 
 def track_record() -> dict:
@@ -90,12 +102,13 @@ class GeminiTrader:
     # ---------- konteks ----------
     def build_context(self, symbol: str, df: pd.DataFrame, *, alt: dict | None = None,
                       position: dict | None = None, balance: float | None = None,
-                      news_note: str = "") -> dict:
+                      news_note: str = "", portfolio: dict | None = None) -> dict:
         ctx = {
             "symbol": symbol,
             "market": _market_summary(df, self.cfg),
             "alt": alt or {},                       # funding_z, oi_delta, cvd_imb, basis_z (skalar)
-            "position": position,                   # posisi terbuka saat ini (atau None)
+            "position": position,                   # posisi terbuka di simbol INI (atau None)
+            "portfolio": portfolio,                 # SEMUA posisi terbuka + eksposur (korelasi/risiko)
             "balance_usd": round(balance, 2) if balance is not None else None,
             "news": news_note,
             "recent_decisions": store.recent_decisions(symbol, limit=5),
@@ -136,6 +149,35 @@ class GeminiTrader:
         conv = max(0.0, min(conv, 1.0))
         return {"setup": setup, "side": side, "conviction": round(conv, 3),
                 "rationale": str(data.get("rationale", ""))[:200]}
+
+    # ---------- kelola posisi terbuka (exit-only, ~1 menit) ----------
+    def manage(self, context: dict) -> dict:
+        """Tinjau posisi terbuka. Kembalikan {action, new_sl?, reason}. Fail-safe = HOLD.
+        Hanya boleh MENGURANGI risiko; guardrail final di-enforce pemanggil (forward)."""
+        if not self.enabled:
+            return {"action": "hold", "reason": "gemini off"}
+        prompt = manage_prompt() + "\n\nPOSISI & PASAR (JSON):\n" + json.dumps(context, default=str)
+        text = self.client.generate(prompt, purpose="manage")
+        if not text:
+            return {"action": "hold", "reason": "gemini gagal → hold"}
+        try:
+            data = json.loads(text[text.find("{"):text.rfind("}") + 1])
+        except Exception as e:  # boundary
+            log.warning(f"manage parse gagal → hold: {e}")
+            return {"action": "hold", "reason": "parse gagal → hold"}
+        return self._sanitize_manage(data)
+
+    def _sanitize_manage(self, data: dict) -> dict:
+        action = data.get("action")
+        if action not in ("hold", "exit", "tighten_stop"):
+            return {"action": "hold", "reason": "aksi tak valid → hold"}
+        reason = str(data.get("reason", ""))[:200]
+        if action == "tighten_stop":
+            try:
+                return {"action": "tighten_stop", "new_sl": float(data.get("new_sl")), "reason": reason}
+            except (TypeError, ValueError):
+                return {"action": "hold", "reason": "tighten tanpa new_sl valid → hold"}
+        return {"action": action, "reason": reason}
 
     # ---------- persistensi (dipanggil saat trade dibuka/ditutup) ----------
     def commit(self, symbol: str, decision: dict, context: dict) -> int | None:
