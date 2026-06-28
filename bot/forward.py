@@ -609,9 +609,12 @@ class ForwardTester:
             pos_view = None
             if pos and price:
                 d = price - pos["entry"] if pos["side"] == "long" else pos["entry"] - price
+                pnl_usd = round(pos["qty"] * d, 4)
+                roi = round(pnl_usd / pos["bet"] * 100, 2) if pos.get("bet") else 0.0
                 pos_view = {"side": pos["side"], "entry": round(pos["entry"], 6),
                             "sl": round(pos["sl"], 6), "tp": round(pos["tp"], 6),
-                            "liq": round(pos["liq"], 6), "pnl_usd": round(pos["qty"] * d, 4)}
+                            "liq": round(pos["liq"], 6), "pnl_usd": pnl_usd, "roi_pct": roi,
+                            "qty": pos["qty"], "bet": pos.get("bet"), "mark": round(price, 6)}
             syms.append({"symbol": sym, "price": price, "atr_pct": c.get("atr_pct"),
                          "signal": c.get("side", "-"), "in_position": bool(pos),
                          "blocked": c.get("blocked"), "position": pos_view})

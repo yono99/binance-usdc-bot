@@ -41,6 +41,10 @@ export interface Position {
   tp: number;
   liq: number;
   pnl_usd: number;
+  roi_pct?: number;
+  qty?: number;
+  bet?: number;
+  mark?: number;
 }
 
 export interface PairStatus {

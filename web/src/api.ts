@@ -29,7 +29,8 @@ export const api = {
   stats: () => getJSON<Stats>("/api/stats"),
   status: () => getJSON<Status>("/api/status"),
   account: () => getJSON<Account>("/api/account"),
-  settings: () => getJSON<Settings>("/api/settings"),
+  settings: (mode?: string) =>
+    getJSON<Settings>(`/api/settings${mode != null ? "?mode=" + encodeURIComponent(mode) : ""}`),
   symbols: () => getJSON<{ symbols: string[]; error?: string }>("/api/symbols"),
   ohlcv: (symbol: string, tf: string, limit = 120) =>
     getJSON<Ohlcv>(`/api/ohlcv?symbol=${encodeURIComponent(symbol)}&tf=${tf}&limit=${limit}`),

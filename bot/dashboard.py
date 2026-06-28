@@ -175,8 +175,8 @@ def api_stats() -> JSONResponse:
 
 
 @app.get("/api/settings")
-def api_get_settings() -> JSONResponse:
-    s = load_settings()
+def api_get_settings(mode: str = None) -> JSONResponse:
+    s = load_settings(mode)        # ?mode=live → preview setting mode itu; default = mode aktif
     d = asdict(s)
     d["techniques"] = list(PRESETS)
     d["timeframe"] = s.timeframe()

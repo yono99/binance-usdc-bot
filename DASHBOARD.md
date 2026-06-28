@@ -122,6 +122,22 @@ harga), **market → taker** (+ slippage). Baris Status menampilkan
   bila korelasi return ≥ threshold (default 0.85) dengan posisi terbuka — mencegah
   banyak alt USDC jadi satu taruhan BTC tersamar saat screening semua pair.
 
+## Pengaturan per-mode
+
+Tiap mode menyimpan **setting sendiri** (terpisah di kv `runtime:<mode>`): `dry`,
+`test`, `live` punya leverage/bet/pair/order/dll masing-masing. Ganti **Mode** di UI
+→ form otomatis memuat setting milik mode itu (`GET /api/settings?mode=<m>`). Mode
+aktif disimpan di kv `active_mode`; bot membaca setting mode aktif tiap heartbeat.
+Saldo **live** selalu diambil dari Binance (equity nyata), bukan nilai tersimpan.
+
+## Panel Positions / Open Orders
+
+Panel bergaya bursa dengan dua tab:
+- **Positions**: Pair · Arah (LONG/SHORT) · Qty · Margin · Entry · Mark · Liq ·
+  **PnL (ROI%)** · tombol Close.
+- **Open Orders**: SL & TP tiap posisi sebagai conditional order (Pair · Tipe ·
+  Arah · Harga trigger · Qty).
+
 ## Mode live (UANG NYATA) — toggle dari UI
 
 Selector **Mode** di Kontrol Bot: `ikut .env` / `dry` / `test` (paper) / **`live`**.

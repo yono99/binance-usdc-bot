@@ -89,25 +89,53 @@ def liquidation_price(entry: float, is_long: bool, frac: float) -> float:
     return entry * (1 - frac) if is_long else entry * (1 + frac)
 
 
-def _from_dict(data: dict) -> RuntimeSettings:
+def _from_dict(data: dict, mode: str | None = None) -> RuntimeSettings:
     known = {f for f in RuntimeSettings().__dict__}
-    return RuntimeSettings(**{k: v for k, v in data.items() if k in known}).clamp()
+    s = RuntimeSettings(**{k: v for k, v in data.items() if k in known}).clamp()
+    if mode is not None:
+        s.mode = mode
+    return s
 
 
-def load_settings() -> RuntimeSettings:
+def _env_mode() -> str:
+    import os
+    return (os.getenv("MODE", "dry") or "dry").strip().lower()
+
+
+def _eff_mode(requested: str) -> str:
+    """Mode efektif: pilihan UI (requested) atau .env bila kosong."""
+    return requested or _env_mode()
+
+
+def get_active_mode() -> str:
+    """Mode yang sedang dipilih dari UI ('' = ikut .env)."""
+    return (store.get_kv("active_mode") or {}).get("mode", "")
+
+
+def set_active_mode(mode: str) -> None:
+    store.set_kv("active_mode", {"mode": mode})
+
+
+def load_settings(mode: str | None = None) -> RuntimeSettings:
+    """Pengaturan PER-MODE. mode=None → mode aktif (pilihan UI/.env).
+    Tiap mode (dry/test/live) punya setting terpisah di kv 'runtime:<mode>'."""
+    requested = get_active_mode() if mode is None else mode
+    eff = _eff_mode(requested)
     try:
-        data = store.get_kv("runtime")
+        data = store.get_kv("runtime:" + eff)
         if data is None:
-            # migrasi sekali dari runtime.json lama bila ada
-            if LEGACY_STORE.exists():
-                data = json.loads(LEGACY_STORE.read_text(encoding="utf-8"))
-                store.set_kv("runtime", asdict(_from_dict(data)))
-            else:
-                return RuntimeSettings()
-        return _from_dict(data)
+            # migrasi sekali: dari kv 'runtime' lama (single), lalu runtime.json
+            legacy = store.get_kv("runtime")
+            if legacy is None and LEGACY_STORE.exists():
+                legacy = json.loads(LEGACY_STORE.read_text(encoding="utf-8"))
+            data = legacy or {}
+        return _from_dict(data, mode=requested)
     except Exception:
-        return RuntimeSettings()
+        return _from_dict({}, mode=requested)
 
 
 def save_settings(s: RuntimeSettings) -> None:
-    store.set_kv("runtime", asdict(s.clamp()))
+    """Simpan ke bucket mode-nya sendiri + set mode aktif."""
+    s = s.clamp()
+    store.set_kv("runtime:" + _eff_mode(s.mode), asdict(s))
+    set_active_mode(s.mode)

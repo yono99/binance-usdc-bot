@@ -49,25 +49,27 @@ export function ControlPanel({
   const balRef = useRef<HTMLInputElement>(null);
   const pendingBal = useRef<number | null>(null);
 
+  const toForm = (d: Settings): Form => ({
+    enabled: d.enabled,
+    technique: d.technique,
+    symbols: d.symbols || [],
+    leverage: d.leverage,
+    bet_usd: d.bet_usd,
+    balance_usd: d.balance_usd,
+    target_profit_pct: d.target_profit_pct,
+    max_open_positions: d.max_open_positions,
+    poll_seconds: d.poll_seconds,
+    mode: d.mode || "",
+    order_type: d.order_type,
+    taker_fee_pct: d.taker_fee_pct,
+    maker_fee_pct: d.maker_fee_pct,
+    gemini_model: d.gemini_model || "",
+  });
+
   useEffect(() => {
     api.settings().then((d) => {
       setS(d);
-      setForm({
-        enabled: d.enabled,
-        technique: d.technique,
-        symbols: d.symbols || [],
-        leverage: d.leverage,
-        bet_usd: d.bet_usd,
-        balance_usd: d.balance_usd,
-        target_profit_pct: d.target_profit_pct,
-        max_open_positions: d.max_open_positions,
-        poll_seconds: d.poll_seconds,
-        mode: d.mode || "",
-        order_type: d.order_type,
-        taker_fee_pct: d.taker_fee_pct,
-        maker_fee_pct: d.maker_fee_pct,
-        gemini_model: d.gemini_model || "",
-      });
+      setForm(toForm(d));
     });
     api.geminiModels().then((r) => setModels(r.models));
   }, []);
@@ -89,13 +91,20 @@ export function ControlPanel({
   const set = (k: keyof Form, v: Form[keyof Form]) => setForm((p) => (p ? { ...p, [k]: v } : p));
   const warn = riskWarn(form.leverage, +liqPct(form.leverage).toFixed(3));
 
-  const setMode = (m: string) => {
+  const setMode = async (m: string) => {
     if (m === "live") {
       if (!confirm("⚠ AKTIFKAN MODE LIVE — UANG NYATA?\n\nBot akan menempatkan order ASLI di Binance Futures memakai API key live kamu. Pastikan: key Futures-only + withdrawal OFF + IP-locked, dan mulai dengan bet SANGAT KECIL. Methodology: strategi ini belum ada edge (impas).\n\nLanjut?"))
         return;
       if (!confirm("Konfirmasi sekali lagi — ini UANG NYATA. Yakin mengaktifkan LIVE?")) return;
     }
-    set("mode", m);
+    // muat setting milik mode itu (tiap mode punya setting sendiri)
+    try {
+      const d = await api.settings(m);
+      setS(d);
+      setForm(toForm(d));
+    } catch {
+      set("mode", m);
+    }
   };
 
   // Bidang numerik yang divalidasi engine (clamp). Jika user input ngawur,
