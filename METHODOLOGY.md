@@ -68,9 +68,16 @@ signal-engine diuji di `tests/test_optimize.py`.
 | v2 | + filter HTF + regime trend/mean-reversion + sesi | ya |
 | v3 | + funding rate + open interest | ya (OI ≤30 hari) |
 | v4 | + order flow / CVD (taker buy-sell imbalance) | ya |
-| ~~v5~~ | ~~event/volatility guard~~ — **DIBUANG (memperburuk OOS)** | ya |
+| v5 | **Cross-exchange basis** (Binance vs Bybit, mean-reversion) — **REJECTED** | ya |
+| v6 | **Liquidation cascade fade** (proxy OHLCV: range+volume spike) — **REJECTED** | ya |
+| v7 | **Funding regime sebagai sinyal primer** (fade funding ekstrem) — **REJECTED** | ya |
 | News veto | Gemini menilai headline high-impact | **TIDAK** (real-time) |
 | L2 | orderbook depth/imbalance/micro-price | hanya forward |
+
+> ⚠️ **Penamaan v5:** label "v5" kini = **cross-exchange basis** (siklus riset baru).
+> Eksperimen lama berlabel v5 (*event/volatility guard*) sudah **dibuang** karena
+> memperburuk OOS — jangan dirancukan. v5 baru adalah **sumber sinyal struktural
+> berbeda** (antar-venue, bukan turunan OHLCV), bukan sekadar filter v1–v4.
 
 ## 7. Temuan
 
@@ -82,6 +89,36 @@ signal-engine diuji di `tests/test_optimize.py`.
 | v2 | −0.105 | 0.86 | 36 |
 | v3 | −0.017 | 0.97 | 45 |
 | **v4** | **−0.007** | **0.99** | 40 |
+| v5 (cross-exchange basis) | −0.123 | 0.80 | 46 |
+| v6 (liquidation cascade fade) | −0.430 | 0.46 | 32 |
+| v7 (funding regime primer) | −0.116 | 0.82 | 45 |
+
+### Siklus riset baru: sumber edge struktural (di luar OHLCV)
+
+Setelah v1–v4 mentok impas, riset berpindah dari *mengkombinasi indikator OHLCV* ke
+*mencari sumber sinyal yang struktural berbeda*. **Tiga siklus pertama semuanya REJECTED:**
+
+1. **v5 cross-exchange basis** (−0.123R) — basis pada majors sudah diarbitrase HFT sub-bar;
+   ambang \|z\| besar menangkap momen volatilitas yang *berlanjut*, bukan reversi.
+2. **v6 liquidation cascade fade** (−0.430R, terburuk) — fade kalah telak; di resolusi 15m
+   event volatilitas besar **berlanjut (momentum)**, bukan snap-back.
+3. **v7 funding regime primer** (−0.116R) — funding ekstrem bisa bertahan/menguat saat tren
+   jalan → fading = nangkap pisau jatuh; karenanya funding lebih tepat jadi *filter* (v3),
+   bukan pemicu.
+
+Ketiganya **mengonfirmasi** temuan inti: edge directional yang tradeable tak hidup di
+resolusi-bar pada majors — termasuk sumber antar-venue, event likuidasi, dan positioning.
+Loop riset + arsitektur **Gemini co-pilot** + log tiap hipotesis didokumentasikan di
+[RESEARCH.md](RESEARCH.md) dan [RESEARCH_LOG.md](RESEARCH_LOG.md).
+
+**Hardening sebelum live (mengejar nol false-positive yang bisa dikendalikan).** Gerbang
+CANDIDATE diperkuat agar tak bisa lolos karena kebetulan: (1) **test anti-leakage** otomatis
+(racuni bar masa depan → output masa lalu wajib sama); (2) **registry** sumber-kebenaran
+tunggal + dedup deterministik (Gemini tak bisa salah-ulang ide teruji); (3) **signifikansi
+statistik** — bootstrap blok (Bonferroni atas jumlah trial kumulatif) + effective-n,
+**bukan** sekadar tanda exp_R>0.05; (4) **stabilitas parameter** antar-window; (5)
+**lockbox holdout + snapshot** (reproducible bit-for-bit) & (6) **cost-stress** 2×.
+Promosi ke live bertahap & non-negotiable (RISET→cost-stress→lockbox→paper→micro-live).
 
 ### Insight kunci
 
@@ -111,10 +148,12 @@ signal-engine diuji di `tests/test_optimize.py`.
 
 ```bash
 pip install -r requirements.txt
-pytest -q                                              # 62 test (logika inti)
+pytest -q                                              # 109 test (inti + anti-leakage + signifikansi + gerbang + trader)
 python backtest.py --symbols "BTC/USDC:USDC" --bars 1500
 python optimize.py --strategy v4 --symbols "BTC/USDC:USDC" "ETH/USDC:USDC" "SOL/USDC:USDC" \
   --bars 3500 --train 1000 --test 300                  # verdict OOS
+python optimize.py --strategy v5 --symbols "BTC/USDC:USDC" "ETH/USDC:USDC" "SOL/USDC:USDC" \
+  --bars 5000 --train 1000 --test 300 --copilot        # cross-exchange basis + Gemini co-pilot
 ```
 Rust core: `cd core && cargo test` (8 test). Angka bisa sedikit berbeda karena rentang
 data live bergerak, tapi **kesimpulan (impas) stabil**.

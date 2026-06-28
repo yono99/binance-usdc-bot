@@ -7,7 +7,7 @@ import { Pager } from "./Pager";
 export function BotStatus({ status, onAction }: { status: Status | null; onAction: () => void }) {
   const [msg, setMsg] = useState("");
   const [page, setPage] = useState(1);
-  const [size, setSize] = useState(20);
+  const [size, setSize] = useState(10);
   if (!status || !status.ts)
     return (
       <div className="panel">

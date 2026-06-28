@@ -220,3 +220,142 @@ def walk_forward_v4(df: pd.DataFrame, cfg: dict, grid: list[dict], bt: Backteste
     return run_walk(df, cfg, grid, bt, f4.v3.v2.base,
                     lambda g: decide_v4(f4, g, cfg, sessions),
                     train_len, test_len, min_trades)
+
+
+# ----------------------- v5: cross-exchange basis (Binance vs Bybit) -----------------------
+# STRUKTURAL BERBEDA dari v1-v4: TIDAK memakai skor trend/momentum/struktur OHLCV
+# sama sekali. Sinyal = z-score dislokasi harga antar-venue (mean-reversion murni).
+# Hipotesis: saat Binance terlalu mahal/murah relatif Bybit (|z| besar), harga
+# Binance kembali konvergen → fade dislokasi. Exit tetap ATR-based (akuntansi sama).
+
+@dataclass
+class FeaturesV5:
+    base: Features
+    basis_z: np.ndarray   # z-score basis bps Binance−Bybit (causal)
+
+
+def precompute_v5(df: pd.DataFrame, cfg: dict, basis_z: np.ndarray) -> FeaturesV5:
+    return FeaturesV5(base=precompute(df, cfg), basis_z=basis_z)
+
+
+def decide_v5(f5: FeaturesV5, g: dict) -> np.ndarray:
+    """Mean-reversion antar-venue MURNI (tak ada input trend OHLCV).
+    z > +entry  → Binance mahal vs Bybit → SHORT (fade).
+    z < −entry  → Binance murah vs Bybit → LONG (fade)."""
+    z = f5.basis_z
+    thr = g["basis_z_entry"]
+    side = np.where(z <= -thr, 1, np.where(z >= thr, -1, 0)).astype(int)
+    return side
+
+
+def build_grid_v5(z_list, sl_list, tp_list) -> list[dict]:
+    grid = []
+    for z, sl, tp in product(z_list, sl_list, tp_list):
+        if tp <= sl * 0.6:
+            continue
+        grid.append({"basis_z_entry": z, "sl_atr_mult": sl, "tp_atr_mult": tp})
+    return grid
+
+
+def walk_forward_v5(df: pd.DataFrame, cfg: dict, grid: list[dict], bt: Backtester,
+                    train_len: int, test_len: int, min_trades: int, basis_z: np.ndarray):
+    """Strategi v5 (cross-exchange basis mean-reversion)."""
+    f5 = precompute_v5(df, cfg, basis_z)
+    return run_walk(df, cfg, grid, bt, f5.base,
+                    lambda g: decide_v5(f5, g),
+                    train_len, test_len, min_trades)
+
+
+# ----------------------- v6: liquidation cascade (proxy OHLCV) -----------------------
+# STRUKTURAL BERBEDA: fade event deleveraging paksa. Sinyal = bar range-ekstrem +
+# lonjakan volume + close kapitulasi. Hipotesis: overshoot likuidasi → snap-back.
+# Tak memakai skor trend/momentum v1-v4. Exit ATR-based (akuntansi identik).
+
+from .altdata import cascade_components  # noqa: E402,F401  (dipakai precompute_v6)
+
+
+@dataclass
+class FeaturesV6:
+    base: Features
+    range_atr: np.ndarray
+    vol_ratio: np.ndarray
+    close_loc: np.ndarray
+
+
+def precompute_v6(df: pd.DataFrame, cfg: dict) -> FeaturesV6:
+    base = precompute(df, cfg)
+    ra, vr, cl = cascade_components(df, base.atr, cfg["strategy"]["cascade_vol_lookback"])
+    return FeaturesV6(base=base, range_atr=ra, vol_ratio=vr, close_loc=cl)
+
+
+def decide_v6(f6: FeaturesV6, g: dict, cfg: dict) -> np.ndarray:
+    """Fade cascade: bar ekstrem (range≥k×ATR) + volume spike + close kapitulasi.
+    close di dasar bar → longs terlikuidasi → FADE LONG.
+    close di puncak bar → shorts terlikuidasi → FADE SHORT."""
+    st = cfg["strategy"]
+    k = g["cascade_k"]
+    big = (f6.range_atr >= k) & (f6.vol_ratio >= st["cascade_vol_mult"])
+    loc = st["cascade_close_loc"]
+    cap_down = big & (f6.close_loc <= loc)          # tutup dekat low → fade LONG
+    cap_up = big & (f6.close_loc >= 1.0 - loc)      # tutup dekat high → fade SHORT
+    return np.where(cap_down, 1, np.where(cap_up, -1, 0)).astype(int)
+
+
+def build_grid_v6(k_list, sl_list, tp_list) -> list[dict]:
+    grid = []
+    for k, sl, tp in product(k_list, sl_list, tp_list):
+        if tp <= sl * 0.6:
+            continue
+        grid.append({"cascade_k": k, "sl_atr_mult": sl, "tp_atr_mult": tp})
+    return grid
+
+
+def walk_forward_v6(df: pd.DataFrame, cfg: dict, grid: list[dict], bt: Backtester,
+                    train_len: int, test_len: int, min_trades: int):
+    """Strategi v6 (liquidation cascade fade)."""
+    f6 = precompute_v6(df, cfg)
+    return run_walk(df, cfg, grid, bt, f6.base,
+                    lambda g: decide_v6(f6, g, cfg),
+                    train_len, test_len, min_trades)
+
+
+# ----------------------- v7: funding regime sebagai SINYAL PRIMER -----------------------
+# Beda dari v3 (funding sebagai FILTER): di sini funding adalah SATU-SATUNYA pemicu entry.
+# Hipotesis: funding ekstrem = positioning crowded; mean-reversion menyusul.
+#   funding_z ≥ +thr → longs crowded (bayar mahal) → FADE SHORT
+#   funding_z ≤ −thr → shorts crowded → FADE LONG
+# Funding histori panjang (8 jam/poin, ~tahunan) → backtestable penuh. Causal (ffill).
+
+@dataclass
+class FeaturesV7:
+    base: Features
+    funding_z: np.ndarray
+
+
+def precompute_v7(df: pd.DataFrame, cfg: dict, funding_z: np.ndarray) -> FeaturesV7:
+    return FeaturesV7(base=precompute(df, cfg), funding_z=funding_z)
+
+
+def decide_v7(f7: FeaturesV7, g: dict) -> np.ndarray:
+    """Fade funding ekstrem (mean-reversion positioning)."""
+    z = f7.funding_z
+    thr = g["funding_z_entry"]
+    return np.where(z >= thr, -1, np.where(z <= -thr, 1, 0)).astype(int)
+
+
+def build_grid_v7(z_list, sl_list, tp_list) -> list[dict]:
+    grid = []
+    for z, sl, tp in product(z_list, sl_list, tp_list):
+        if tp <= sl * 0.6:
+            continue
+        grid.append({"funding_z_entry": z, "sl_atr_mult": sl, "tp_atr_mult": tp})
+    return grid
+
+
+def walk_forward_v7(df: pd.DataFrame, cfg: dict, grid: list[dict], bt: Backtester,
+                    train_len: int, test_len: int, min_trades: int, funding_z: np.ndarray):
+    """Strategi v7 (funding regime sebagai sinyal primer)."""
+    f7 = precompute_v7(df, cfg, funding_z)
+    return run_walk(df, cfg, grid, bt, f7.base,
+                    lambda g: decide_v7(f7, g),
+                    train_len, test_len, min_trades)

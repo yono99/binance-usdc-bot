@@ -72,6 +72,12 @@ strategy:
   # v4 — order flow / CVD
   cvd_lookback: 8          # bar untuk hitung imbalance taker buy/sell
   cvd_min: 0.05            # |imbalance| minimum untuk konfirmasi entry
+  # v5 — cross-exchange basis (Binance vs Bybit)
+  basis_z_window: 48       # bar rolling untuk z-score basis (48×15m = 12 jam)
+  # v6 — liquidation cascade fade (proxy OHLCV: range spike + volume spike + kapitulasi)
+  cascade_vol_mult: 2.0    # volume bar / SMA(volume) ≥ ini (lonjakan volume)
+  cascade_close_loc: 0.35  # close di ≤35% bawah range → kapitulasi turun (mirror utk naik)
+  cascade_vol_lookback: 20 # bar untuk SMA volume
 
 gemini:
   # peran: confirm | veto | off  (lihat README)
@@ -79,3 +85,7 @@ gemini:
   model: "gemini-2.5-flash"
   min_regime_score: 0.4     # bila Gemini nilai regime < ini -> skip entry
   news_veto: true           # veto entry saat ada berita high-impact (real-time, butuh GEMINI_ENABLED)
+  # KESELAMATAN: teknik "gemini" (LLM ambil keputusan) di MODE LIVE = UANG NYATA dikendalikan AI.
+  # Default false → di live, Gemini-trader TIDAK membuka posisi (demo/paper tetap jalan).
+  # Set true HANYA bila kamu sadar penuh & menerima risiko AI-driven live trading.
+  allow_live_trader: false

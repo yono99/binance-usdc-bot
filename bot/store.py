@@ -65,6 +65,45 @@ CREATE TABLE IF NOT EXISTS gemini_usage (
     error         TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_gemini_ts ON gemini_usage(ts);
+
+-- ===== Gemini Trader: keputusan, pelajaran (playbook), refleksi =====
+CREATE TABLE IF NOT EXISTS gemini_decisions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts          TEXT NOT NULL,
+    symbol      TEXT NOT NULL,
+    setup       TEXT,                -- tag setup (kunci evidence-gate)
+    side        TEXT,                -- long | short | flat
+    conviction  REAL DEFAULT 0,      -- 0..1
+    rationale   TEXT,
+    context     TEXT,                -- JSON data yang dilihat (audit/replay)
+    model       TEXT,
+    status      TEXT DEFAULT 'open', -- open | settled
+    outcome_r   REAL                 -- diisi saat settle
+);
+CREATE INDEX IF NOT EXISTS idx_gdec_symbol ON gemini_decisions(symbol);
+CREATE INDEX IF NOT EXISTS idx_gdec_setup  ON gemini_decisions(setup);
+CREATE INDEX IF NOT EXISTS idx_gdec_status ON gemini_decisions(status);
+
+CREATE TABLE IF NOT EXISTS gemini_lessons (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts            TEXT NOT NULL,
+    scope         TEXT,              -- mis. simbol/regime ('*' = umum)
+    setup         TEXT,              -- setup yang dirujuk (untuk evidence-gate)
+    text          TEXT NOT NULL,
+    n_support     INTEGER DEFAULT 0, -- bukti dari rekam jejak (dihitung KODE)
+    exp_r_support REAL DEFAULT 0,
+    confidence    TEXT DEFAULT 'low',
+    active        INTEGER DEFAULT 0  -- 1 HANYA bila lolos evidence-gate
+);
+CREATE INDEX IF NOT EXISTS idx_glesson_active ON gemini_lessons(active);
+
+CREATE TABLE IF NOT EXISTS gemini_reflections (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts      TEXT NOT NULL,
+    period  TEXT,
+    summary TEXT,
+    metrics TEXT
+);
 """
 
 
@@ -241,6 +280,117 @@ def gemini_usage_stats(recent: int = 30) -> dict:
         "per_purpose": [dict(r) for r in per_purpose],
         "recent": [dict(r) for r in rows],
     }
+
+
+# ---------- Gemini Trader: keputusan ----------
+
+def record_decision(symbol: str, setup: str, side: str, conviction: float,
+                    rationale: str, context: dict, model: str = "") -> int:
+    init_db()
+    with _conn() as c:
+        cur = c.execute(
+            "INSERT INTO gemini_decisions (ts, symbol, setup, side, conviction, rationale, "
+            "context, model, status) VALUES (?,?,?,?,?,?,?,?, 'open')",
+            (datetime.now(timezone.utc).isoformat(), symbol, setup, side, float(conviction),
+             rationale, json.dumps(context, default=str), model))
+        return cur.lastrowid
+
+
+def settle_decision(decision_id: int, outcome_r: float) -> bool:
+    init_db()
+    with _conn() as c:
+        return c.execute(
+            "UPDATE gemini_decisions SET status='settled', outcome_r=? WHERE id=?",
+            (float(outcome_r), decision_id)).rowcount > 0
+
+
+def recent_decisions(symbol: str | None = None, limit: int = 20) -> list[dict]:
+    init_db()
+    q = "SELECT id, ts, symbol, setup, side, conviction, rationale, status, outcome_r FROM gemini_decisions"
+    args: list = []
+    if symbol:
+        q += " WHERE symbol=?"
+        args.append(symbol)
+    q += " ORDER BY id DESC LIMIT ?"
+    args.append(limit)
+    with _conn() as c:
+        return [dict(r) for r in c.execute(q, args).fetchall()]
+
+
+def settled_decisions() -> list[dict]:
+    """Semua keputusan Gemini yang sudah ada hasilnya (untuk track record/signifikansi)."""
+    init_db()
+    with _conn() as c:
+        rows = c.execute("SELECT symbol, setup, side, conviction, outcome_r FROM gemini_decisions "
+                         "WHERE status='settled' AND outcome_r IS NOT NULL ORDER BY id").fetchall()
+    return [dict(r) for r in rows]
+
+
+def setup_stats(setup: str, scope: str | None = None) -> dict:
+    """Statistik settled per setup — DASAR evidence-gate (dihitung KODE, bukan AI)."""
+    init_db()
+    q = ("SELECT COUNT(*) n, COALESCE(AVG(outcome_r),0) exp_r, "
+         "COALESCE(SUM(outcome_r>0),0) wins FROM gemini_decisions "
+         "WHERE status='settled' AND setup=?")
+    args: list = [setup]
+    if scope and scope != "*":
+        q += " AND symbol=?"
+        args.append(scope)
+    with _conn() as c:
+        r = c.execute(q, args).fetchone()
+    n = r["n"]
+    return {"setup": setup, "n": n, "exp_r": float(r["exp_r"]),
+            "win_rate": (r["wins"] / n * 100) if n else 0.0}
+
+
+# ---------- Gemini Trader: pelajaran (playbook) + evidence-gate ----------
+
+def add_lesson(scope: str, setup: str, text: str) -> int:
+    """Usulan pelajaran (status awal: belum aktif sampai lolos evidence-gate)."""
+    init_db()
+    with _conn() as c:
+        cur = c.execute(
+            "INSERT INTO gemini_lessons (ts, scope, setup, text, active) VALUES (?,?,?,?,0)",
+            (datetime.now(timezone.utc).isoformat(), scope, setup, text))
+        return cur.lastrowid
+
+
+def promote_lessons(min_n: int = 20) -> int:
+    """EVIDENCE-GATE (anti-takhayul): aktifkan pelajaran HANYA bila setup rujukannya punya
+    cukup sampel settled (n ≥ min_n). Update bukti & confidence dari statistik nyata.
+    Yang tak cukup bukti dinonaktifkan. Kembalikan jumlah yang kini aktif."""
+    init_db()
+    active = 0
+    with _conn() as c:
+        lessons = c.execute("SELECT id, scope, setup FROM gemini_lessons").fetchall()
+        for les in lessons:
+            st = setup_stats(les["setup"], les["scope"]) if les["setup"] else {"n": 0, "exp_r": 0.0}
+            n, exp_r = st["n"], st["exp_r"]
+            ok = n >= min_n
+            conf = "high" if n >= 3 * min_n else ("med" if ok else "low")
+            c.execute("UPDATE gemini_lessons SET n_support=?, exp_r_support=?, confidence=?, active=? "
+                      "WHERE id=?", (n, exp_r, conf, 1 if ok else 0, les["id"]))
+            active += 1 if ok else 0
+    return active
+
+
+def active_lessons(limit: int = 20) -> list[dict]:
+    """Pelajaran yang LOLOS evidence-gate — aman disuntik ke prompt keputusan."""
+    init_db()
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT id, scope, setup, text, n_support, exp_r_support, confidence "
+            "FROM gemini_lessons WHERE active=1 ORDER BY n_support DESC LIMIT ?", (limit,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def add_reflection(period: str, summary: str, metrics: dict) -> int:
+    init_db()
+    with _conn() as c:
+        cur = c.execute("INSERT INTO gemini_reflections (ts, period, summary, metrics) VALUES (?,?,?,?)",
+                        (datetime.now(timezone.utc).isoformat(), period, summary,
+                         json.dumps(metrics, default=str)))
+        return cur.lastrowid
 
 
 def migrate_jsonl(path: Path) -> int:

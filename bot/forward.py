@@ -99,6 +99,13 @@ class ForwardTester:
         self.bt.sl_mult = self.params["sl_atr_mult"]
         self.bt.tp_mult = self.params["tp_atr_mult"]
         self.sig_cache: dict = {}                 # sinyal terakhir per simbol (utk status UI)
+        # Gemini praktisi trader (teknik "gemini") — diaktifkan via _apply_settings
+        self.gtrader = None
+        self.use_gemini_trader = False
+        self._gem_closes = 0                      # pemicu refleksi berkala
+        self._last_news_note = ""
+        # KESELAMATAN: Gemini-trader boleh order LIVE hanya bila di-set eksplisit di config.
+        self._allow_live_gemini = bool(self.cfg.get("gemini", {}).get("allow_live_trader", False))
 
     def seed(self) -> None:
         for sym in self.symbols:
@@ -146,6 +153,24 @@ class ForwardTester:
         f4 = precompute_v4(df_closed, self.cfg, self.htf_mult, fz, oid, imb, div)
         side = decide_v4(f4, self.params, self.cfg, self.sessions)
         return int(side[-1]), float(f4.v3.v2.base.atr[-1])
+
+    def _gemini_decision(self, sym: str, df_closed: pd.DataFrame):
+        """Arah dari Gemini (teknik 'gemini'). Kembalikan (side, atr, decision, context)."""
+        from .indicators import atr as _atr
+        try:
+            fz, oid, imb, _div = self._alt_arrays(sym, df_closed)
+            alt = {"funding_z": round(float(fz[-1]), 3), "oi_delta": round(float(oid[-1]), 4),
+                   "cvd_imb": round(float(imb[-1]), 3)}
+        except Exception:  # boundary — konteks alt opsional
+            alt = {}
+        pos = self.open.get(sym)
+        posview = {"side": pos["side"], "entry": round(pos["entry"], 6)} if pos else None
+        ctx = self.gtrader.build_context(sym, df_closed, alt=alt, position=posview,
+                                         balance=self.balance_usd, news_note=self._last_news_note)
+        dec = self.gtrader.decide(ctx)
+        atr_val = float(_atr(df_closed, self.cfg["signals"]["atr_period"]).iloc[-1])
+        side = 1 if dec["side"] == "long" else (-1 if dec["side"] == "short" else 0)
+        return side, atr_val, dec, ctx
 
     def _close_trade(self, sym: str, price: float, reason: str) -> None:
         pos = self.open.pop(sym)
@@ -214,6 +239,12 @@ class ForwardTester:
         self.bt.sl_mult = rs.params()["sl_atr_mult"]
         self.bt.tp_mult = rs.params()["tp_atr_mult"]
         self.max_open = rs.max_open_positions   # hot-reload dari UI
+        # teknik "gemini": arah dari Gemini (SL/TP/sizing tetap deterministik)
+        self.use_gemini_trader = (rs.technique == "gemini")
+        if self.use_gemini_trader and self.gtrader is None:
+            from .gemini_trader import GeminiTrader
+            self.gtrader = GeminiTrader(self.settings, self.cfg)
+            log.info("Teknik GEMINI aktif — Gemini menentukan arah; risk deterministik.")
         self.fee = rs.fee_pct()                 # taker (market) / maker (limit)
         self.slippage = 0.0 if rs.order_type == "limit" else self._base_slippage
         if rs.gemini_model:                     # model Gemini pilihan UI (hot-reload) + fallback
@@ -370,28 +401,56 @@ class ForwardTester:
         except Exception as e:  # boundary
             log.error(f"reconcile live gagal: {e}")
             return
-        for sym in list(self.open):
-            if sym not in real:                 # posisi hilang → tertutup di exchange
-                self.open.pop(sym, None)
-                try:
-                    self.ex.client.cancel_all_orders(sym)   # bersihkan SL/TP yatim
-                except Exception:
-                    pass
-                journal("forward_close", {"symbol": sym, "reason": "live_exit",
-                                          "equity": round(self.balance_usd, 2)})
-                log.info(f"LIVE CLOSE terdeteksi {sym}")
-                self.notify.send(f"✋ <b>LIVE CLOSE</b> {sym} (SL/TP/manual)")
+        prev_balance = self.balance_usd
+        closed = [(sym, self.open[sym]) for sym in list(self.open) if sym not in real]
+        for sym, _pos in closed:
+            self.open.pop(sym, None)
+            try:
+                self.ex.client.cancel_all_orders(sym)   # bersihkan SL/TP yatim
+            except Exception:
+                pass
+            journal("forward_close", {"symbol": sym, "reason": "live_exit",
+                                      "equity": round(self.balance_usd, 2)})
+            log.info(f"LIVE CLOSE terdeteksi {sym}")
+            self.notify.send(f"✋ <b>LIVE CLOSE</b> {sym} (SL/TP/manual)")
         self.balance_usd = self.ex.equity_usdc(self.balance_usd)
         self._day_pnl = self.balance_usd - self._day_start_balance   # PnL harian dari equity nyata
+        # BELAJAR di LIVE — HANYA dengan data PnL NYATA & TAK AMBIGU (tepat satu posisi tutup
+        # siklus ini). Jika banyak tutup bersamaan, lewati (jangan ajari Gemini data kotor).
+        gem_closed = [(s, p) for s, p in closed if p.get("gdecision") and self.gtrader is not None]
+        if len(gem_closed) == 1:
+            sym, pos = gem_closed[0]
+            try:
+                r = (self.balance_usd - prev_balance) / pos["bet"] if pos.get("bet") else 0.0
+                self.gtrader.settle(pos["gdecision"], r)
+                self._gem_closes += 1
+                if self._gem_closes % 20 == 0:
+                    res = self.gtrader.reflect()
+                    log.info(f"Gemini refleksi (live): {res['active_lessons']} pelajaran aktif")
+            except Exception as e:  # boundary
+                log.warning(f"settle gemini live {sym} gagal: {e}")
 
     def _open_usd(self, sym: str, side: int, atr: float, rs: RuntimeSettings) -> None:
-        if self.balance_usd < rs.bet_usd:
+        # Gemini: ukuran skala conviction (lantai 20%) — arah AI, ukuran tetap aturan.
+        bet = rs.bet_usd
+        gem = self.sig_cache.get(sym, {}).get("gemini") if self.use_gemini_trader else None
+        # GERBANG LIVE: Gemini-trader tak boleh order UANG NYATA tanpa izin eksplisit.
+        if gem and self.live and not self._allow_live_gemini:
+            log.warning(f"{sym}: Gemini-trader DIBLOKIR di LIVE (set gemini.allow_live_trader: "
+                        "true di config.yaml untuk mengizinkan order uang nyata).")
+            c = self.sig_cache.setdefault(sym, {})
+            c["blocked"] = "gemini-live dimatikan (config)"
+            return
+        if gem:
+            conv = float(gem["dec"].get("conviction", 0.0) or 0.0)
+            bet = max(rs.bet_usd * conv, rs.bet_usd * 0.2)
+        if self.balance_usd < bet:
             return
         price = float(self.ex.ticker(sym)["last"])
         is_long = side == 1
         slip = 1 + self.slippage / 100 if is_long else 1 - self.slippage / 100
         entry = price * slip
-        qty = (rs.bet_usd * rs.leverage) / entry
+        qty = (bet * rs.leverage) / entry
         sl = entry - atr * self.bt.sl_mult if is_long else entry + atr * self.bt.sl_mult
         if rs.target_profit_pct > 0:
             tp = entry * (1 + rs.target_profit_pct / 100) if is_long else entry * (1 - rs.target_profit_pct / 100)
@@ -409,16 +468,23 @@ class ForwardTester:
             if not ok:
                 return
         self.open[sym] = {"side": "long" if is_long else "short", "entry": entry, "qty": qty,
-                          "sl": sl, "tp": tp, "liq": liq, "bet": rs.bet_usd}
+                          "sl": sl, "tp": tp, "liq": liq, "bet": bet}
+        if gem:                                     # catat keputusan Gemini → settle saat tutup
+            try:
+                did = self.gtrader.commit(sym, gem["dec"], gem["ctx"])
+                self.open[sym]["gdecision"] = did
+                self.open[sym]["setup"] = gem["dec"].get("setup")
+            except Exception as e:  # boundary
+                log.warning(f"commit keputusan gemini {sym} gagal: {e}")
         self._day_trades += 1                       # untuk circuit breaker harian
         journal("forward_open", {"symbol": sym, "side": self.open[sym]["side"], "entry": entry,
-                                 "sl": sl, "tp": tp, "liq": liq, "lev": rs.leverage, "bet": rs.bet_usd})
-        log.info(f"OPEN {self.open[sym]['side'].upper()} {sym} x{rs.leverage} bet=${rs.bet_usd} "
+                                 "sl": sl, "tp": tp, "liq": liq, "lev": rs.leverage, "bet": bet})
+        log.info(f"OPEN {self.open[sym]['side'].upper()} {sym} x{rs.leverage} bet=${bet:.2f} "
                  f"@ {entry:.4f} SL={sl:.4f} TP={tp:.4f} LIQ={liq:.4f}")
         self.notify.send(
             f"🟢 <b>OPEN {self.open[sym]['side'].upper()}</b> {sym} x{rs.leverage}\n"
             f"Entry {entry:.4f} · SL {sl:.4f} · TP {tp:.4f}\n"
-            f"LIQ {liq:.4f} · bet ${rs.bet_usd}")
+            f"LIQ {liq:.4f} · bet ${bet:.2f}")
 
     def _close_usd(self, sym: str, price: float, reason: str) -> None:
         if self.live:                               # close NYATA; reconcile yang catat
@@ -439,6 +505,16 @@ class ForwardTester:
         self._day_pnl += pnl                        # untuk circuit breaker harian
         r = pnl / pos["bet"] if pos["bet"] else 0.0
         self.trades.append(namedtuple("T", ["r"])(r))
+        if pos.get("gdecision") and self.gtrader is not None:   # umpan balik ke Gemini
+            try:
+                self.gtrader.settle(pos["gdecision"], r)
+                self._gem_closes += 1
+                if self._gem_closes % 20 == 0:                  # refleksi berkala (belajar)
+                    res = self.gtrader.reflect()
+                    log.info(f"Gemini refleksi: {res['settled']} settled, "
+                             f"{res['active_lessons']} pelajaran aktif")
+            except Exception as e:  # boundary
+                log.warning(f"settle/reflect gemini {sym} gagal: {e}")
         journal("forward_close", {"symbol": sym, "exit": round(exit_fill, 6), "reason": reason,
                                   "pnl_usd": round(pnl, 4), "r": round(r, 4),
                                   "equity": round(self.balance_usd, 2)})
@@ -558,6 +634,7 @@ class ForwardTester:
         if cb:
             log.info(f"Circuit breaker aktif ({cb}) — tidak buka posisi baru")
         news_veto, note = (self.news.check() if rs.enabled else (False, "off"))
+        self._last_news_note = note if news_veto else ""
         if news_veto:
             log.info(f"News veto aktif ({note}) — tidak buka posisi baru siklus ini")
         label = {1: "LONG", -1: "SHORT", 0: "skip"}
@@ -572,7 +649,14 @@ class ForwardTester:
             c["price"] = float(df_closed["close"].iloc[-1])
             if df_closed.index[-1] != self.last_closed.get(sym):
                 self.last_closed[sym] = df_closed.index[-1]
-                side, atr = self._signal(sym, df_closed)
+                if self.use_gemini_trader and self.gtrader is not None:
+                    side, atr, gdec, gctx = self._gemini_decision(sym, df_closed)
+                    c["gemini"] = {"dec": gdec, "ctx": gctx}
+                    c["rationale"] = gdec.get("rationale")
+                    c["setup"] = gdec.get("setup")
+                else:
+                    side, atr = self._signal(sym, df_closed)
+                    c.pop("gemini", None)
                 c["side"] = label[side]
                 c["atr_pct"] = round(atr / c["price"] * 100, 3) if c["price"] else None
                 blocked = None
@@ -617,7 +701,8 @@ class ForwardTester:
                             "qty": pos["qty"], "bet": pos.get("bet"), "mark": round(price, 6)}
             syms.append({"symbol": sym, "price": price, "atr_pct": c.get("atr_pct"),
                          "signal": c.get("side", "-"), "in_position": bool(pos),
-                         "blocked": c.get("blocked"), "position": pos_view})
+                         "blocked": c.get("blocked"), "position": pos_view,
+                         "rationale": c.get("rationale"), "setup": c.get("setup")})
         status = {
             "ts": pd.Timestamp.utcnow().isoformat(),
             "mode": self.settings.mode,

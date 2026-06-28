@@ -8,7 +8,7 @@ const ts = (s: string) => (s || "").slice(0, 19).replace("T", " ");
 
 export function HistoryPanels() {
   const { data: news } = usePoll(() => api.newsLog(100), 30000);
-  const { data: screen } = usePoll(() => api.screenLog(200), 30000);
+  const { data: screen } = usePoll(() => api.screenLog(100), 30000);
 
   const newsCols: Col<NewsLogEntry>[] = [
     { t: "Waktu (UTC)", render: (r) => ts(r.ts) },

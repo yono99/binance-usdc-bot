@@ -14,3 +14,8 @@ venv/
 # frontend (node_modules besar & cache; dist di-commit agar dashboard jalan tanpa Node)
 web/node_modules/
 web/.vite/
+
+# Research artefak (auto-generate; jangan commit state yang berubah tiap run)
+research_registry.json
+snapshots/
+*.pkl

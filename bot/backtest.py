@@ -54,12 +54,16 @@ def fetch_history(ex: Exchange, symbol: str, timeframe: str, bars: int) -> pd.Da
 
 
 class Backtester:
-    def __init__(self, cfg: dict, fee_pct: float = 0.04, slippage_pct: float = 0.02):
+    def __init__(self, cfg: dict, fee_pct: float = 0.04, slippage_pct: float = 0.02,
+                 maker: bool = False):
         self.cfg = cfg
         self.fee = fee_pct / 100.0
         self.slip = slippage_pct / 100.0
         self.sl_mult = cfg["risk"]["sl_atr_mult"]
         self.tp_mult = cfg["risk"]["tp_atr_mult"]
+        # maker=True: entry hanya via limit post-only di harga sinyal (close bar terakhir);
+        # terisi HANYA bila harga menyentuhnya → order yang "kabur" (sering yg menang) hilang.
+        self.maker = maker
 
     def _warmup(self) -> int:
         s = self.cfg["signals"]
@@ -95,7 +99,10 @@ class Backtester:
             if pos is None:
                 sig = evaluate(symbol, df.iloc[:i], self.cfg)  # hanya bar tertutup
                 if sig.actionable and sig.atr > 0:
-                    pos = self._open(symbol, sig, row, df.index[i], i)
+                    if self.maker:
+                        pos = self._maybe_maker(symbol, sig, df, i)
+                    else:
+                        pos = self._open(symbol, sig, row, df.index[i], i)
 
         if pos is not None:  # tutup di harga terakhir
             last = df.iloc[-1]
@@ -104,18 +111,35 @@ class Backtester:
         return trades
 
     def _open(self, symbol: str, sig, row, ts, idx) -> dict:
+        # taker: masuk di OPEN bar berikutnya + slippage merugikan
+        entry = row["open"] * (1 + self.slip) if sig.side == "long" else row["open"] * (1 - self.slip)
+        return self._open_at(symbol, sig, entry, ts, idx)
+
+    def _open_at(self, symbol: str, sig, entry: float, ts, idx) -> dict:
+        """Bentuk posisi dengan harga entry EKSAK (mis. limit maker terisi di harga limit)."""
         if sig.side == "long":
-            entry = row["open"] * (1 + self.slip)
             sl = entry - sig.atr * self.sl_mult
             tp = entry + sig.atr * self.tp_mult
         else:
-            entry = row["open"] * (1 - self.slip)
             sl = entry + sig.atr * self.sl_mult
             tp = entry - sig.atr * self.tp_mult
         return {
             "symbol": symbol, "side": sig.side, "entry": entry, "sl": sl, "tp": tp,
             "risk_per_unit": abs(entry - sl), "entry_time": ts, "entry_idx": idx,
         }
+
+    def _maybe_maker(self, symbol: str, sig, df: pd.DataFrame, i: int) -> dict | None:
+        """Limit post-only di harga sinyal (close bar i-1). Terisi HANYA bila bar i
+        menyentuhnya: long bila low ≤ limit, short bila high ≥ limit. Else None (order
+        kabur — tak kebagian). Ini memodelkan adverse-selection maker secara jujur."""
+        limit = float(df["close"].iloc[i - 1])
+        if sig.side == "long":
+            if float(df["low"].iloc[i]) <= limit:
+                return self._open_at(symbol, sig, limit, df.index[i], i)
+        else:
+            if float(df["high"].iloc[i]) >= limit:
+                return self._open_at(symbol, sig, limit, df.index[i], i)
+        return None
 
     def _close(self, pos: dict, raw_exit: float, ts, idx, reason: str) -> Trade:
         # slippage pada exit (arah merugikan)

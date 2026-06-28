@@ -1,5 +1,6 @@
 import type {
   Account,
+  GeminiTrader,
   GeminiUsage,
   NewsLogEntry,
   Ohlcv,
@@ -39,6 +40,7 @@ export const api = {
   newsLog: (limit = 100) => getJSON<{ log: NewsLogEntry[] }>(`/api/news-log?limit=${limit}`),
   screenLog: (limit = 200) => getJSON<{ log: ScreenLogEntry[] }>(`/api/screen-log?limit=${limit}`),
   geminiUsage: (recent = 30) => getJSON<GeminiUsage>(`/api/gemini-usage?recent=${recent}`),
+  geminiTrader: () => getJSON<GeminiTrader>("/api/gemini-trader"),
   geminiModels: () => getJSON<{ models: string[] }>("/api/gemini-models"),
 
   saveSettings: (body: Record<string, unknown>) => postJSON<Settings>("/api/settings", body),

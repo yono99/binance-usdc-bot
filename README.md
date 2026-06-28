@@ -61,20 +61,26 @@ python run.py               # loop penuh (simulasi)
 | `python run.py` | Engine mono Python (riset cepat, strategi v1) |
 | `python backtest.py --bars 1500` | Backtest expectancy (R, fee+slippage, no-lookahead) |
 | `python optimize.py --strategy v4 --bars 3500` | Sweep + walk-forward (verdict OOS) |
+| `python optimize.py --strategy v5 --copilot` | Riset edge struktural (cross-exchange basis) + **Gemini co-pilot** ([RESEARCH.md](RESEARCH.md)) |
 | `python forwardtest.py --poll 30 --use-store` | Forward-test paper di data live (diatur dari UI) |
 | `python dashboard.py` | Dashboard web (React/Vite + SQLite): status per-pair, chart, kontrol, riwayat, token Gemini → `:8000` ([DASHBOARD.md](DASHBOARD.md)) |
 | `cd web && npm run build` | Build frontend React/Vite (dashboard menyajikan `web/dist`) |
 | `python l2collect.py` | Collector orderbook L2 (data forward microstructure) |
-| `pytest -q` | 62 unit test Python |
+| `pytest -q` | 109 unit test Python (termasuk anti-leakage, signifikansi, gerbang verdict) |
 | `cd core && cargo test` | 8 unit test Rust (hot-path) |
 | `docker compose up -d --build` | Deploy bot + collector + dashboard 24/7 |
 
 **Dokumentasi:** [METHODOLOGY.md](METHODOLOGY.md) (asumsi/batasan/temuan) ·
+[RESEARCH.md](RESEARCH.md) (loop riset edge struktural + **Gemini co-pilot**) ·
+[RESEARCH_LOG.md](RESEARCH_LOG.md) (log tiap hipotesis) ·
+[GEMINI_TRADER.md](GEMINI_TRADER.md) (**Gemini praktisi trader** ber-memori & refleksi) ·
 [DASHBOARD.md](DASHBOARD.md) (dashboard web + SQLite + setting UI) ·
 [DEPLOY.md](DEPLOY.md) (Proxmox/Debian) · `core/README.md` (Rust core).
 
 **Gemini (opsional):** isi `GEMINI_API_KEYS` + `GEMINI_ENABLED=true` di `.env` →
-mengaktifkan regime veto & news veto (`config.yaml: gemini.news_veto`). Tanpa key → non-aktif (allow).
+mengaktifkan regime veto & news veto (`config.yaml: gemini.news_veto`) **dan
+strategy co-pilot riset** (`--copilot`, lihat [RESEARCH.md](RESEARCH.md)). Tanpa key →
+non-aktif (veto allow, co-pilot pakai interpretasi deterministik).
 
 ---
 
@@ -203,6 +209,7 @@ Fitur (auto-refresh 10 dtk):
 - **Kurva equity** (dot merah di titik likuidasi) + **trade terakhir** (baris likuidasi merah)
 - **Akun / API**: mode, saldo (live/paper), **validasi API key dari form**, status Gemini, **Test Telegram**
 - **Status Bot**: ON/OFF, teknik, TF, leverage, saldo, posisi, news veto
+- **Gemini Trader** (teknik "gemini"): track record + verdict signifikansi, per-setup, playbook teruji, keputusan terakhir ([GEMINI_TRADER.md](GEMINI_TRADER.md))
 - **Aktivitas per Pair**: harga · ATR% · sinyal (LONG/SHORT/skip) · posisi+PnL · **alasan tak-entry** · tombol **Close** / **Close All**
 - **Chart per pair**: candlestick multi-TF (5m/15m/1h/4h) + **EMA** overlay + panel **RSI** + garis entry/SL/TP/LIQ
 - **Riwayat Trade**: filter pair/reason/tanggal + **export CSV**
@@ -238,6 +245,16 @@ Yang paling penting untuk keselamatan:
 | AI konfirmasi/veto | `bot/gemini_layer.py` |
 | Orkestrasi (mono Python) | `bot/engine.py` |
 
+### Stack riset (terpisah dari jalur live)
+
+| Komponen | Modul |
+|---|---|
+| Backtester (R, fee+slippage, no-lookahead) | `bot/backtest.py` |
+| Sweep + walk-forward OOS | `bot/optimize.py`, `optimize.py` |
+| Strategi lab v2–v5 (terisolasi dari live) | `bot/strategy_lab.py` |
+| Data non-harga / antar-venue | `bot/altdata.py`, `bot/orderflow.py` |
+| **Gemini co-pilot** (tafsir OOS + usul hipotesis) | `bot/copilot.py` |
+
 ### Mode polyglot (Rust core + Python svc)
 
 Untuk latency hot-path, layer 1/5/6 dipindah ke Rust (`core/`), sementara
@@ -267,7 +284,8 @@ python -m svc.run
 - [x] Mono Python 7-layer (dry/test/live)
 - [x] Rust core hot-path (ingest/normalize/risk/exec) + ZeroMQ IPC — **build + `cargo test` 8/8**
 - [x] Jembatan Python `svc/` (SUB candle/event, PUSH intent)
-- [x] Unit test: Python **62** (`pytest`) + Rust **8** (`cargo test`)
+- [x] Unit test: Python **94** (`pytest`) + Rust **8** (`cargo test`)
+- [x] Hardening riset: anti-leakage test, registry anti salah-ulang, signifikansi statistik (bootstrap+Bonferroni), lockbox+snapshot, cost-stress — [RESEARCH.md](RESEARCH.md)
 - [x] Backtester expectancy (R-multiple, fee+slippage, tanpa lookahead) — `backtest.py`
 - [x] Sweep + walk-forward (anti-overfit, verdict OOS) — `optimize.py`
 - [x] Strategi v2: filter HTF + regime trend/mean-reversion + sesi — `bot/strategy_lab.py`
@@ -280,6 +298,12 @@ python -m svc.run
 - [x] News veto via Gemini (real-time, forward-test) — `bot/news.py`
 - [x] Collector L2 orderbook (data forward microstructure) — `l2collect.py`
 - [x] Dokumen metodologi reproducible — [METHODOLOGY.md](METHODOLOGY.md)
+- [x] Loop riset edge struktural (di luar OHLCV) + log per hipotesis — [RESEARCH.md](RESEARCH.md) / [RESEARCH_LOG.md](RESEARCH_LOG.md)
+- [x] Strategi v5: cross-exchange basis (Binance vs Bybit) — `bot/altdata.py` (**REJECTED**, −0.123R OOS)
+- [x] Strategi v6: liquidation cascade fade (proxy OHLCV) — `bot/altdata.py` (**REJECTED**, −0.430R OOS)
+- [x] Strategi v7: funding regime sebagai sinyal primer — `bot/strategy_lab.py` (**REJECTED**, −0.116R OOS)
+- [x] Gemini co-pilot: tafsir OOS + usul hipotesis (advisory, guardrail di kode) — `bot/copilot.py`
+- [ ] Cycle 4: options flow proxy (Deribit DVOL/skew) — pending cek kedalaman histori API publik
 - [x] Dashboard observability: status per-pair (screening/sinyal/alasan tak-entry), akun/API + validasi key
 - [x] Chart candlestick multi-TF + EMA/RSI overlay + garis SL/TP/LIQ
 - [x] Riwayat trade + filter (pair/reason/tanggal) + export CSV
@@ -296,6 +320,9 @@ python -m svc.run
 | v2 +HTF+regime+sesi | −0.105 | 0.86 | 36 | membaik |
 | v3 +funding+OI | −0.017 | 0.97 | 45 | nyaris impas |
 | **v4 +orderflow/CVD** | **−0.007** | **0.99** | 40 | **impas (mentok)** |
+| v5 cross-exchange basis | −0.123 | 0.80 | 46 | **REJECTED** (lebih buruk dari baseline) |
+| v6 liquidation cascade fade | −0.430 | 0.46 | 32 | **REJECTED** (cascade berlanjut, bukan revert) |
+| v7 funding regime primer | −0.116 | 0.82 | 45 | **REJECTED** (funding lebih tepat jadi filter) |
 
 > Empat lapisan fitur menggeser hasil dari −0.21R ke ~0, tapi **konvergen di IMPAS,
 > BUKAN profit** (PF 0.99). Kenaikan v3→v4 cuma +0.01R = **diminishing returns**:

@@ -17,7 +17,7 @@ function Card({ lbl, val, c = "" }: { lbl: string; val: string | number; c?: str
 }
 
 export function GeminiUsage() {
-  const { data } = usePoll<GU>(() => api.geminiUsage(300), 15000);
+  const { data } = usePoll<GU>(() => api.geminiUsage(100), 15000);
   if (!data) return null;
 
   const recentCols: Col<GU["recent"][number]>[] = [

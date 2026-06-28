@@ -142,6 +142,45 @@ export interface ScreenLogEntry {
   blocked: string | null;
 }
 
+export interface GeminiTrader {
+  n: number;
+  verdict: string;
+  verdict_reason?: string;
+  win_rate?: number;
+  exp_r?: number;
+  significance?: {
+    n: number;
+    eff_n: number;
+    mean_r: number;
+    p_value: number;
+    p_adj: number;
+    ci: [number, number];
+    significant: boolean;
+    n_trials: number;
+  };
+  per_setup: { setup: string; n: number; exp_r: number; win_rate: number }[];
+  active_lessons: {
+    id: number;
+    scope: string;
+    setup: string;
+    text: string;
+    n_support: number;
+    exp_r_support: number;
+    confidence: string;
+  }[];
+  recent: {
+    id: number;
+    ts: string;
+    symbol: string;
+    setup: string;
+    side: string;
+    conviction: number;
+    rationale: string;
+    status: string;
+    outcome_r: number | null;
+  }[];
+}
+
 export interface GeminiUsage {
   total: { calls: number; tokens: number; errors: number };
   today: { calls: number; tokens: number };

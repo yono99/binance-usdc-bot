@@ -151,7 +151,8 @@ app = FastAPI(title="Bot Monitor")
 
 @app.get("/api/trades")
 def api_trades(symbol: str = None, reason: str = None, dfrom: str = None,
-               dto: str = None, limit: int = 500) -> JSONResponse:
+               dto: str = None, limit: int = 100) -> JSONResponse:
+    limit = min(max(1, limit), 100)        # data dari SQLite maksimal 100
     trades = filter_trades(build_trades(store.all_events()), symbol, reason, dfrom, dto)
     return JSONResponse({"count": len(trades), "trades": trades[-limit:][::-1]})
 
@@ -331,21 +332,28 @@ def api_close_all() -> JSONResponse:
 
 
 @app.get("/api/news-log")
-def api_news_log(limit: int = 200) -> JSONResponse:
+def api_news_log(limit: int = 100) -> JSONResponse:
     """Histori keputusan news veto (hanya saat berubah)."""
-    return JSONResponse({"log": store.news_log(limit)})
+    return JSONResponse({"log": store.news_log(min(max(1, limit), 100))})
 
 
 @app.get("/api/screen-log")
-def api_screen_log(symbol: str = None, limit: int = 500) -> JSONResponse:
+def api_screen_log(symbol: str = None, limit: int = 100) -> JSONResponse:
     """Histori screening per pair (sinyal/alasan tak-entry, hanya saat berubah)."""
-    return JSONResponse({"log": store.screen_log(symbol, limit)})
+    return JSONResponse({"log": store.screen_log(symbol, min(max(1, limit), 100))})
 
 
 @app.get("/api/gemini-usage")
-def api_gemini_usage(recent: int = 30) -> JSONResponse:
+def api_gemini_usage(recent: int = 100) -> JSONResponse:
     """Pemantauan token Gemini: total, hari ini, per-model/key/tujuan, panggilan terakhir."""
-    return JSONResponse(store.gemini_usage_stats(recent))
+    return JSONResponse(store.gemini_usage_stats(min(max(1, recent), 100)))
+
+
+@app.get("/api/gemini-trader")
+def api_gemini_trader() -> JSONResponse:
+    """Track record Gemini trader: verdict signifikansi, per-setup, playbook aktif, keputusan."""
+    from .gemini_trader import track_record
+    return JSONResponse(track_record())
 
 
 from .gemini_client import FALLBACK_MODELS as _STATIC_GEMINI_MODELS  # selaras elearning

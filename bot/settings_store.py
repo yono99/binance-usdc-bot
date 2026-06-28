@@ -27,6 +27,10 @@ PRESETS: dict[str, dict] = {
     "auto": {"timeframe": "15m", "entry_confidence": 0.5, "sl_atr_mult": 1.5,
              "tp_atr_mult": 2.5, "use_htf": True, "regime": True,
              "use_funding": True, "use_oi": False, "use_of": True},
+    # Gemini praktisi trader: ARAH dari Gemini, SL/TP tetap ATR-deterministik (param di sini).
+    "gemini": {"timeframe": "15m", "entry_confidence": 0.5, "sl_atr_mult": 1.5,
+               "tp_atr_mult": 2.5, "use_htf": True, "regime": True,
+               "use_funding": True, "use_oi": False, "use_of": True},
 }
 
 MAINT_MARGIN = 0.005  # asumsi maintenance margin ~0.5%

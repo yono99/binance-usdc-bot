@@ -11,6 +11,7 @@ import { EquityChart } from "./components/EquityChart";
 import { TradeHistory } from "./components/TradeHistory";
 import { HistoryPanels } from "./components/HistoryPanels";
 import { GeminiUsage } from "./components/GeminiUsage";
+import { GeminiTraderPanel } from "./components/GeminiTraderPanel";
 import { PositionsPanel } from "./components/PositionsPanel";
 import { Table, type Col } from "./components/Table";
 
@@ -53,6 +54,7 @@ export default function App() {
         <AccountPanel acct={account} />
         <GeminiUsage />
         <BotStatus status={status} onAction={refreshAll} />
+        <GeminiTraderPanel />
         <PositionsPanel status={status} onAction={refreshAll} />
         <PriceChart status={status} available={available} />
         {stats && <StatsCards s={stats} />}
