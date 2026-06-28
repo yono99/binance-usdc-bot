@@ -35,7 +35,10 @@ export function PriceChart({ status, available }: { status: Status | null; avail
   const rsiSeries = useRef<ISeriesApi<"Line"> | null>(null);
 
   useEffect(() => {
-    if (symbols.length && !sym) setSym(symbols[0]);
+    if (symbols.length && !sym) {
+      const btc = symbols.find((x) => x.startsWith("BTC/"));   // default ke BTC bila ada
+      setSym(btc || symbols[0]);
+    }
   }, [symbols, sym]);
 
   // init charts sekali

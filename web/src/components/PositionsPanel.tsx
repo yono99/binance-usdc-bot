@@ -14,6 +14,12 @@ export function PositionsPanel({ status, onAction }: { status: Status | null; on
     await api.close(sym);
     onAction();
   };
+  const closeAll = async () => {
+    if (!open.length) return;
+    if (!confirm(`Tutup SEMUA ${open.length} posisi? (diproses ≤1 siklus)`)) return;
+    await api.closeAll();
+    onAction();
+  };
 
   const posCols: Col<Row>[] = [
     { t: "Pair", render: (r) => <b>{r.symbol}</b> },
@@ -72,6 +78,11 @@ export function PositionsPanel({ status, onAction }: { status: Status | null; on
         <button className={tab === "orders" ? "active" : ""} onClick={() => setTab("orders")}>
           Open Orders ({orders.length})
         </button>
+        {tab === "pos" && open.length > 0 && (
+          <button className="btnsm" style={{ marginLeft: "auto" }} onClick={closeAll}>
+            Close All ({open.length})
+          </button>
+        )}
       </div>
       {tab === "pos" ? (
         <Table cols={posCols} rows={open} empty="Belum ada posisi terbuka." />

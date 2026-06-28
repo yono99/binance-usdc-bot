@@ -66,13 +66,6 @@ export default function App() {
 }
 
 function StatsTables({ s }: { s: Stats }) {
-  const openCols: Col<Stats["open_positions"][number]>[] = [
-    { t: "Simbol", render: (r) => r.symbol },
-    { t: "Sisi", render: (r) => r.side, cls: (r) => (r.side === "long" ? "pos" : "neg") },
-    { t: "Entry", render: (r) => f(r.entry, 4) },
-    { t: "SL", render: (r) => f(r.sl, 4) },
-    { t: "TP", render: (r) => f(r.tp, 4) },
-  ];
   const symCols: Col<Stats["per_symbol"][number]>[] = [
     { t: "Simbol", render: (r) => r.symbol },
     { t: "Trades", render: (r) => r.trades },
@@ -88,10 +81,6 @@ function StatsTables({ s }: { s: Stats }) {
   ];
   return (
     <>
-      <div className="panel">
-        <h2>Posisi Terbuka</h2>
-        <Table cols={openCols} rows={s.open_positions} />
-      </div>
       <div className="panel">
         <h2>Per Simbol</h2>
         <Table cols={symCols} rows={s.per_symbol} />
