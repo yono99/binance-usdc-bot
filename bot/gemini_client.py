@@ -37,10 +37,21 @@ COOLDOWN_AUTH = 5 * 60.0    # 403 / key invalid → 5 menit
 
 # State per-key LINTAS panggilan & instance (module-level, seperti elearning `states`).
 _states: dict[str, dict] = {}
+# Cache client per key (seperti elearning `clientCache`) — JANGAN buat Client baru
+# tiap panggilan: httpx-nya bisa ketutup ("Cannot send a request, client closed").
+_clients: dict = {}
 
 
 def _st(key: str) -> dict:
     return _states.setdefault(key, {"cooldown_until": 0.0, "fails": 0, "last_used": 0.0})
+
+
+def _get_client(key: str):
+    c = _clients.get(key)
+    if c is None:
+        c = genai.Client(api_key=key)
+        _clients[key] = c
+    return c
 
 
 def _classify(err: Exception) -> str:
@@ -122,7 +133,7 @@ class GeminiClient:
                 for key in _ordered_keys(self.keys):
                     ki = self.keys.index(key)
                     try:
-                        resp = genai.Client(api_key=key).models.generate_content(model=model, contents=prompt)
+                        resp = _get_client(key).models.generate_content(model=model, contents=prompt)
                         txt = (resp.text or "").strip()
                         if not txt:
                             last_err = "empty response"
@@ -137,6 +148,10 @@ class GeminiClient:
                         return txt
                     except Exception as e:  # boundary
                         last_err = str(e)
+                        if "client has been closed" in last_err.lower() or "client is closed" in last_err.lower():
+                            _clients.pop(key, None)         # buat ulang client siklus berikutnya
+                            any_transient = True
+                            continue
                         kind = _classify(e)
                         if kind == "request":   # 400 = prompt salah, percuma rotasi
                             store.log_gemini_usage(model, purpose, ki, 0, 0, 0, ok=False, error=last_err[:160])

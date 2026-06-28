@@ -174,6 +174,10 @@ rotation** (port dari project elearning `lib/gemini/key-pool.ts`):
   (dropdown+search) jadi primary; sisanya tetap fallback.
 - **Catat token tiap panggilan** ke `gemini_usage` (prompt/output/total + model +
   index key + status) → panel pemantauan.
+- **Cache client per key** (`_clients`, seperti `clientCache` elearning): JANGAN
+  buat `genai.Client` baru tiap panggilan — client throwaway di-GC menutup httpx
+  bersama SDK → "Cannot send a request, client has been closed" beruntun. Client
+  di-reuse; bila kena "closed", di-evict & dibuat ulang siklus berikutnya.
 
 Panel **"Pemantauan Token Gemini"** (auto-refresh 15 dtk): token hari ini · total
 token · total panggilan · error · tabel per-model / per-tujuan / per-key /
