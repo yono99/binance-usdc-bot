@@ -338,7 +338,9 @@ class ForwardTester:
         (hindari banjir 1 baris/siklus). Boundary aman: gagal log tak ganggu bot."""
         try:
             from . import store
-            if (news_veto, note) != self._last_news:
+            # Catat HANYA saat STATUS veto berubah (on/off), bukan tiap Gemini ganti redaksi
+            # catatan (LLM menulis beda-beda walau keputusan sama) → hindari banjir baris.
+            if self._last_news is None or news_veto != self._last_news[0]:
                 store.log_news(news_veto, note)
                 self._last_news = (news_veto, note)
             for sym in self.symbols:
@@ -720,7 +722,8 @@ class ForwardTester:
                 if not rs.enabled:
                     blocked = "bot OFF"
                 elif news_veto:
-                    blocked = f"news veto ({note})"
+                    blocked = "news veto"   # alasan STABIL → dedup screening jalan;
+                    #                          catatan detail ada di panel Riwayat News Veto
                 elif cb:
                     blocked = cb
                 elif sym in self.open:
