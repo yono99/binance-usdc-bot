@@ -79,6 +79,8 @@ Disimpan ke `kv['runtime']`; bot membacanya tiap siklus. Field:
 | Saldo | LIVE: dari Binance Futures USDC (read-only) · paper: input manual, hidup mengikuti PnL (float 0.01) | 12 (paper) |
 | **Target profit** | **Auto** (engine tentukan per-pair via ATR/volatilitas) / **Manual %** (0.1–100) | Auto |
 | **Max posisi terbuka** | slot posisi paralel | 2 |
+| **Stop-loss harian %** | circuit breaker: stop buka posisi bila rugi harian ≥ % saldo awal hari (**0 = nonaktif**) | 3.0 |
+| **Max trade harian** | circuit breaker: stop setelah N trade hari ini (**0 = nonaktif**) | 20 |
 | **Interval screening** | detik per siklus | **900 (15 menit)** |
 | **Jenis order** | `limit` (maker) / `market` (taker) | **limit (maker)** |
 | **Fee taker %** | fee market order | 0.05 |
@@ -114,10 +116,13 @@ harga), **market → taker** (+ slippage). Baris Status menampilkan
 
 ## Manajemen risiko (selalu aktif)
 
-- **Circuit breaker harian** (`config.yaml: risk.daily_max_loss_pct` / `daily_max_trades`):
-  stop buka posisi bila rugi harian ≥ % saldo awal hari, atau jumlah open harian
-  tercapai. Reset tiap hari UTC, **tahan restart** (disimpan di `botstate`). Status
-  menampilkan PnL hari ini + status breaker.
+- **Circuit breaker harian** — **diatur dari UI** (Stop-loss harian % / Max trade
+  harian; `config.yaml: risk.daily_max_loss_pct` / `daily_max_trades` jadi default
+  bila belum pernah disimpan). Stop buka posisi bila rugi harian ≥ % saldo awal
+  hari, atau jumlah open harian tercapai. **0 = nonaktifkan** breaker tsb. Nilai
+  disimpan per-mode (dry/test/live) & hot-reload tanpa restart. Reset tiap hari
+  UTC, **tahan restart** (disimpan di `botstate`). Status menampilkan PnL hari ini
+  + status breaker.
 - **Guard korelasi** (`risk.corr_threshold` / `corr_lookback`): blok entry **searah**
   bila korelasi return ≥ threshold (default 0.85) dengan posisi terbuka — mencegah
   banyak alt USDC jadi satu taruhan BTC tersamar saat screening semua pair.

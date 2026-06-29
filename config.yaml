@@ -44,8 +44,8 @@ risk:
   account_risk_pct: 0.5     # risiko per trade (% equity) -> tentukan size dari jarak SL
   leverage: 3               # konservatif. Naikkan dgn sangat hati-hati.
   max_portfolio_exposure_pct: 30   # total notional / equity
-  daily_max_loss_pct: 3.0   # circuit breaker: stop buka posisi bila rugi harian >= % saldo awal hari
-  daily_max_trades: 20      # circuit breaker: stop bila jumlah open hari ini tercapai
+  daily_max_loss_pct: 3.0   # circuit breaker: stop buka posisi bila rugi harian >= % saldo awal hari (default; bisa diatur dari UI, 0 = nonaktif)
+  daily_max_trades: 20      # circuit breaker: stop bila jumlah open hari ini tercapai (default; bisa diatur dari UI, 0 = nonaktif)
   corr_threshold: 0.85      # guard korelasi: blok entry SEARAH bila korelasi return >= ini
   corr_lookback: 50         # bar untuk hitung korelasi (0/kecil = nonaktif)
   sl_atr_mult: 1.5          # SL = entry -/+ ATR * mult

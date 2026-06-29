@@ -23,6 +23,8 @@ export interface Settings {
   balance_usd: number;
   target_profit_pct: number;
   max_open_positions: number;
+  daily_max_loss_pct: number;
+  daily_max_trades: number;
   poll_seconds: number;
   mode: string;
   order_type: string;

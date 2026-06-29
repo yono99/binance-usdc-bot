@@ -290,6 +290,9 @@ class ForwardTester:
         self.bt.sl_mult = rs.params()["sl_atr_mult"]
         self.bt.tp_mult = rs.params()["tp_atr_mult"]
         self.max_open = rs.max_open_positions   # hot-reload dari UI
+        # circuit breaker harian diatur user dari UI (0 = nonaktif) — hot-reload
+        self.daily_max_loss_pct = float(rs.daily_max_loss_pct)
+        self.daily_max_trades = int(rs.daily_max_trades)
         # teknik "gemini": arah dari Gemini (SL/TP/sizing tetap deterministik)
         self.use_gemini_trader = (rs.technique == "gemini")
         if self.use_gemini_trader and self.gtrader is None:

@@ -473,6 +473,8 @@ PAGE = """<!doctype html>
       <label>Saldo (USD)<input id="balance_usd" type="number" min="0" step="0.1"></label>
       <label>Target profit % (0=ATR)<input id="target_profit_pct" type="number" min="0" step="0.1"></label>
       <label>Max posisi terbuka<input id="max_open_positions" type="number" min="1" max="20" step="1"></label>
+      <label>Stop-loss harian % (0=off)<input id="daily_max_loss_pct" type="number" min="0" max="100" step="0.1"></label>
+      <label>Max trade harian (0=off)<input id="daily_max_trades" type="number" min="0" max="1000" step="1"></label>
       <label>Interval screening (dtk)<input id="poll_seconds" type="number" min="5" max="3600" step="1"></label>
       <label>Timeframe (otomatis)<input id="tf" disabled></label>
     </div>
@@ -588,6 +590,8 @@ async function loadSettings(){
   document.getElementById('balance_usd').value=s.balance_usd;
   document.getElementById('target_profit_pct').value=s.target_profit_pct;
   document.getElementById('max_open_positions').value=s.max_open_positions;
+  document.getElementById('daily_max_loss_pct').value=s.daily_max_loss_pct;
+  document.getElementById('daily_max_trades').value=s.daily_max_trades;
   document.getElementById('poll_seconds').value=s.poll_seconds;
   document.getElementById('tf').value=s.timeframe;
   riskWarn(s.leverage, s.liq_pct);
@@ -676,6 +680,8 @@ document.getElementById('save').addEventListener('click',async()=>{
     balance_usd:+document.getElementById('balance_usd').value,
     target_profit_pct:+document.getElementById('target_profit_pct').value,
     max_open_positions:+document.getElementById('max_open_positions').value,
+    daily_max_loss_pct:+document.getElementById('daily_max_loss_pct').value,
+    daily_max_trades:+document.getElementById('daily_max_trades').value,
     poll_seconds:+document.getElementById('poll_seconds').value,
   };
   const s=await (await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();

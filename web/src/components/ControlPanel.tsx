@@ -21,6 +21,8 @@ type Form = {
   balance_usd: number;
   target_profit_pct: number;
   max_open_positions: number;
+  daily_max_loss_pct: number;
+  daily_max_trades: number;
   poll_seconds: number;
   mode: string;
   order_type: string;
@@ -58,6 +60,8 @@ export function ControlPanel({
     balance_usd: d.balance_usd,
     target_profit_pct: d.target_profit_pct,
     max_open_positions: d.max_open_positions,
+    daily_max_loss_pct: d.daily_max_loss_pct,
+    daily_max_trades: d.daily_max_trades,
     poll_seconds: d.poll_seconds,
     mode: d.mode || "",
     order_type: d.order_type,
@@ -112,6 +116,7 @@ export function ControlPanel({
   const NUM_FIELDS: [keyof Form, string][] = [
     ["leverage", "Leverage"], ["bet_usd", "Bet"], ["target_profit_pct", "Target profit %"],
     ["max_open_positions", "Max posisi"], ["poll_seconds", "Interval screening"],
+    ["daily_max_loss_pct", "Stop-loss harian %"], ["daily_max_trades", "Max trade harian"],
     ["taker_fee_pct", "Fee taker %"], ["maker_fee_pct", "Fee maker %"],
   ];
 
@@ -131,6 +136,7 @@ export function ControlPanel({
     setForm((p) =>
       p ? { ...p, leverage: res.leverage, bet_usd: res.bet_usd, target_profit_pct: res.target_profit_pct,
             max_open_positions: res.max_open_positions, poll_seconds: res.poll_seconds,
+            daily_max_loss_pct: res.daily_max_loss_pct, daily_max_trades: res.daily_max_trades,
             taker_fee_pct: res.taker_fee_pct, maker_fee_pct: res.maker_fee_pct } : p
     );
     setAdjusted(adj);
@@ -237,6 +243,14 @@ export function ControlPanel({
         <label>
           Max posisi terbuka
           <input type="number" min={1} max={20} step={1} value={form.max_open_positions} onChange={(e) => set("max_open_positions", +e.target.value)} />
+        </label>
+        <label>
+          Stop-loss harian % · <span className="sub">circuit breaker; rugi ≥ % saldo awal hari → stop (0 = nonaktif)</span>
+          <input type="number" min={0} max={100} step={0.1} value={form.daily_max_loss_pct} onChange={(e) => set("daily_max_loss_pct", +e.target.value)} />
+        </label>
+        <label>
+          Max trade harian · <span className="sub">stop buka posisi setelah N trade hari ini (0 = nonaktif)</span>
+          <input type="number" min={0} max={1000} step={1} value={form.daily_max_trades} onChange={(e) => set("daily_max_trades", +e.target.value)} />
         </label>
         <label>
           Interval refresh bot (dtk) · <span className="sub">sinyal dievaluasi per bar TF</span>

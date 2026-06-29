@@ -46,6 +46,8 @@ class RuntimeSettings:
     balance_usd: float = 12.0                   # saldo akun (paper)
     target_profit_pct: float = 0.0              # 0 = pakai TP dari ATR; >0 = TP = entry×(1+ini%)
     max_open_positions: int = 2                 # slot posisi paralel maksimum
+    daily_max_loss_pct: float = 3.0             # circuit breaker: stop buka posisi bila rugi harian ≥ % saldo awal hari (0 = nonaktif)
+    daily_max_trades: int = 20                  # circuit breaker: stop bila jumlah trade hari ini tercapai (0 = nonaktif)
     poll_seconds: int = 60                      # heartbeat bot (baca setting+monitor+status). Sinyal dievaluasi per bar TF.
     order_type: str = "limit"                   # default maker (limit) | market (taker)
     taker_fee_pct: float = 0.05                 # fee taker (%) — market order
@@ -60,6 +62,8 @@ class RuntimeSettings:
         self.balance_usd = max(0.0, float(self.balance_usd))
         self.target_profit_pct = max(0.0, min(100.0, float(self.target_profit_pct)))   # >100% gerak harga = tak masuk akal
         self.max_open_positions = int(max(1, min(20, self.max_open_positions)))
+        self.daily_max_loss_pct = max(0.0, min(100.0, float(self.daily_max_loss_pct)))   # 0 = nonaktif; >100% saldo tak masuk akal
+        self.daily_max_trades = int(max(0, min(1000, self.daily_max_trades)))            # 0 = nonaktif
         self.poll_seconds = int(max(5, min(3600, self.poll_seconds)))
         self.order_type = self.order_type if self.order_type in ("market", "limit") else "market"
         self.taker_fee_pct = max(0.0, float(self.taker_fee_pct))
