@@ -100,3 +100,8 @@ agent:
   # LLM (dibatasi tool_max_iters). Gagal → fallback single-shot deterministik.
   tool_loop: false
   tool_max_iters: 4
+  # OTONOMI PORTOFOLIO: agen meninjau SEMUA posisi terbuka berkala & boleh REDUCE_RISK
+  # (geser stop ke breakeven pada yang profit) atau FLAT (tutup semua) — HANYA mengurangi
+  # risiko. Di LIVE, FLAT butuh allow_live_trader: true. Default off (paper-aman).
+  autonomous: false
+  autonomous_interval_s: 300

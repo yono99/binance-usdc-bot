@@ -82,6 +82,19 @@ def build_tools(ctx: ToolContext) -> dict[str, dict]:
         return {"max_abs_corr": round(worst, 3), "with": worst_sym,
                 "n_open": len(ctx.open)}
 
+    def get_funding(args):
+        fr = ctx.ex.client.fetch_funding_rate(args.get("symbol"))
+        mark, index = fr.get("markPrice"), fr.get("indexPrice")
+        basis = ((mark - index) / index * 100) if (mark and index) else None
+        return {"funding_rate": fr.get("fundingRate"), "mark": mark, "index": index,
+                "basis_pct": round(basis, 4) if basis is not None else None,
+                "next_funding": fr.get("fundingDatetime")}
+
+    def get_open_interest(args):
+        oi = ctx.ex.client.fetch_open_interest(args.get("symbol"))
+        return {"open_interest": oi.get("openInterestAmount") or oi.get("openInterest"),
+                "value_usd": oi.get("openInterestValue")}
+
     def get_lessons(args):
         if ctx.lessons is None:
             return {"lessons": []}
@@ -96,6 +109,11 @@ def build_tools(ctx: ToolContext) -> dict[str, dict]:
                           "fn": get_portfolio},
         "check_correlation": {"desc": "Korelasi return simbol vs posisi terbuka (hindari taruhan kembar)",
                               "fn": check_correlation},
+        # --- point 3: sumber edge DI LUAR OHLCV ---
+        "get_funding": {"desc": "Funding rate + basis% (mark vs index) — crowding/premium (non-OHLCV)",
+                        "fn": get_funding},
+        "get_open_interest": {"desc": "Open interest saat ini — partisipasi/leverage pasar (non-OHLCV)",
+                              "fn": get_open_interest},
         "get_lessons": {"desc": "Pelajaran teruji terbaru (arg: limit)", "fn": get_lessons},
     }
     return {name: {"desc": t["desc"], "fn": _safe(t["fn"])} for name, t in tools.items()}

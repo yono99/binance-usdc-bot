@@ -40,6 +40,21 @@ def test_get_lessons_uses_engine():
     assert out["lessons"][0]["id"] == "l1"
 
 
+def test_get_funding_computes_basis():
+    ex = types.SimpleNamespace(client=types.SimpleNamespace(
+        fetch_funding_rate=lambda s: {"fundingRate": 0.0001, "markPrice": 101.0,
+                                      "indexPrice": 100.0, "fundingDatetime": "t"}))
+    out = build_tools(ToolContext(ex=ex))["get_funding"]["fn"]({"symbol": "X"})
+    assert out["funding_rate"] == 0.0001 and out["basis_pct"] == 1.0      # (101-100)/100*100
+
+
+def test_get_open_interest():
+    ex = types.SimpleNamespace(client=types.SimpleNamespace(
+        fetch_open_interest=lambda s: {"openInterestAmount": 1234.0, "openInterestValue": 99999.0}))
+    out = build_tools(ToolContext(ex=ex))["get_open_interest"]["fn"]({"symbol": "X"})
+    assert out["open_interest"] == 1234.0 and out["value_usd"] == 99999.0
+
+
 def test_tool_failsoft_returns_error():
     def boom(s, limit=10):
         raise RuntimeError("network down")

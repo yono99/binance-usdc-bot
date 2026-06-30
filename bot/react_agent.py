@@ -34,6 +34,7 @@ from .logger import log
 from .signals import Signal
 
 ACTIONS = ("ENTER_LONG", "ENTER_SHORT", "SKIP", "REDUCE_RISK", "FLAT")
+PORTFOLIO_ACTIONS = ("HOLD", "REDUCE_RISK", "FLAT")   # aksi level-portofolio (point 2: otonomi)
 DECISION_LOG = Path("logs/decision_log.jsonl")
 
 
@@ -319,6 +320,50 @@ class ReactAgent:
             "market_state": d.market_state,
             "outcome": None, "outcome_r": None, "filled_at_close": False,
         }, path=self.log_path)
+
+    # ---------------------- POINT 2: aksi level-portofolio (otonomi) ----------------------
+    def manage_portfolio(self, portfolio: dict, *, daily_pnl_r: float = 0.0,
+                         lessons: list | None = None) -> dict:
+        """Aksi portofolio otonom: HOLD | REDUCE_RISK | FLAT. HANYA boleh mengurangi risiko
+        (di-enforce pemanggil). Fail-safe = HOLD. Dicatat ke decision_log (audit)."""
+        out = {"action": "HOLD", "reasoning": "llm off → hold", "confidence": 0.0}
+        if self.enabled:
+            self.calls += 1
+            prompt = (
+                "You are an AUTONOMOUS trading agent managing an OPEN PORTFOLIO.\n"
+                "You may ONLY reduce risk — never add.\n"
+                f"Daily PnL: {round(float(daily_pnl_r), 3)}R\n"
+                f"Portfolio: {json.dumps(portfolio, default=str)}\n"
+                f"Recent lessons: {json.dumps(lessons or [], default=str)}\n"
+                "Actions: HOLD (do nothing), REDUCE_RISK (move stops to breakeven on winners), "
+                "FLAT (close everything now — only if regime/news clearly dangerous).\n"
+                'Respond ONLY JSON: {"action":"HOLD","reasoning":"one sentence","confidence":0.0}'
+            )
+            parsed = self._parse_tool_step(self.client.generate(prompt, purpose="portfolio"))
+            out = self._sanitize_portfolio(parsed) if parsed is not None else out
+        else:
+            self.fallbacks += 1
+        decision_log.append({
+            "ts": _utcnow(), "id": uuid.uuid4().hex, "symbol": "*PORTFOLIO*",
+            "action": out["action"], "reasoning": out["reasoning"],
+            "confidence": out["confidence"], "key_risks": [], "lesson_triggered": "",
+            "source": "LLM" if self.enabled else "LLM_DISABLED", "signal_scores": {},
+            "react_action": "", "market_state": {"portfolio": portfolio},
+            "outcome": None, "outcome_r": None, "filled_at_close": False,
+        }, path=self.log_path)
+        return out
+
+    @staticmethod
+    def _sanitize_portfolio(data: dict) -> dict:
+        action = str(data.get("action", "")).upper().strip()
+        if action not in PORTFOLIO_ACTIONS:
+            return {"action": "HOLD", "reasoning": "aksi tak valid → hold", "confidence": 0.0}
+        try:
+            conf = max(0.0, min(float(data.get("confidence", 0.0)), 1.0))
+        except (TypeError, ValueError):
+            conf = 0.0
+        return {"action": action, "reasoning": str(data.get("reasoning", ""))[:200],
+                "confidence": round(conf, 3)}
 
     def health(self) -> dict:
         """Rasio ketersediaan LLM vs fallback (untuk panel Agent Health)."""

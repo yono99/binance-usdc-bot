@@ -66,6 +66,26 @@ Prinsip walk-forward diterapkan ke performa **live**, bukan backtest:
 > Auto-apply berlaku di jalur **Engine** (`cfg["signals"]`). Forward memakai parameter
 > store, jadi evolusi di forward bersifat analitik/log, bukan auto-apply.
 
+## Otonomi (point 1–3) — dari "gerbang" ke agent investigatif
+
+Opsi di `config.yaml` → `agent:` (semua default **off**, paper-aman):
+
+**1. Tool-loop sejati** (`tool_loop: true`) — agen tak lagi satu-shot. Ia **memanggil tool**
+iteratif (nalar → tool → observasi → nalar → aksi), maks `tool_max_iters`. Gagal → fallback
+single-shot deterministik. Tools (`bot/tools.py`, read-only, fail-soft):
+`get_orderbook` (L2 imbalance), `get_ticker`, `get_portfolio`, `check_correlation`,
+`get_funding` (funding+basis), `get_open_interest`, `get_lessons`.
+
+**2. Otonomi portofolio** (`autonomous: true`) — tiap `autonomous_interval_s`, agen meninjau
+SEMUA posisi terbuka & boleh **REDUCE_RISK** (geser stop ke breakeven pada yang profit) atau
+**FLAT** (tutup semua). HANYA mengurangi risiko. Di LIVE, FLAT butuh `allow_live_trader: true`.
+
+**3. Sumber edge DI LUAR OHLCV** — tool `get_orderbook`/`get_funding`/`get_open_interest`
+memberi agen sinyal non-OHLCV (L2 imbalance, funding/basis premium, open interest) —
+karena OHLCV murni sudah diarbitrase. Ini bahan baku edge yang belum tentu habis.
+
+> Jujur: ini menaikkan "level agentik", **bukan** jaminan profit. Buktikan dengan A/B di bawah.
+
 ## A/B harness — apakah ReAct benar-benar menambah nilai? (`bot/ab.py`)
 
 UKUR, jangan tebak. Set `agent.ab_shadow: true` di `config.yaml` → ReAct jalan **shadow**:
