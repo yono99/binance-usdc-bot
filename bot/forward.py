@@ -16,14 +16,18 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
+from . import decision_log
 from .altdata import align, fetch_funding, fetch_oi, funding_zscore, oi_delta
 from .backtest import Backtester, Trade, fetch_history
 from .config import Settings
 from .exchange import Exchange
 import json as _json
 
+from .lessons import LessonsEngine
 from .logger import LOG_DIR, journal, log
 from .news import NewsVeto
+from .react_agent import ReactAgent
+from .signals import Signal
 from .notify import TelegramNotifier
 from .orderflow import cvd_from_series, fetch_taker
 from .settings_store import RuntimeSettings, liquidation_price, load_settings
@@ -71,6 +75,9 @@ class ForwardTester:
         self.corr_threshold = float(_r.get("corr_threshold", 0) or 0)
         self.corr_lookback = int(_r.get("corr_lookback", 0) or 0)
         self.news = NewsVeto(self.settings, self.cfg)
+        # ReAct agent: gerbang entry AKTIF utk teknik non-gemini (Gemini mati → fallback ikut sinyal).
+        self.react = ReactAgent(self.settings, self.cfg)
+        self.lessons = LessonsEngine(self.settings, self.cfg)
         self.notify = TelegramNotifier()
         self.rs: RuntimeSettings | None = None
         self.balance_usd = 0.0
@@ -106,6 +113,8 @@ class ForwardTester:
         self._last_news_note = ""
         self._last_manage: dict = {}              # throttle kelola-posisi per simbol
         self._manage_interval = 60                # detik minimum antar review posisi (~1 menit)
+        self._last_decide: dict = {}              # throttle keputusan-entry Gemini per simbol
+        self._decide_interval = 180               # detik min antar keputusan entry (~3 mnt) — hemat token
         # KESELAMATAN: Gemini-trader boleh order LIVE hanya bila di-set eksplisit di config.
         self._allow_live_gemini = bool(self.cfg.get("gemini", {}).get("allow_live_trader", False))
 
@@ -174,6 +183,54 @@ class ForwardTester:
         atr_val = float(_atr(df_closed, self.cfg["signals"]["atr_period"]).iloc[-1])
         side = 1 if dec["side"] == "long" else (-1 if dec["side"] == "short" else 0)
         return side, atr_val, dec, ctx
+
+    def _react_gate(self, sym: str, side: int, atr: float, df_closed, price: float):
+        """Konsultasi ReactAgent sbg gerbang entry (teknik NON-gemini). OBSERVE pakai
+        alt-data nyata (funding/OI/CVD) + regime + pelajaran. Kembalikan (permitted, action,
+        reasoning). LLM mati/timeout → fallback IZINKAN (ikut sinyal) — tak pernah blokir."""
+        from .gemini_trader import _market_summary
+        side_str = "long" if side == 1 else ("short" if side == -1 else "skip")
+        try:
+            fz, oid, imb, _div = self._alt_arrays(sym, df_closed)
+            alt = {"funding": round(float(fz[-1]), 3), "oi_change": round(float(oid[-1]), 4),
+                   "cvd": round(float(imb[-1]), 3)}
+        except Exception:  # boundary — alt opsional
+            alt = {}
+        try:
+            regime = _market_summary(df_closed, self.cfg)["regime"]
+        except Exception:
+            regime = "unknown"
+        sig = Signal(sym, side_str, 0.0, price, atr, "v4",
+                     long_score=(1.0 if side == 1 else 0.0),
+                     short_score=(1.0 if side == -1 else 0.0), regime=regime)
+        one_r = self.balance_usd * self.risk_frac
+        daily_pnl_r = self._day_pnl / one_r if one_r else 0.0
+        dec = self.react.decide(sig, regime=regime, alt=alt, n_positions=len(self.open),
+                                max_positions=self.max_open, daily_pnl_r=daily_pnl_r,
+                                lessons=self.lessons.recent(10))
+        return dec.permits(sig), dec.action, dec.reasoning
+
+    def _react_link(self, sym: str, outcome: str, outcome_r: float) -> None:
+        """Tautkan outcome ke keputusan ReAct terakhir (decision_log) + update pelajaran.
+        Dipakai jalur paper & live. Boundary: pencatatan agen tak boleh ganggu trading."""
+        try:
+            did = decision_log.record_outcome(sym, outcome, outcome_r)
+            if did:                                  # hanya entry yang lewat gerbang ReAct
+                row = decision_log.get(did)
+                if row:
+                    if row.get("lesson_triggered"):
+                        self.lessons.record_trigger(row["lesson_triggered"], correct=outcome_r > 0)
+                    self.lessons.derive_from_trade(row)
+                self.lessons.score_and_retire()
+        except Exception as e:  # boundary
+            log.warning(f"react link {sym} gagal: {e}")
+
+    def _react_settle(self, sym: str, pos: dict, pnl: float, reason: str) -> None:
+        """Paper: R dari jarak SL (akuntansi identik backtest)."""
+        risk0 = abs(pos["entry"] - pos["sl"]) * pos["qty"]
+        outcome_r = pnl / risk0 if risk0 else 0.0
+        outcome = {"liq": "LIQ", "sl": "SL_HIT", "tp": "TP_HIT"}.get(reason, "CLOSE")
+        self._react_link(sym, outcome, outcome_r)
 
     def _portfolio_view(self) -> dict:
         """Snapshot SEMUA posisi terbuka + eksposur — konteks korelasi/risiko untuk Gemini."""
@@ -486,6 +543,13 @@ class ForwardTester:
                     log.info(f"Gemini refleksi (live): {res['active_lessons']} pelajaran aktif")
             except Exception as e:  # boundary
                 log.warning(f"settle gemini live {sym} gagal: {e}")
+        # Tautkan close LIVE non-gemini (ReAct) ke decision_log — HANYA bila TEPAT SATU posisi
+        # tutup siklus ini, agar PnL agregat (Δequity) tak ambigu (prinsip sama spt Gemini).
+        react_closed = [(s, p) for s, p in closed if not p.get("gdecision")]
+        if len(closed) == 1 and len(react_closed) == 1:
+            sym, pos = react_closed[0]
+            outcome_r = (self.balance_usd - prev_balance) / pos["bet"] if pos.get("bet") else 0.0
+            self._react_link(sym, "LIVE_CLOSE", outcome_r)
 
     @staticmethod
     def _valid_entry_sl(is_long: bool, entry: float, sl, liq: float) -> float | None:
@@ -611,6 +675,8 @@ class ForwardTester:
                              f"{res['active_lessons']} pelajaran aktif")
             except Exception as e:  # boundary
                 log.warning(f"settle/reflect gemini {sym} gagal: {e}")
+        else:
+            self._react_settle(sym, pos, pnl, reason)   # umpan balik ReAct (teknik non-gemini)
         journal("forward_close", {"symbol": sym, "exit": round(exit_fill, 6), "reason": reason,
                                   "pnl_usd": round(pnl, 4), "r": round(r, 4),
                                   "equity": round(self.balance_usd, 2)})
@@ -750,15 +816,33 @@ class ForwardTester:
                 self._last_manage[sym] = now
                 self._gemini_manage(sym, df_closed)
             # KAPAN evaluasi entry?
-            #  - Gemini trader: timing BEBAS → tiap siklus (selama belum ada posisi & bot ON).
+            #  - Gemini trader: timing BEBAS, TAPI di-throttle (≥ _decide_interval per simbol)
+            #    & di-PRE-GATE (hanya tanya Gemini bila tak ada blokir murah & sinyal lokal
+            #    melihat peluang) → mencegah ledakan token/rate-limit.
             #  - Teknik rules: hanya saat bar baru tertutup (sinyal berbasis bar).
             bar_closed = df_closed.index[-1] != self.last_closed.get(sym)
+            throttled = now - self._last_decide.get(sym, 0) < self._decide_interval
             free_gemini = (self.use_gemini_trader and self.gtrader is not None
-                           and rs.enabled and sym not in self.open)
+                           and rs.enabled and sym not in self.open and not throttled)
             if bar_closed or free_gemini:
                 if bar_closed:
                     self.last_closed[sym] = df_closed.index[-1]
                 if self.use_gemini_trader and self.gtrader is not None:
+                    # Blokir MURAH dulu (tanpa panggil Gemini) — jangan buang token bila
+                    # jelas tak akan buka posisi.
+                    pre = (None if rs.enabled else "bot OFF")
+                    pre = pre or ("news veto" if news_veto else None)
+                    pre = pre or (cb or None)
+                    pre = pre or ("sudah ada posisi" if sym in self.open else None)
+                    pre = pre or ("slot penuh" if len(self.open) >= self.max_open else None)
+                    if pre is None:                      # PRE-GATE murah: sinyal lokal (gratis)
+                        gate_side, _ = self._signal(sym, df_closed)
+                        if gate_side == 0:
+                            pre = "pre-gate: tak ada peluang"
+                    if pre is not None:
+                        c["blocked"] = pre
+                        continue
+                    self._last_decide[sym] = now         # throttle: tandai panggilan Gemini
                     side, atr, gdec, gctx = self._gemini_decision(sym, df_closed)
                     c["gemini"] = {"dec": gdec, "ctx": gctx}
                     c["rationale"] = gdec.get("rationale")
@@ -786,6 +870,13 @@ class ForwardTester:
                     blocked = "ATR nol"
                 elif (conflict := self._corr_conflict(sym, side)):
                     blocked = f"korelasi tinggi dgn {conflict.split('/')[0]}"
+                # Gerbang ReAct (teknik NON-gemini): keputusan AKTIF + dicatat ke decision_log.
+                # Hanya dipanggil saat semua cek deterministik lolos → hemat panggilan LLM.
+                if blocked is None and not self.use_gemini_trader:
+                    permitted, action, reasoning = self._react_gate(sym, side, atr, df_closed, c["price"])
+                    if not permitted:
+                        blocked = f"agent {action}"
+                        c["rationale"] = reasoning
                 c["blocked"] = blocked
                 if blocked is None:
                     self._open_usd(sym, side, atr, rs)

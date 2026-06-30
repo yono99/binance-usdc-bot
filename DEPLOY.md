@@ -102,6 +102,28 @@ python dashboard.py --host 0.0.0.0    # http://<host>:8000
 > Penting: jalankan **tepat satu** proses bot. Dua bot menulis DB yang sama =
 > posisi & status saling timpa.
 
+### 3a. Auto-start saat boot (PM2) — alternatif systemd
+
+`ecosystem.config.cjs` mengelola **bot + dashboard** dengan auto-restart & auto-start boot.
+
+```bash
+npm install -g pm2                  # butuh Node 18+
+pm2 start ecosystem.config.cjs      # jalankan kedua service (bot MODE=dry default)
+pm2 save                            # simpan daftar proses
+pm2 startup                         # cetak perintah; jalankan utk auto-start saat reboot
+```
+
+```bash
+pm2 status                          # ringkasan service
+pm2 logs bot                        # log realtime
+pm2 restart bot dashboard           # terapkan update setelah git pull
+pm2 delete all                      # stop + cabut
+```
+
+- `interpreter: ./venv/bin/python` (Linux). Pastikan venv sudah dibuat (langkah 1).
+- Jalankan **tepat satu** proses bot (sama spt systemd) — dua bot = state DB bentrok.
+- Reboot: `pm2 save` + `pm2 startup` membuat kedua service hidup lagi otomatis.
+
 ### 3. Auto-start saat boot (systemd)
 
 ```bash

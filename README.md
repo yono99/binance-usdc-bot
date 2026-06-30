@@ -1,7 +1,7 @@
 # Binance USDC-M Futures Bot
 
 Bot trading futures USDC-margined di Binance dengan arsitektur 7-layer:
-**data → screening → smart rotate → signal engine → risk gate → execution → position management**, plus layer opsional Gemini untuk konfirmasi/veto regime pasar.
+**data → screening → smart rotate → signal engine → risk gate → execution → position management**, plus **agen ReAct** yang mengelola keputusan entry (gate aktif, pelajaran, evolusi threshold tervalidasi OOS) — menggantikan veto Gemini pasif. Lihat **[AGENT.md](AGENT.md)**.
 
 Satu basis kode, **tiga mode** lewat satu variabel `MODE`:
 
@@ -21,7 +21,7 @@ Satu basis kode, **tiga mode** lewat satu variabel `MODE`:
 ## ⚠️ Baca dulu — jujur soal ekspektasi
 
 - **Tidak ada bot yang menjamin "win rate tinggi" atau "profit konsisten tiap hari."** Yang dirancang di sini adalah *survival* (tidak blow-up) + *expectancy positif* lewat risk/reward dan disiplin eksekusi. Akan ada hari/minggu merah — itu normal dan sudah diantisipasi lewat circuit breaker.
-- **Gemini bukan mesin sinyal.** LLM lambat & tidak unggul membaca indikator numerik. Di sini Gemini hanya **menilai regime** dan bisa **mem-veto** entry saat pasar chaos. Otak entry tetap rules deterministik.
+- **Gemini bukan mesin sinyal.** LLM lambat & tidak unggul membaca indikator numerik. Di sini Gemini **mengelola keputusan** (gate entry ReAct, pelajaran, evolusi threshold) — bukan memprediksi sinyal. Otak entry tetap rules deterministik, dan **kegagalan LLM tak pernah memblokir trading** (fallback deterministik). Detail: [AGENT.md](AGENT.md).
 - **Wajib lulus `test` dulu.** Jalankan di testnet berhari-hari, cek `logs/trades.jsonl`, baru pertimbangkan `live` dengan modal kecil.
 - **Risiko 100% milikmu.** Ini perangkat lunak, bukan nasihat keuangan.
 
