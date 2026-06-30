@@ -91,6 +91,10 @@ gemini:
   allow_live_trader: true
 
 agent:
+  # FULL-AUTO: satu saklar untuk menyalakan SELURUH stack otonom sekaligus
+  # (tool_loop + autonomous). Setara set keduanya true. Default off.
+  # Di LIVE, aksi FLAT tetap butuh gemini.allow_live_trader: true.
+  full_auto: false
   # A/B SHADOW: ReAct menalar & MENCATAT verdict, tapi TAK memblokir (rules tetap eksekusi
   # semua entry) → kita bisa membandingkan exp_R rules-saja vs rules+ReAct secara jujur.
   # Kumpulkan trade lalu jalankan `python ab_report.py` (atau panel /agent → A/B).
