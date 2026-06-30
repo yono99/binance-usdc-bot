@@ -685,23 +685,33 @@ class ForwardTester:
                 "manual": "✋ CLOSE", "eod": "⏹ EOD"}.get(reason, reason)
         self.notify.send(f"{icon} {sym}\nPnL ${pnl:+.2f} · R {r:+.2f} · saldo ${self.balance_usd:.2f}")
 
-    def _monitor_usd(self, sym: str) -> None:
+    def _monitor_usd(self, sym: str, buf: "pd.DataFrame | None" = None) -> None:
         if self.live:                               # live: SL/TP/liq ditangani exchange + reconcile
             return
         if sym not in self.open:
             return
         try:
-            price = float(self.ex.ticker(sym)["last"])
+            last_price = float(self.ex.ticker(sym)["last"])
         except Exception as e:  # boundary
             log.warning(f"ticker {sym}: {e}")
             return
         pos = self.open[sym]
         long = pos["side"] == "long"
-        if (price <= pos["liq"]) if long else (price >= pos["liq"]):
-            self._close_usd(sym, pos["liq"], "liq")           # likuidasi lebih dulu
-        elif (price <= pos["sl"]) if long else (price >= pos["sl"]):
+        # INTRABAR: nilai sentuhan SL/TP/liq pakai high/low candle terbaru (+ last sbg cadangan),
+        # bukan hanya 'last' sesaat — agar wick yang lewat ANTAR-POLL tak terlewat (selaras backtest).
+        hi = lo = last_price
+        if buf is None:
+            buf = self.buffers.get(sym)
+        if buf is not None and len(buf):
+            recent = buf.iloc[-2:]                   # candle tertutup terakhir + yang sedang terbentuk
+            hi = max(float(recent["high"].max()), last_price)
+            lo = min(float(recent["low"].min()), last_price)
+        # Urutan konservatif: likuidasi → SL → TP (bila satu bar menyentuh dua sisi, ambil yg merugikan).
+        if (lo <= pos["liq"]) if long else (hi >= pos["liq"]):
+            self._close_usd(sym, pos["liq"], "liq")
+        elif (lo <= pos["sl"]) if long else (hi >= pos["sl"]):
             self._close_usd(sym, pos["sl"], "sl")
-        elif (price >= pos["tp"]) if long else (price <= pos["tp"]):
+        elif (hi >= pos["tp"]) if long else (lo <= pos["tp"]):
             self._close_usd(sym, pos["tp"], "tp")
 
     def on_cycle(self) -> None:
@@ -801,8 +811,8 @@ class ForwardTester:
             log.info(f"News veto aktif ({note}) — tidak buka posisi baru siklus ini")
         label = {1: "LONG", -1: "SHORT", 0: "skip"}
         for sym in self.symbols:
-            self._monitor_usd(sym)
-            buf = self._update_buffer(sym)
+            buf = self._update_buffer(sym)        # refresh DULU → monitor lihat high/low terbaru
+            self._monitor_usd(sym, buf)           # cek SL/TP intrabar (tangkap wick antar-poll)
             c = self.sig_cache.setdefault(sym, {})
             if buf is None or len(buf) < 60:
                 c["blocked"] = "data kurang"
