@@ -159,7 +159,8 @@ class ReactAgent:
             "Available actions: ENTER_LONG, ENTER_SHORT, SKIP, REDUCE_RISK, FLAT\n"
             "Respond ONLY with valid JSON:\n"
             '{"action":"SKIP","reasoning":"one sentence why","confidence":0.0,'
-            '"key_risks":["risk1","risk2"],"lesson_triggered":"which lesson influenced this, if any"}'
+            '"key_risks":["risk1","risk2"],"lesson_triggered":"id of the lesson that '
+            'influenced this (from Recent lessons), or empty string"}'
         )
 
     # ---------------------- ACT + RECORD ----------------------

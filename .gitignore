@@ -9,6 +9,7 @@ logs/
 *.db-wal
 *.db-shm
 state.json
+lessons.json
 .venv/
 venv/
 # frontend (node_modules besar & cache; dist di-commit agar dashboard jalan tanpa Node)

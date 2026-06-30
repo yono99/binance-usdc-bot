@@ -50,6 +50,14 @@ def recent(n: int = 20, path: Path | str = DECISION_LOG) -> list[dict]:
     return list(reversed(read_all(path)))[:max(0, n)]
 
 
+def get(decision_id: str, path: Path | str = DECISION_LOG) -> dict | None:
+    """Ambil satu baris keputusan berdasarkan id (untuk LessonsEngine)."""
+    for row in read_all(path):
+        if row.get("id") == decision_id:
+            return row
+    return None
+
+
 def record_outcome(symbol: str, outcome: str, outcome_r: float, *,
                    filled_at_close: bool = True, path: Path | str = DECISION_LOG) -> str | None:
     """Perbarui baris ENTER terakhir utk `symbol` yang outcome-nya masih null.

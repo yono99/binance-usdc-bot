@@ -8,6 +8,7 @@ from .config import Settings
 from .exchange import Exchange
 from .execution import Executor
 from .gemini_layer import GeminiLayer
+from .lessons import LessonsEngine
 from .logger import log
 from .position import Position, PositionManager
 from .react_agent import ReactAgent
@@ -29,6 +30,7 @@ class Engine:
         self.gemini = GeminiLayer(settings, self.cfg)
         # ReAct agent menggantikan veto pasif; veto lama dipakai sbg fallback deterministik.
         self.agent = ReactAgent(settings, self.cfg, veto=self.gemini)
+        self.lessons = LessonsEngine(settings, self.cfg)   # pelajaran self-improving (Phase 3)
         self.tf = self.cfg["market"]["timeframe"]
         self._universe: list[str] = []
         self._last_screen = 0.0
@@ -56,7 +58,15 @@ class Engine:
             one_r = self._risk0.pop(sym, 0.0)
             outcome_r = pnl / one_r if one_r else 0.0
             outcome = "SL_HIT" if was_sl else ("TP_HIT" if pnl >= 0 else "CLOSE_LOSS")
-            decision_log.record_outcome(sym, outcome, outcome_r, filled_at_close=True)
+            did = decision_log.record_outcome(sym, outcome, outcome_r, filled_at_close=True)
+            # Phase 3: lacak akurasi pelajaran yang dipicu + turunkan pelajaran baru.
+            if did:
+                row = decision_log.get(did)
+                if row:
+                    if row.get("lesson_triggered"):
+                        self.lessons.record_trigger(row["lesson_triggered"], correct=outcome_r > 0)
+                    self.lessons.derive_from_trade(row)
+                self.lessons.score_and_retire()
 
         # Layer 5: circuit breaker harian
         if self.risk.breaker_tripped(equity):
@@ -86,11 +96,11 @@ class Engine:
         ranked = self.rotator.rank(signals, self.pm.symbols)
         for sig in ranked[:slots]:
             # ReAct: OBSERVE→REASON→ACT→RECORD. LLM gagal → fallback deterministik (tak blokir).
-            # alt (funding/OI/CVD) & lessons di-wire di fase berikut; kini None/[] (tetap aman).
+            # alt (funding/OI/CVD) belum di-wire di jalur engine; lessons disuntik (Phase 3).
             decision = self.agent.decide(
                 sig, regime=getattr(sig, "regime", "unknown"), alt=None,
                 n_positions=n_open, max_positions=max_positions,
-                daily_pnl_r=daily_pnl_r, lessons=[])
+                daily_pnl_r=daily_pnl_r, lessons=self.lessons.recent(10))
             if not decision.permits(sig):
                 log.info(f"{sig.symbol}: agent {decision.action} [{decision.source}] — {decision.reasoning}")
                 continue
