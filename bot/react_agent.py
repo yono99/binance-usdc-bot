@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from . import decision_log
 from .config import Settings
 from .gemini_client import GeminiClient
 from .gemini_layer import GeminiLayer
@@ -226,21 +227,15 @@ class ReactAgent:
                           "funding": state["funding"], "regime": state["regime"]})
 
     def _record(self, d: Decision) -> None:
-        """Append satu baris JSON ke decision_log. Boundary: gagal log ≠ ganggu trading."""
-        try:
-            self.log_path.parent.mkdir(parents=True, exist_ok=True)
-            row = {
-                "ts": d.ts, "id": d.id, "symbol": d.symbol, "action": d.action,
-                "reasoning": d.reasoning, "confidence": d.confidence,
-                "key_risks": d.key_risks, "lesson_triggered": d.lesson_triggered,
-                "source": d.source, "signal_scores": d.signal_scores,
-                "market_state": d.market_state,
-                "outcome": None, "outcome_r": None, "filled_at_close": False,
-            }
-            with self.log_path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(row, default=str) + "\n")
-        except Exception as e:  # boundary
-            log.warning(f"tulis decision_log gagal: {e}")
+        """Append satu baris keputusan (outcome diisi nanti saat posisi tutup, Phase 2)."""
+        decision_log.append({
+            "ts": d.ts, "id": d.id, "symbol": d.symbol, "action": d.action,
+            "reasoning": d.reasoning, "confidence": d.confidence,
+            "key_risks": d.key_risks, "lesson_triggered": d.lesson_triggered,
+            "source": d.source, "signal_scores": d.signal_scores,
+            "market_state": d.market_state,
+            "outcome": None, "outcome_r": None, "filled_at_close": False,
+        }, path=self.log_path)
 
     def health(self) -> dict:
         """Rasio ketersediaan LLM vs fallback (untuk panel Agent Health)."""

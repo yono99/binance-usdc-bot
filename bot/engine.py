@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import time
 
+from . import decision_log
 from .config import Settings
 from .exchange import Exchange
 from .execution import Executor
@@ -31,6 +32,7 @@ class Engine:
         self.tf = self.cfg["market"]["timeframe"]
         self._universe: list[str] = []
         self._last_screen = 0.0
+        self._risk0: dict[str, float] = {}   # 1R (mata uang) per simbol saat entry → PnL→R
 
     def universe(self) -> list[str]:
         wl = self.cfg["market"].get("whitelist") or []
@@ -50,6 +52,11 @@ class Engine:
         for sym, pnl, was_sl in self.pm.monitor(self._price):
             self.risk.record_close(pnl)
             self.rotator.on_close(sym, was_sl)
+            # Phase 2: tautkan hasil ke keputusan entri (alasan → outcome R).
+            one_r = self._risk0.pop(sym, 0.0)
+            outcome_r = pnl / one_r if one_r else 0.0
+            outcome = "SL_HIT" if was_sl else ("TP_HIT" if pnl >= 0 else "CLOSE_LOSS")
+            decision_log.record_outcome(sym, outcome, outcome_r, filled_at_close=True)
 
         # Layer 5: circuit breaker harian
         if self.risk.breaker_tripped(equity):
@@ -95,6 +102,8 @@ class Engine:
             if res:
                 self.pm.add(Position(sig.symbol, sig.side, res["qty"], res["filled"],
                                      dec.sl, dec.tp, peak=res["filled"]))
+                # 1R (mata uang) saat entry → konversi PnL→R saat tutup (Phase 2).
+                self._risk0[sig.symbol] = abs(res["filled"] - dec.sl) * res["qty"]
 
     def run(self) -> None:
         interval = self.cfg["market"]["poll_seconds"]
