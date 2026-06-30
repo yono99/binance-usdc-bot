@@ -26,6 +26,7 @@ import json as _json
 from .lessons import LessonsEngine
 from .logger import LOG_DIR, journal, log
 from .news import NewsVeto
+from .planner import SessionPlanner, default_plan
 from .react_agent import ReactAgent
 from .signals import Signal
 from .notify import TelegramNotifier
@@ -86,8 +87,16 @@ class ForwardTester:
         self.autonomous = bool(_ag.get("autonomous", False)) or full     # kelola portofolio
         self._autonomous_interval = int(_ag.get("autonomous_interval_s", 300))
         self._last_portfolio = 0.0
+        # Planner tipis: tujuan sesi (stance/bias/kuota) → enforce di gerbang entry.
+        self.use_planner = bool(_ag.get("planner", False)) or full
+        self.planner = SessionPlanner(self.settings, self.cfg)
+        self._plan_horizon_h = int(_ag.get("plan_horizon_h", 6))
+        self._session_plan = default_plan(self.daily_max_trades or 1_000_000)
+        self._session_trades = 0
+        self._plan_day = None
+        self._last_plan_ts = 0.0
         if full:
-            log.info("AGENT full-auto AKTIF — tool-loop + otonomi portofolio menyala.")
+            log.info("AGENT full-auto AKTIF — tool-loop + otonomi portofolio + planner menyala.")
         self.notify = TelegramNotifier()
         self.rs: RuntimeSettings | None = None
         self.balance_usd = 0.0
@@ -276,6 +285,37 @@ class ForwardTester:
                 pos["sl"] = be
                 n += 1
         return n
+
+    def _exposure_frac(self) -> float:
+        if self.balance_usd <= 0:
+            return 1.0
+        return sum((p.get("bet") or 0) for p in self.open.values()) / self.balance_usd
+
+    def _refresh_plan(self, rs) -> None:
+        """POINT planner — bentuk rencana sesi (stance/bias/kuota) berkala/awal-hari."""
+        if not self.use_planner or not rs.enabled:
+            return
+        now = time.time()
+        day = pd.Timestamp.utcnow().date()
+        due = (day != self._plan_day) or (now - self._last_plan_ts > self._plan_horizon_h * 3600)
+        if not due:
+            return
+        self._plan_day, self._last_plan_ts, self._session_trades = day, now, 0
+        hard = self.daily_max_trades or 1_000_000
+        ctx = {"balance_usd": round(self.balance_usd, 2), "day_pnl_usd": round(self._day_pnl, 2),
+               "portfolio": self._portfolio_view(), "news": self._last_news_note,
+               "lessons": self.lessons.recent(5)}
+        self._session_plan = self.planner.make_plan(ctx, hard_max_trades=hard)
+        p = self._session_plan
+        log.info(f"SESSION PLAN — stance={p['stance']} bias={p['bias']} "
+                 f"max_trades={p['max_new_trades']} max_expo={p['max_exposure_frac']}: {p['reasoning']}")
+        decision_log.append({
+            "ts": p["ts"], "id": __import__("uuid").uuid4().hex, "symbol": "*PLAN*",
+            "action": f"PLAN_{p['stance'].upper()}", "reasoning": p["reasoning"],
+            "confidence": 0.0, "key_risks": [], "lesson_triggered": "",
+            "source": "LLM" if self.planner.enabled else "LLM_DISABLED",
+            "signal_scores": {}, "react_action": "", "market_state": {"plan": p},
+            "outcome": None, "outcome_r": None, "filled_at_close": False})
 
     def _agent_portfolio_review(self, rs) -> None:
         """POINT 2 — agen otonom meninjau SEMUA posisi terbuka berkala (REDUCE_RISK/FLAT).
@@ -883,6 +923,8 @@ class ForwardTester:
         self._last_news_note = note if news_veto else ""
         if news_veto:
             log.info(f"News veto aktif ({note}) — tidak buka posisi baru siklus ini")
+        self._refresh_plan(rs)                 # tujuan sesi (planner) → enforce di gerbang entry
+        expo = self._exposure_frac()
         label = {1: "LONG", -1: "SHORT", 0: "skip"}
         for sym in self.symbols:
             buf = self._update_buffer(sym)        # refresh DULU → monitor lihat high/low terbaru
@@ -954,6 +996,10 @@ class ForwardTester:
                     blocked = "ATR nol"
                 elif (conflict := self._corr_conflict(sym, side)):
                     blocked = f"korelasi tinggi dgn {conflict.split('/')[0]}"
+                elif self.use_planner and (pblock := self.planner.enforce(
+                        self._session_plan, "long" if side == 1 else "short",
+                        new_trades=self._session_trades, exposure_frac=expo)):
+                    blocked = pblock                 # tunduk pada tujuan sesi (planner)
                 # Gerbang ReAct (teknik NON-gemini): keputusan AKTIF + dicatat ke decision_log.
                 # Hanya dipanggil saat semua cek deterministik lolos → hemat panggilan LLM.
                 if blocked is None and not self.use_gemini_trader:
@@ -964,6 +1010,8 @@ class ForwardTester:
                 c["blocked"] = blocked
                 if blocked is None:
                     self._open_usd(sym, side, atr, rs)
+                    if sym in self.open:             # trade nyata terbuka → hitung utk kuota sesi
+                        self._session_trades += 1
                     c["blocked"] = "→ posisi dibuka"
         self._agent_portfolio_review(rs)   # POINT 2: agen otonom kelola portofolio (REDUCE_RISK/FLAT)
         self._write_status(rs, news_veto, note)

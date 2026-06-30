@@ -88,6 +88,13 @@ SEMUA posisi terbuka & boleh **REDUCE_RISK** (geser stop ke breakeven pada yang 
 memberi agen sinyal non-OHLCV (L2 imbalance, funding/basis premium, open interest) —
 karena OHLCV murni sudah diarbitrase. Ini bahan baku edge yang belum tentu habis.
 
+**4. Planner tipis — goal-directed** (`planner: true`, `bot/planner.py`) — tiap
+`plan_horizon_h` jam agen menetapkan TUJUAN sesi: `stance` (aggressive/normal/defensive/
+risk_off), `bias` (long/short/neutral), kuota trade & eksposur. Keputusan per-tick TUNDUK
+pada rencana (`enforce()` deterministik di kode). **HANYA bisa mengetatkan** — di-clamp ≤
+batasmu, tak pernah melonggarkan. Gagal/Gemini off → rencana netral (tak ada batasan). Audit
+di `decision_log` (`symbol="*PLAN*"`) & endpoint `/api/plan`. Ikut menyala bila `full_auto`.
+
 > Jujur: ini menaikkan "level agentik", **bukan** jaminan profit. Buktikan dengan A/B di bawah.
 
 ## A/B harness — apakah ReAct benar-benar menambah nilai? (`bot/ab.py`)

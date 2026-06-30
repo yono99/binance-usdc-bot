@@ -821,6 +821,16 @@ def api_ab() -> JSONResponse:
     return JSONResponse(ab.report())
 
 
+@app.get("/api/plan")
+def api_plan() -> JSONResponse:
+    """Rencana sesi terakhir (planner): stance/bias/kuota."""
+    from . import decision_log
+    for row in decision_log.recent(200):
+        if row.get("symbol") == "*PLAN*":
+            return JSONResponse((row.get("market_state") or {}).get("plan", {}))
+    return JSONResponse({})
+
+
 AGENT_PAGE = """<!doctype html><html lang="id"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>Agent — ReAct/Lessons</title>
 <style>
