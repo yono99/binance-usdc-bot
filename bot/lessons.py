@@ -30,6 +30,18 @@ def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def load_all(path: Path | str = LESSONS_PATH) -> list[dict]:
+    """Baca lessons.json tanpa perlu instance (untuk dashboard). Korup → []."""
+    p = Path(path)
+    if not p.exists():
+        return []
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else []
+    except Exception:  # boundary
+        return []
+
+
 def _side_from_action(action: str) -> str:
     if action == "ENTER_LONG":
         return "long"
@@ -47,14 +59,7 @@ class LessonsEngine:
 
     # ---------------------- persistensi ----------------------
     def all(self) -> list[dict]:
-        if not self.path.exists():
-            return []
-        try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
-            return data if isinstance(data, list) else []
-        except Exception as e:  # boundary — file korup tak meledakkan sistem
-            log.warning(f"baca lessons.json gagal: {e}")
-            return []
+        return load_all(self.path)
 
     def _save(self, lessons: list[dict]) -> None:
         try:

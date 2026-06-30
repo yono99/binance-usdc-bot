@@ -33,6 +33,23 @@ def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def recent_events(n: int = 50, path: Path | str = EVOLUTION_LOG) -> list[dict]:
+    """Riwayat event evolusi (terbaru dulu) untuk panel dashboard."""
+    p = Path(path)
+    if not p.exists():
+        return []
+    out: list[dict] = []
+    for line in p.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            out.append(json.loads(line))
+        except Exception:  # boundary
+            continue
+    return list(reversed(out))[:max(0, n)]
+
+
 def collect_trades(path: Path | str = decision_log.DECISION_LOG) -> list[tuple[float, float]]:
     """(score_arah, outcome_r) untuk tiap ENTER tertutup, urut kronologis."""
     out: list[tuple[float, float]] = []

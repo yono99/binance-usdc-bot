@@ -770,6 +770,111 @@ refresh();setInterval(refresh,10000);
 </script></body></html>"""
 
 
+# ---------- Phase 6: panel Agent (ReAct/lessons/evolution) ----------
+# Endpoint JSON + halaman /agent mandiri (tak menyentuh SPA React → panel lama aman).
+
+@app.get("/api/decisions")
+def api_decisions(limit: int = 20) -> JSONResponse:
+    """Keputusan ReactAgent terakhir (alasan, confidence, sumber, outcome R)."""
+    from . import decision_log
+    return JSONResponse({"decisions": decision_log.recent(min(max(1, limit), 200))})
+
+
+@app.get("/api/lessons")
+def api_lessons() -> JSONResponse:
+    """Pelajaran aktif + akurasi (times_correct/triggered) & berapa kali dipicu."""
+    from . import lessons
+    rows = [l for l in lessons.load_all() if not l.get("retired")]
+    rows.sort(key=lambda l: l.get("created_at", ""), reverse=True)
+    return JSONResponse({"count": len(rows), "lessons": rows})
+
+
+@app.get("/api/agent-health")
+def api_agent_health(limit: int = 300) -> JSONResponse:
+    """Rasio LLM tersedia vs fallback, dihitung dari sumber keputusan di decision_log."""
+    from collections import Counter
+    from . import decision_log
+    rows = decision_log.recent(min(max(1, limit), 1000))
+    total = len(rows)
+    by_source = Counter(r.get("source", "?") for r in rows)
+    llm = by_source.get("LLM", 0)
+    fallbacks = total - llm
+    return JSONResponse({
+        "total": total, "llm": llm, "fallbacks": fallbacks,
+        "fallback_rate": round(fallbacks / total, 3) if total else 0.0,
+        "llm_available_rate": round(llm / total, 3) if total else 0.0,
+        "by_source": dict(by_source),
+    })
+
+
+@app.get("/api/evolution")
+def api_evolution(limit: int = 50) -> JSONResponse:
+    """Riwayat evolusi threshold (before/after, p-value, applied)."""
+    from . import evolve
+    return JSONResponse({"events": evolve.recent_events(min(max(1, limit), 200))})
+
+
+AGENT_PAGE = """<!doctype html><html lang="id"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>Agent — ReAct/Lessons</title>
+<style>
+ :root{--bg:#0b1220;--card:#131c2e;--bd:#243049;--fg:#e2e8f0;--mut:#8aa0c0;--green:#22c55e;--red:#ef4444;--accent:#6366f1}
+ *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.5 system-ui,Segoe UI,sans-serif}
+ header{padding:16px 22px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center}
+ h1{font-size:17px;margin:0}a{color:var(--accent)}.wrap{padding:20px;max-width:1100px;margin:0 auto;display:grid;gap:18px}
+ .card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:14px}
+ h2{font-size:14px;margin:0 0 10px}.mut{color:var(--mut)}
+ table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:6px 8px;border-bottom:1px solid var(--bd);text-align:left;vertical-align:top}
+ th{color:var(--mut);font-weight:600}.pos{color:var(--green)}.neg{color:var(--red)}
+ .pill{display:inline-block;padding:1px 7px;border-radius:9px;background:#1e293b;font-size:11px}
+ .chips span{display:inline-block;margin:2px 6px 2px 0;padding:2px 8px;border-radius:9px;background:#1e293b}
+</style></head><body>
+<header><h1>🤖 Agent Monitor <span class="mut">— ReAct / Lessons / Evolution</span></h1>
+<span class="mut"><a href="/">← dashboard utama</a> · auto-refresh 10s</span></header>
+<div class="wrap">
+ <div class="card"><h2>Agent Health</h2><div id="health" class="chips mut">memuat…</div></div>
+ <div class="card"><h2>Keputusan Terakhir</h2><table id="dec"><thead><tr><th>waktu</th><th>simbol</th>
+   <th>aksi</th><th>conf</th><th>sumber</th><th>alasan</th><th>outcome</th><th>R</th></tr></thead><tbody></tbody></table></div>
+ <div class="card"><h2>Pelajaran Aktif</h2><table id="les"><thead><tr><th>pelajaran</th><th>regime</th>
+   <th>akurasi</th><th>dipicu</th><th>sumber</th></tr></thead><tbody></tbody></table></div>
+ <div class="card"><h2>Evolusi Threshold (OOS)</h2><table id="evo"><thead><tr><th>waktu</th><th>param</th>
+   <th>lama→baru</th><th>OOS base→prop</th><th>p</th><th>applied</th></tr></thead><tbody></tbody></table></div>
+</div>
+<script>
+const $=s=>document.querySelector(s);
+const rcls=v=>v>0?'pos':(v<0?'neg':'');
+const esc=s=>(s==null?'':String(s)).replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+async function j(u){try{const r=await fetch(u);return await r.json()}catch(e){return null}}
+async function load(){
+ const h=await j('/api/agent-health');
+ if(h){$('#health').innerHTML=`<span>total: ${h.total}</span><span>LLM: ${h.llm}</span>`+
+   `<span>fallback: ${h.fallbacks}</span><span>fallback rate: ${(h.fallback_rate*100).toFixed(1)}%</span>`+
+   Object.entries(h.by_source||{}).map(([k,v])=>`<span>${esc(k)}: ${v}</span>`).join('');}
+ const d=await j('/api/decisions?limit=20');
+ if(d){$('#dec tbody').innerHTML=(d.decisions||[]).map(x=>`<tr><td class="mut">${esc((x.ts||'').slice(0,19))}</td>`+
+   `<td>${esc(x.symbol)}</td><td><span class="pill">${esc(x.action)}</span></td><td>${(x.confidence??0)}</td>`+
+   `<td class="mut">${esc(x.source)}</td><td>${esc(x.reasoning)}</td><td>${esc(x.outcome??'')}</td>`+
+   `<td class="${rcls(x.outcome_r)}">${x.outcome_r==null?'':x.outcome_r}</td></tr>`).join('')||'<tr><td colspan=8 class=mut>belum ada keputusan</td></tr>';}
+ const l=await j('/api/lessons');
+ if(l){$('#les tbody').innerHTML=(l.lessons||[]).map(x=>{const t=x.times_triggered||0,c=x.times_correct||0;
+   const acc=t?(c/t*100).toFixed(0)+'%':'—';return `<tr><td>${esc(x.lesson)}</td><td class="mut">${esc(x.market_regime)}</td>`+
+   `<td>${acc} <span class="mut">(${c}/${t})</span></td><td>${t}</td><td class="mut">${esc(x.source)}</td></tr>`;}).join('')
+   ||'<tr><td colspan=5 class=mut>belum ada pelajaran</td></tr>';}
+ const e=await j('/api/evolution?limit=30');
+ if(e){$('#evo tbody').innerHTML=(e.events||[]).map(x=>`<tr><td class="mut">${esc((x.ts||'').slice(0,19))}</td>`+
+   `<td>${esc(x.param)}</td><td>${esc(x.old)} → ${esc(x.new??'—')}</td>`+
+   `<td>${esc(x.test_exp_r_baseline??'—')} → ${esc(x.test_exp_r_proposed??'—')}</td>`+
+   `<td>${esc(x.p_value??'—')}</td><td>${x.applied?'<span class=pos>YA</span>':'<span class=mut>tidak</span>'}</td></tr>`).join('')
+   ||'<tr><td colspan=6 class=mut>belum ada evolusi</td></tr>';}
+}
+load();setInterval(load,10000);
+</script></body></html>"""
+
+
+@app.get("/agent", response_class=HTMLResponse)
+def agent_page() -> str:
+    return AGENT_PAGE
+
+
 # ---------- penyajian frontend ----------
 # Jika build React/Vite ada (web/dist), sajikan SPA itu; jika belum, fallback ke
 # halaman HTML lama (PAGE). API /api/* di atas tetap diprioritaskan (terdaftar lebih dulu).
