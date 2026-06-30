@@ -79,11 +79,15 @@ class ForwardTester:
         self.react = ReactAgent(self.settings, self.cfg)
         self.lessons = LessonsEngine(self.settings, self.cfg)
         self.ab_shadow = bool(self.cfg.get("agent", {}).get("ab_shadow", False))  # A/B: tak blokir
-        self.tool_loop = bool(self.cfg.get("agent", {}).get("tool_loop", False))  # agen otonom
-        self.tool_max_iters = int(self.cfg.get("agent", {}).get("tool_max_iters", 4))
-        self.autonomous = bool(self.cfg.get("agent", {}).get("autonomous", False))  # kelola portofolio
-        self._autonomous_interval = int(self.cfg.get("agent", {}).get("autonomous_interval_s", 300))
+        _ag = self.cfg.get("agent", {})
+        full = bool(_ag.get("full_auto", False))   # SATU saklar: nyalakan seluruh stack otonom
+        self.tool_loop = bool(_ag.get("tool_loop", False)) or full       # nalar+panggil tool
+        self.tool_max_iters = int(_ag.get("tool_max_iters", 4))
+        self.autonomous = bool(_ag.get("autonomous", False)) or full     # kelola portofolio
+        self._autonomous_interval = int(_ag.get("autonomous_interval_s", 300))
         self._last_portfolio = 0.0
+        if full:
+            log.info("AGENT full-auto AKTIF — tool-loop + otonomi portofolio menyala.")
         self.notify = TelegramNotifier()
         self.rs: RuntimeSettings | None = None
         self.balance_usd = 0.0

@@ -70,6 +70,10 @@ Prinsip walk-forward diterapkan ke performa **live**, bukan backtest:
 
 Opsi di `config.yaml` → `agent:` (semua default **off**, paper-aman):
 
+> **Cara cepat:** `full_auto: true` = satu saklar yang menyalakan tool_loop **dan**
+> autonomous sekaligus. (Flag individual tetap ada untuk kontrol granular.)
+
+
 **1. Tool-loop sejati** (`tool_loop: true`) — agen tak lagi satu-shot. Ia **memanggil tool**
 iteratif (nalar → tool → observasi → nalar → aksi), maks `tool_max_iters`. Gagal → fallback
 single-shot deterministik. Tools (`bot/tools.py`, read-only, fail-soft):
