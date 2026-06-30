@@ -54,6 +54,7 @@ class Decision:
     source: str = "LLM"            # LLM | LLM_UNAVAILABLE | LLM_DISABLED | VETO_FALLBACK
     signal_scores: dict = field(default_factory=dict)
     market_state: dict = field(default_factory=dict)
+    react_action: str = ""         # A/B shadow: verdict agen saat eksekusi dipaksa rules
 
     def permits(self, sig: Signal) -> bool:
         """True HANYA bila agen mengizinkan buka posisi SEARAH sinyal aktif.
@@ -166,20 +167,22 @@ class ReactAgent:
     # ---------------------- ACT + RECORD ----------------------
     def decide(self, sig: Signal, *, regime: str | None = None, alt: dict | None = None,
                n_positions: int = 0, max_positions: int = 0, daily_pnl_r: float = 0.0,
-               lessons: list | None = None) -> Decision:
+               lessons: list | None = None, shadow: bool = False) -> Decision:
+        """shadow=True (mode A/B): agen tetap menalar & MENCATAT verdict, tapi eksekusi
+        dipaksa mengikuti rules (permits()=True) → bisa bandingkan rules vs rules+ReAct."""
         state = self.observe(sig, regime=regime, alt=alt, n_positions=n_positions,
                              max_positions=max_positions, daily_pnl_r=daily_pnl_r, lessons=lessons)
         scores = {"long": state["long_score"], "short": state["short_score"]}
 
         if not self.enabled:
             self.fallbacks += 1
-            return self._fallback(sig, state, scores, "LLM_DISABLED")
+            return self._fallback(sig, state, scores, "LLM_DISABLED", shadow)
 
         self.calls += 1
         out = self.reason(state)
         if out is None:
             self.fallbacks += 1                        # LLM gagal → JANGAN blokir trading
-            return self._fallback(sig, state, scores, "LLM_UNAVAILABLE")
+            return self._fallback(sig, state, scores, "LLM_UNAVAILABLE", shadow)
 
         source = "LLM"
         # SKIP keyakinan-rendah → jangan percaya; serahkan ke veto deterministik lama.
@@ -191,11 +194,12 @@ class ReactAgent:
             else:
                 out["reasoning"] = (out["reasoning"] + " | low-conf SKIP → veto fallback tahan").strip(" |")
 
-        d = self._build(sig, state, scores, out, source)
+        d = self._build(sig, state, scores, out, source, shadow)
         self._record(d)
         return d
 
-    def _fallback(self, sig: Signal, state: dict, scores: dict, source: str) -> Decision:
+    def _fallback(self, sig: Signal, state: dict, scores: dict, source: str,
+                  shadow: bool = False) -> Decision:
         """Deterministik: ikuti sinyal rules bila veto lama (fail-open) mengizinkan."""
         if self._veto_allows(sig) and sig.actionable:
             action = "ENTER_LONG" if sig.side == "long" else "ENTER_SHORT"
@@ -205,7 +209,7 @@ class ReactAgent:
             reasoning = f"{source}: fallback — veto/regime menahan entry"
         out = {"action": action, "confidence": 0.0, "reasoning": reasoning,
                "key_risks": [], "lesson_triggered": ""}
-        d = self._build(sig, state, scores, out, source)
+        d = self._build(sig, state, scores, out, source, shadow)
         self._record(d)
         return d
 
@@ -218,12 +222,19 @@ class ReactAgent:
             log.warning(f"veto fallback error, allow: {e}")
             return True
 
-    def _build(self, sig: Signal, state: dict, scores: dict, out: dict, source: str) -> Decision:
+    def _build(self, sig: Signal, state: dict, scores: dict, out: dict, source: str,
+               shadow: bool = False) -> Decision:
+        action = out["action"]
+        react_action = ""
+        if shadow and sig.actionable:
+            # Mode A/B: catat verdict agen, TAPI paksa eksekusi ikut rules (ENTER searah sinyal).
+            react_action = action
+            action = "ENTER_LONG" if sig.side == "long" else "ENTER_SHORT"
         return Decision(
             id=uuid.uuid4().hex, ts=_utcnow(), symbol=sig.symbol,
-            action=out["action"], reasoning=out["reasoning"], confidence=out["confidence"],
+            action=action, reasoning=out["reasoning"], confidence=out["confidence"],
             key_risks=out["key_risks"], lesson_triggered=out["lesson_triggered"], source=source,
-            signal_scores=scores,
+            signal_scores=scores, react_action=react_action,
             market_state={"price": state["price"], "atr": state["atr"],
                           "funding": state["funding"], "regime": state["regime"]})
 
@@ -234,6 +245,7 @@ class ReactAgent:
             "reasoning": d.reasoning, "confidence": d.confidence,
             "key_risks": d.key_risks, "lesson_triggered": d.lesson_triggered,
             "source": d.source, "signal_scores": d.signal_scores,
+            "react_action": d.react_action,
             "market_state": d.market_state,
             "outcome": None, "outcome_r": None, "filled_at_close": False,
         }, path=self.log_path)
