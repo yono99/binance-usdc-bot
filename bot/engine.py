@@ -108,7 +108,8 @@ class Engine:
             decision = self.agent.decide(
                 sig, regime=getattr(sig, "regime", "unknown"), alt=None,
                 n_positions=n_open, max_positions=max_positions,
-                daily_pnl_r=daily_pnl_r, lessons=self.lessons.recent(10))
+                daily_pnl_r=daily_pnl_r, lessons=self.lessons.recent(10),
+                shadow=self.cfg.get("agent", {}).get("ab_shadow", False))
             if not decision.permits(sig):
                 log.info(f"{sig.symbol}: agent {decision.action} [{decision.source}] — {decision.reasoning}")
                 continue

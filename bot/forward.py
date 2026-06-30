@@ -78,6 +78,7 @@ class ForwardTester:
         # ReAct agent: gerbang entry AKTIF utk teknik non-gemini (Gemini mati → fallback ikut sinyal).
         self.react = ReactAgent(self.settings, self.cfg)
         self.lessons = LessonsEngine(self.settings, self.cfg)
+        self.ab_shadow = bool(self.cfg.get("agent", {}).get("ab_shadow", False))  # A/B: tak blokir
         self.notify = TelegramNotifier()
         self.rs: RuntimeSettings | None = None
         self.balance_usd = 0.0
@@ -207,8 +208,9 @@ class ForwardTester:
         daily_pnl_r = self._day_pnl / one_r if one_r else 0.0
         dec = self.react.decide(sig, regime=regime, alt=alt, n_positions=len(self.open),
                                 max_positions=self.max_open, daily_pnl_r=daily_pnl_r,
-                                lessons=self.lessons.recent(10))
-        return dec.permits(sig), dec.action, dec.reasoning
+                                lessons=self.lessons.recent(10), shadow=self.ab_shadow)
+        # Shadow (A/B): permits() True (eksekusi ikut rules); verdict asli ada di react_action.
+        return dec.permits(sig), (dec.react_action or dec.action), dec.reasoning
 
     def _react_link(self, sym: str, outcome: str, outcome_r: float) -> None:
         """Tautkan outcome ke keputusan ReAct terakhir (decision_log) + update pelajaran.

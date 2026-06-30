@@ -89,3 +89,9 @@ gemini:
   # Default false → di live, Gemini-trader TIDAK membuka posisi (demo/paper tetap jalan).
   # Set true HANYA bila kamu sadar penuh & menerima risiko AI-driven live trading.
   allow_live_trader: true
+
+agent:
+  # A/B SHADOW: ReAct menalar & MENCATAT verdict, tapi TAK memblokir (rules tetap eksekusi
+  # semua entry) → kita bisa membandingkan exp_R rules-saja vs rules+ReAct secara jujur.
+  # Kumpulkan trade lalu jalankan `python ab_report.py` (atau panel /agent → A/B).
+  ab_shadow: false

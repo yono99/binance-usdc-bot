@@ -814,6 +814,13 @@ def api_evolution(limit: int = 50) -> JSONResponse:
     return JSONResponse({"events": evolve.recent_events(min(max(1, limit), 200))})
 
 
+@app.get("/api/ab")
+def api_ab() -> JSONResponse:
+    """A/B: rules-saja vs rules+ReAct (butuh agent.ab_shadow & data shadow)."""
+    from . import ab
+    return JSONResponse(ab.report())
+
+
 AGENT_PAGE = """<!doctype html><html lang="id"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>Agent — ReAct/Lessons</title>
 <style>
@@ -832,6 +839,7 @@ AGENT_PAGE = """<!doctype html><html lang="id"><head><meta charset="utf-8">
 <span class="mut"><a href="/">← dashboard utama</a> · auto-refresh 10s</span></header>
 <div class="wrap">
  <div class="card"><h2>Agent Health</h2><div id="health" class="chips mut">memuat…</div></div>
+ <div class="card"><h2>A/B — rules vs rules+ReAct</h2><div id="ab" class="mut">memuat…</div></div>
  <div class="card"><h2>Keputusan Terakhir</h2><table id="dec"><thead><tr><th>waktu</th><th>simbol</th>
    <th>aksi</th><th>conf</th><th>sumber</th><th>alasan</th><th>outcome</th><th>R</th></tr></thead><tbody></tbody></table></div>
  <div class="card"><h2>Pelajaran Aktif</h2><table id="les"><thead><tr><th>pelajaran</th><th>regime</th>
@@ -849,6 +857,13 @@ async function load(){
  if(h){$('#health').innerHTML=`<span>total: ${h.total}</span><span>LLM: ${h.llm}</span>`+
    `<span>fallback: ${h.fallbacks}</span><span>fallback rate: ${(h.fallback_rate*100).toFixed(1)}%</span>`+
    Object.entries(h.by_source||{}).map(([k,v])=>`<span>${esc(k)}: ${v}</span>`).join('');}
+ const ab=await j('/api/ab');
+ if(ab){const sig=ab.significant?'<span class=pos>YA</span>':'<span class=mut>tidak</span>';
+   $('#ab').innerHTML=`<b>verdict:</b> ${esc(ab.verdict)} <span class="mut">(${esc(ab.reason||'')})</span><br>`+
+   `rules: exp_R <b>${ab.exp_r_rules??'—'}</b> (n=${ab.n_total??0}) · `+
+   `rules+ReAct: exp_R <b>${ab.exp_r_rules_react??'—'}</b> (n=${ab.n_kept??0}) · `+
+   `ditolak: exp_R ${ab.exp_r_denied??'—'} (n=${ab.n_denied??0})<br>`+
+   `improvement: ${ab.improvement??'—'} · p=${ab.p_value??'—'} · signifikan: ${sig}`;}
  const d=await j('/api/decisions?limit=20');
  if(d){$('#dec tbody').innerHTML=(d.decisions||[]).map(x=>`<tr><td class="mut">${esc((x.ts||'').slice(0,19))}</td>`+
    `<td>${esc(x.symbol)}</td><td><span class="pill">${esc(x.action)}</span></td><td>${(x.confidence??0)}</td>`+

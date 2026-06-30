@@ -31,6 +31,11 @@ def test_api_evolution_shape():
     assert "events" in b and isinstance(b["events"], list)
 
 
+def test_api_ab_shape():
+    b = _body(dashboard.api_ab())
+    assert "verdict" in b and "n_total" in b
+
+
 def test_agent_page_served():
     html = dashboard.agent_page()
-    assert "Agent Monitor" in html and "/api/decisions" in html
+    assert "Agent Monitor" in html and "/api/decisions" in html and "/api/ab" in html

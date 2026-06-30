@@ -66,6 +66,30 @@ Prinsip walk-forward diterapkan ke performa **live**, bukan backtest:
 > Auto-apply berlaku di jalur **Engine** (`cfg["signals"]`). Forward memakai parameter
 > store, jadi evolusi di forward bersifat analitik/log, bukan auto-apply.
 
+## A/B harness — apakah ReAct benar-benar menambah nilai? (`bot/ab.py`)
+
+UKUR, jangan tebak. Set `agent.ab_shadow: true` di `config.yaml` → ReAct jalan **shadow**:
+menalar & mencatat verdict (`react_action`) **tanpa memblokir** (rules tetap eksekusi
+semua entry). Karena tiap trade benar-benar diambil, kita punya outcome R untuk SEMUA —
+termasuk yang ReAct ingin tolak.
+
+```
+Arm A (kontrol)   = rules-saja         → exp_R semua trade
+Arm B (perlakuan) = rules + ReAct      → exp_R subset yang ReAct SETUJUI
+Denied            = yang ReAct TOLAK   → bila exp_R-nya lebih buruk, veto-nya berguna
+```
+
+Verdict `REACT_ADDS_VALUE` **hanya** bila `exp_R(B) > exp_R(A)` DAN kept signifikan > denied
+(permutation test, `p<0.05`). Selain itu `NOT_PROVEN` — diterima jujur.
+
+```bash
+python ab_report.py          # laporan CLI
+```
+Atau panel `/agent` (kartu A/B) · endpoint `/api/ab`.
+
+> Jujur: ini menjawab "apakah layer agent membantu?" dengan **data**, bukan keyakinan.
+> Di OHLCV yang impas OOS, jangan kaget bila verdict-nya `NOT_PROVEN`.
+
 ## Deployment (PM2)
 `ecosystem.config.cjs` menjalankan **bot + dashboard** dengan auto-restart & auto-start
 boot — lihat [DEPLOY.md](DEPLOY.md) (seksi PM2).

@@ -14,6 +14,7 @@ def _bare_ft():
     ft.max_open = 2
     ft._day_pnl = 0.0
     ft.cfg = {"signals": {}, "strategy": {}}     # _market_summary akan gagal → regime "unknown"
+    ft.ab_shadow = False
     ft.lessons = types.SimpleNamespace(recent=lambda n: [])
 
     def _raise(*a, **k):
@@ -24,7 +25,7 @@ def _bare_ft():
 
 class _Dec:
     def __init__(self, action):
-        self.action, self.reasoning = action, "stub"
+        self.action, self.reasoning, self.react_action = action, "stub", ""
 
     def permits(self, sig):
         if sig.side == "long":
