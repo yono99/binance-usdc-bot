@@ -106,6 +106,8 @@ class ForwardTester:
         self._last_news_note = ""
         self._last_manage: dict = {}              # throttle kelola-posisi per simbol
         self._manage_interval = 60                # detik minimum antar review posisi (~1 menit)
+        self._last_decide: dict = {}              # throttle keputusan-entry Gemini per simbol
+        self._decide_interval = 180               # detik min antar keputusan entry (~3 mnt) — hemat token
         # KESELAMATAN: Gemini-trader boleh order LIVE hanya bila di-set eksplisit di config.
         self._allow_live_gemini = bool(self.cfg.get("gemini", {}).get("allow_live_trader", False))
 
@@ -750,15 +752,33 @@ class ForwardTester:
                 self._last_manage[sym] = now
                 self._gemini_manage(sym, df_closed)
             # KAPAN evaluasi entry?
-            #  - Gemini trader: timing BEBAS → tiap siklus (selama belum ada posisi & bot ON).
+            #  - Gemini trader: timing BEBAS, TAPI di-throttle (≥ _decide_interval per simbol)
+            #    & di-PRE-GATE (hanya tanya Gemini bila tak ada blokir murah & sinyal lokal
+            #    melihat peluang) → mencegah ledakan token/rate-limit.
             #  - Teknik rules: hanya saat bar baru tertutup (sinyal berbasis bar).
             bar_closed = df_closed.index[-1] != self.last_closed.get(sym)
+            throttled = now - self._last_decide.get(sym, 0) < self._decide_interval
             free_gemini = (self.use_gemini_trader and self.gtrader is not None
-                           and rs.enabled and sym not in self.open)
+                           and rs.enabled and sym not in self.open and not throttled)
             if bar_closed or free_gemini:
                 if bar_closed:
                     self.last_closed[sym] = df_closed.index[-1]
                 if self.use_gemini_trader and self.gtrader is not None:
+                    # Blokir MURAH dulu (tanpa panggil Gemini) — jangan buang token bila
+                    # jelas tak akan buka posisi.
+                    pre = (None if rs.enabled else "bot OFF")
+                    pre = pre or ("news veto" if news_veto else None)
+                    pre = pre or (cb or None)
+                    pre = pre or ("sudah ada posisi" if sym in self.open else None)
+                    pre = pre or ("slot penuh" if len(self.open) >= self.max_open else None)
+                    if pre is None:                      # PRE-GATE murah: sinyal lokal (gratis)
+                        gate_side, _ = self._signal(sym, df_closed)
+                        if gate_side == 0:
+                            pre = "pre-gate: tak ada peluang"
+                    if pre is not None:
+                        c["blocked"] = pre
+                        continue
+                    self._last_decide[sym] = now         # throttle: tandai panggilan Gemini
                     side, atr, gdec, gctx = self._gemini_decision(sym, df_closed)
                     c["gemini"] = {"dec": gdec, "ctx": gctx}
                     c["rationale"] = gdec.get("rationale")
