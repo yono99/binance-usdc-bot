@@ -210,12 +210,10 @@ class ForwardTester:
                                 lessons=self.lessons.recent(10))
         return dec.permits(sig), dec.action, dec.reasoning
 
-    def _react_settle(self, sym: str, pos: dict, pnl: float, reason: str) -> None:
-        """Tautkan hasil close ke keputusan ReAct (decision_log) + update pelajaran (paper)."""
+    def _react_link(self, sym: str, outcome: str, outcome_r: float) -> None:
+        """Tautkan outcome ke keputusan ReAct terakhir (decision_log) + update pelajaran.
+        Dipakai jalur paper & live. Boundary: pencatatan agen tak boleh ganggu trading."""
         try:
-            risk0 = abs(pos["entry"] - pos["sl"]) * pos["qty"]
-            outcome_r = pnl / risk0 if risk0 else 0.0
-            outcome = {"liq": "LIQ", "sl": "SL_HIT", "tp": "TP_HIT"}.get(reason, "CLOSE")
             did = decision_log.record_outcome(sym, outcome, outcome_r)
             if did:                                  # hanya entry yang lewat gerbang ReAct
                 row = decision_log.get(did)
@@ -224,8 +222,15 @@ class ForwardTester:
                         self.lessons.record_trigger(row["lesson_triggered"], correct=outcome_r > 0)
                     self.lessons.derive_from_trade(row)
                 self.lessons.score_and_retire()
-        except Exception as e:  # boundary — pencatatan agen tak boleh ganggu trading
-            log.warning(f"react settle {sym} gagal: {e}")
+        except Exception as e:  # boundary
+            log.warning(f"react link {sym} gagal: {e}")
+
+    def _react_settle(self, sym: str, pos: dict, pnl: float, reason: str) -> None:
+        """Paper: R dari jarak SL (akuntansi identik backtest)."""
+        risk0 = abs(pos["entry"] - pos["sl"]) * pos["qty"]
+        outcome_r = pnl / risk0 if risk0 else 0.0
+        outcome = {"liq": "LIQ", "sl": "SL_HIT", "tp": "TP_HIT"}.get(reason, "CLOSE")
+        self._react_link(sym, outcome, outcome_r)
 
     def _portfolio_view(self) -> dict:
         """Snapshot SEMUA posisi terbuka + eksposur — konteks korelasi/risiko untuk Gemini."""
@@ -538,6 +543,13 @@ class ForwardTester:
                     log.info(f"Gemini refleksi (live): {res['active_lessons']} pelajaran aktif")
             except Exception as e:  # boundary
                 log.warning(f"settle gemini live {sym} gagal: {e}")
+        # Tautkan close LIVE non-gemini (ReAct) ke decision_log — HANYA bila TEPAT SATU posisi
+        # tutup siklus ini, agar PnL agregat (Δequity) tak ambigu (prinsip sama spt Gemini).
+        react_closed = [(s, p) for s, p in closed if not p.get("gdecision")]
+        if len(closed) == 1 and len(react_closed) == 1:
+            sym, pos = react_closed[0]
+            outcome_r = (self.balance_usd - prev_balance) / pos["bet"] if pos.get("bet") else 0.0
+            self._react_link(sym, "LIVE_CLOSE", outcome_r)
 
     @staticmethod
     def _valid_entry_sl(is_long: bool, entry: float, sl, liq: float) -> float | None:

@@ -22,6 +22,10 @@ forwardtest.py (bot/forward.py) ──tulis──►   SQLite  logs/bot.db  (mod
 - **Backend**: `bot/dashboard.py` (FastAPI). Menyajikan `web/dist` di `/` bila
   ada; jika belum di-build, fallback ke halaman HTML lama (`PAGE`). Route
   `/api/*` selalu diprioritaskan di atas mount statis.
+- **Panel Agent (`/agent`)**: halaman mandiri (tak menyentuh SPA React) untuk memantau
+  agen ReAct — Agent Health (rasio LLM vs fallback), keputusan terakhir, pelajaran aktif
+  + akurasi, dan riwayat evolusi threshold. Endpoint: `/api/decisions`, `/api/lessons`,
+  `/api/agent-health`, `/api/evolution`. Arsitektur agen: [AGENT.md](AGENT.md).
 - **Frontend**: `web/` (React + Vite + TypeScript). Lihat [web/README.md](web/README.md).
 - **Penyimpanan**: `bot/store.py` (SQLite). Tak butuh instalasi — `sqlite3`
   bawaan Python. File dibuat otomatis di `logs/bot.db` (+ `-wal`, `-shm`).
