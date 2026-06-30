@@ -9,6 +9,7 @@ from .execution import Executor
 from .gemini_layer import GeminiLayer
 from .logger import log
 from .position import Position, PositionManager
+from .react_agent import ReactAgent
 from .risk import RiskGate
 from .rotate import Rotator
 from .screener import discover_usdc_pairs, screen
@@ -25,6 +26,8 @@ class Engine:
         self.executor = Executor(self.ex, self.cfg)
         self.pm = PositionManager(self.ex, self.executor, self.cfg)
         self.gemini = GeminiLayer(settings, self.cfg)
+        # ReAct agent menggantikan veto pasif; veto lama dipakai sbg fallback deterministik.
+        self.agent = ReactAgent(settings, self.cfg, veto=self.gemini)
         self.tf = self.cfg["market"]["timeframe"]
         self._universe: list[str] = []
         self._last_screen = 0.0
@@ -67,11 +70,22 @@ class Engine:
             except Exception as e:  # boundary
                 log.warning(f"sinyal {sym} gagal: {e}")
 
+        # PnL harian dalam R (1R ≈ account_risk_pct dari equity) — untuk konteks agen.
+        risk_budget = self.cfg["risk"]["account_risk_pct"] / 100 * equity
+        daily_pnl_r = self.risk.daily.realized_pnl / risk_budget if risk_budget else 0.0
+        n_open = len(self.pm.open)
+        max_positions = n_open + slots
+
         ranked = self.rotator.rank(signals, self.pm.symbols)
         for sig in ranked[:slots]:
-            snapshot = {"price": sig.price, "atr": sig.atr, "conf": sig.confidence, "reason": sig.reason}
-            if not self.gemini.allows(sig.symbol, snapshot):
-                log.info(f"{sig.symbol}: di-veto Gemini (regime buruk)")
+            # ReAct: OBSERVE→REASON→ACT→RECORD. LLM gagal → fallback deterministik (tak blokir).
+            # alt (funding/OI/CVD) & lessons di-wire di fase berikut; kini None/[] (tetap aman).
+            decision = self.agent.decide(
+                sig, regime=getattr(sig, "regime", "unknown"), alt=None,
+                n_positions=n_open, max_positions=max_positions,
+                daily_pnl_r=daily_pnl_r, lessons=[])
+            if not decision.permits(sig):
+                log.info(f"{sig.symbol}: agent {decision.action} [{decision.source}] — {decision.reasoning}")
                 continue
             dec = self.risk.evaluate(sig, equity, self.pm.notional)
             if not dec.ok:

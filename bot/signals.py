@@ -16,6 +16,9 @@ class Signal:
     price: float
     atr: float
     reason: str
+    long_score: float = 0.0    # skor mentah arah long (untuk OBSERVE ReactAgent)
+    short_score: float = 0.0   # skor mentah arah short
+    regime: str = "unknown"    # trend | range | chaos (klasifikasi murah dari ADX/ATR)
 
     @property
     def actionable(self) -> bool:
@@ -88,5 +91,18 @@ def evaluate(symbol: str, df: pd.DataFrame, cfg: dict) -> Signal:
     else:
         side, conf = "skip", round(max(long_score, short_score), 3)
 
+    # Klasifikasi regime MURAH (tanpa indikator baru — pakai ADX & ATR yang sudah ada).
+    adx_val = float(ind.adx(df, c["adx_period"])[0].iloc[-1])
+    atr_pct = atr_val / price * 100 if price else 0.0
+    chaos_lvl = cfg.get("strategy", {}).get("max_atr_pct_chaos", 8.0)
+    if atr_pct >= chaos_lvl:
+        regime = "chaos"
+    elif adx_val >= c.get("adx_trend_min", 20):
+        regime = "trend"
+    else:
+        regime = "range"
+
     reason = f"trend({td},{ts:.2f}) mom({md},{ms:.2f}) struct({sd},{ss:.2f})"
-    return Signal(symbol, side, conf, price, atr_val, reason)
+    return Signal(symbol, side, conf, price, atr_val, reason,
+                  long_score=round(float(long_score), 3),
+                  short_score=round(float(short_score), 3), regime=regime)
