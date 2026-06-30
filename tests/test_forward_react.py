@@ -15,6 +15,8 @@ def _bare_ft():
     ft._day_pnl = 0.0
     ft.cfg = {"signals": {}, "strategy": {}}     # _market_summary akan gagal → regime "unknown"
     ft.ab_shadow = False
+    ft.tool_loop = False
+    ft.tool_max_iters = 4
     ft.lessons = types.SimpleNamespace(recent=lambda n: [])
 
     def _raise(*a, **k):

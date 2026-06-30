@@ -95,3 +95,8 @@ agent:
   # semua entry) → kita bisa membandingkan exp_R rules-saja vs rules+ReAct secara jujur.
   # Kumpulkan trade lalu jalankan `python ab_report.py` (atau panel /agent → A/B).
   ab_shadow: false
+  # TOOL-LOOP (agent otonom): agen boleh MEMANGGIL tool (order book, korelasi, dll) secara
+  # iteratif sebelum memutuskan — bukan satu-shot. Lebih "agentik" tapi lebih banyak panggilan
+  # LLM (dibatasi tool_max_iters). Gagal → fallback single-shot deterministik.
+  tool_loop: false
+  tool_max_iters: 4

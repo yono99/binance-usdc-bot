@@ -79,6 +79,8 @@ class ForwardTester:
         self.react = ReactAgent(self.settings, self.cfg)
         self.lessons = LessonsEngine(self.settings, self.cfg)
         self.ab_shadow = bool(self.cfg.get("agent", {}).get("ab_shadow", False))  # A/B: tak blokir
+        self.tool_loop = bool(self.cfg.get("agent", {}).get("tool_loop", False))  # agen otonom
+        self.tool_max_iters = int(self.cfg.get("agent", {}).get("tool_max_iters", 4))
         self.notify = TelegramNotifier()
         self.rs: RuntimeSettings | None = None
         self.balance_usd = 0.0
@@ -206,9 +208,17 @@ class ForwardTester:
                      short_score=(1.0 if side == -1 else 0.0), regime=regime)
         one_r = self.balance_usd * self.risk_frac
         daily_pnl_r = self._day_pnl / one_r if one_r else 0.0
-        dec = self.react.decide(sig, regime=regime, alt=alt, n_positions=len(self.open),
-                                max_positions=self.max_open, daily_pnl_r=daily_pnl_r,
-                                lessons=self.lessons.recent(10), shadow=self.ab_shadow)
+        kw = dict(regime=regime, alt=alt, n_positions=len(self.open),
+                  max_positions=self.max_open, daily_pnl_r=daily_pnl_r,
+                  lessons=self.lessons.recent(10), shadow=self.ab_shadow)
+        if self.tool_loop:                      # agent OTONOM: nalar+panggil tool iteratif
+            from .tools import ToolContext, build_tools
+            ctx = ToolContext(ex=self.ex, open_positions=self.open, buffers=self.buffers,
+                              cfg=self.cfg, lessons=self.lessons)
+            dec = self.react.decide_with_tools(sig, build_tools(ctx),
+                                               max_iters=self.tool_max_iters, **kw)
+        else:
+            dec = self.react.decide(sig, **kw)
         # Shadow (A/B): permits() True (eksekusi ikut rules); verdict asli ada di react_action.
         return dec.permits(sig), (dec.react_action or dec.action), dec.reasoning
 
