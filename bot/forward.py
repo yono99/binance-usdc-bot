@@ -16,14 +16,18 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
+from . import decision_log
 from .altdata import align, fetch_funding, fetch_oi, funding_zscore, oi_delta
 from .backtest import Backtester, Trade, fetch_history
 from .config import Settings
 from .exchange import Exchange
 import json as _json
 
+from .lessons import LessonsEngine
 from .logger import LOG_DIR, journal, log
 from .news import NewsVeto
+from .react_agent import ReactAgent
+from .signals import Signal
 from .notify import TelegramNotifier
 from .orderflow import cvd_from_series, fetch_taker
 from .settings_store import RuntimeSettings, liquidation_price, load_settings
@@ -71,6 +75,9 @@ class ForwardTester:
         self.corr_threshold = float(_r.get("corr_threshold", 0) or 0)
         self.corr_lookback = int(_r.get("corr_lookback", 0) or 0)
         self.news = NewsVeto(self.settings, self.cfg)
+        # ReAct agent: gerbang entry AKTIF utk teknik non-gemini (Gemini mati → fallback ikut sinyal).
+        self.react = ReactAgent(self.settings, self.cfg)
+        self.lessons = LessonsEngine(self.settings, self.cfg)
         self.notify = TelegramNotifier()
         self.rs: RuntimeSettings | None = None
         self.balance_usd = 0.0
@@ -176,6 +183,49 @@ class ForwardTester:
         atr_val = float(_atr(df_closed, self.cfg["signals"]["atr_period"]).iloc[-1])
         side = 1 if dec["side"] == "long" else (-1 if dec["side"] == "short" else 0)
         return side, atr_val, dec, ctx
+
+    def _react_gate(self, sym: str, side: int, atr: float, df_closed, price: float):
+        """Konsultasi ReactAgent sbg gerbang entry (teknik NON-gemini). OBSERVE pakai
+        alt-data nyata (funding/OI/CVD) + regime + pelajaran. Kembalikan (permitted, action,
+        reasoning). LLM mati/timeout → fallback IZINKAN (ikut sinyal) — tak pernah blokir."""
+        from .gemini_trader import _market_summary
+        side_str = "long" if side == 1 else ("short" if side == -1 else "skip")
+        try:
+            fz, oid, imb, _div = self._alt_arrays(sym, df_closed)
+            alt = {"funding": round(float(fz[-1]), 3), "oi_change": round(float(oid[-1]), 4),
+                   "cvd": round(float(imb[-1]), 3)}
+        except Exception:  # boundary — alt opsional
+            alt = {}
+        try:
+            regime = _market_summary(df_closed, self.cfg)["regime"]
+        except Exception:
+            regime = "unknown"
+        sig = Signal(sym, side_str, 0.0, price, atr, "v4",
+                     long_score=(1.0 if side == 1 else 0.0),
+                     short_score=(1.0 if side == -1 else 0.0), regime=regime)
+        one_r = self.balance_usd * self.risk_frac
+        daily_pnl_r = self._day_pnl / one_r if one_r else 0.0
+        dec = self.react.decide(sig, regime=regime, alt=alt, n_positions=len(self.open),
+                                max_positions=self.max_open, daily_pnl_r=daily_pnl_r,
+                                lessons=self.lessons.recent(10))
+        return dec.permits(sig), dec.action, dec.reasoning
+
+    def _react_settle(self, sym: str, pos: dict, pnl: float, reason: str) -> None:
+        """Tautkan hasil close ke keputusan ReAct (decision_log) + update pelajaran (paper)."""
+        try:
+            risk0 = abs(pos["entry"] - pos["sl"]) * pos["qty"]
+            outcome_r = pnl / risk0 if risk0 else 0.0
+            outcome = {"liq": "LIQ", "sl": "SL_HIT", "tp": "TP_HIT"}.get(reason, "CLOSE")
+            did = decision_log.record_outcome(sym, outcome, outcome_r)
+            if did:                                  # hanya entry yang lewat gerbang ReAct
+                row = decision_log.get(did)
+                if row:
+                    if row.get("lesson_triggered"):
+                        self.lessons.record_trigger(row["lesson_triggered"], correct=outcome_r > 0)
+                    self.lessons.derive_from_trade(row)
+                self.lessons.score_and_retire()
+        except Exception as e:  # boundary — pencatatan agen tak boleh ganggu trading
+            log.warning(f"react settle {sym} gagal: {e}")
 
     def _portfolio_view(self) -> dict:
         """Snapshot SEMUA posisi terbuka + eksposur — konteks korelasi/risiko untuk Gemini."""
@@ -613,6 +663,8 @@ class ForwardTester:
                              f"{res['active_lessons']} pelajaran aktif")
             except Exception as e:  # boundary
                 log.warning(f"settle/reflect gemini {sym} gagal: {e}")
+        else:
+            self._react_settle(sym, pos, pnl, reason)   # umpan balik ReAct (teknik non-gemini)
         journal("forward_close", {"symbol": sym, "exit": round(exit_fill, 6), "reason": reason,
                                   "pnl_usd": round(pnl, 4), "r": round(r, 4),
                                   "equity": round(self.balance_usd, 2)})
@@ -806,6 +858,13 @@ class ForwardTester:
                     blocked = "ATR nol"
                 elif (conflict := self._corr_conflict(sym, side)):
                     blocked = f"korelasi tinggi dgn {conflict.split('/')[0]}"
+                # Gerbang ReAct (teknik NON-gemini): keputusan AKTIF + dicatat ke decision_log.
+                # Hanya dipanggil saat semua cek deterministik lolos → hemat panggilan LLM.
+                if blocked is None and not self.use_gemini_trader:
+                    permitted, action, reasoning = self._react_gate(sym, side, atr, df_closed, c["price"])
+                    if not permitted:
+                        blocked = f"agent {action}"
+                        c["rationale"] = reasoning
                 c["blocked"] = blocked
                 if blocked is None:
                     self._open_usd(sym, side, atr, rs)
