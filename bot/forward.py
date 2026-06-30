@@ -79,6 +79,11 @@ class ForwardTester:
         self.react = ReactAgent(self.settings, self.cfg)
         self.lessons = LessonsEngine(self.settings, self.cfg)
         self.ab_shadow = bool(self.cfg.get("agent", {}).get("ab_shadow", False))  # A/B: tak blokir
+        self.tool_loop = bool(self.cfg.get("agent", {}).get("tool_loop", False))  # agen otonom
+        self.tool_max_iters = int(self.cfg.get("agent", {}).get("tool_max_iters", 4))
+        self.autonomous = bool(self.cfg.get("agent", {}).get("autonomous", False))  # kelola portofolio
+        self._autonomous_interval = int(self.cfg.get("agent", {}).get("autonomous_interval_s", 300))
+        self._last_portfolio = 0.0
         self.notify = TelegramNotifier()
         self.rs: RuntimeSettings | None = None
         self.balance_usd = 0.0
@@ -206,9 +211,17 @@ class ForwardTester:
                      short_score=(1.0 if side == -1 else 0.0), regime=regime)
         one_r = self.balance_usd * self.risk_frac
         daily_pnl_r = self._day_pnl / one_r if one_r else 0.0
-        dec = self.react.decide(sig, regime=regime, alt=alt, n_positions=len(self.open),
-                                max_positions=self.max_open, daily_pnl_r=daily_pnl_r,
-                                lessons=self.lessons.recent(10), shadow=self.ab_shadow)
+        kw = dict(regime=regime, alt=alt, n_positions=len(self.open),
+                  max_positions=self.max_open, daily_pnl_r=daily_pnl_r,
+                  lessons=self.lessons.recent(10), shadow=self.ab_shadow)
+        if self.tool_loop:                      # agent OTONOM: nalar+panggil tool iteratif
+            from .tools import ToolContext, build_tools
+            ctx = ToolContext(ex=self.ex, open_positions=self.open, buffers=self.buffers,
+                              cfg=self.cfg, lessons=self.lessons)
+            dec = self.react.decide_with_tools(sig, build_tools(ctx),
+                                               max_iters=self.tool_max_iters, **kw)
+        else:
+            dec = self.react.decide(sig, **kw)
         # Shadow (A/B): permits() True (eksekusi ikut rules); verdict asli ada di react_action.
         return dec.permits(sig), (dec.react_action or dec.action), dec.reasoning
 
@@ -233,6 +246,61 @@ class ForwardTester:
         outcome_r = pnl / risk0 if risk0 else 0.0
         outcome = {"liq": "LIQ", "sl": "SL_HIT", "tp": "TP_HIT"}.get(reason, "CLOSE")
         self._react_link(sym, outcome, outcome_r)
+
+    def _last_price(self, sym: str) -> float | None:
+        buf = self.buffers.get(sym)
+        if buf is not None and len(buf):
+            return float(buf["close"].iloc[-1])
+        try:
+            return float(self.ex.ticker(sym)["last"])
+        except Exception:  # boundary
+            return None
+
+    def _tighten_to_breakeven(self) -> int:
+        """REDUCE_RISK: pindahkan SL ke entry (breakeven) untuk posisi yang sedang PROFIT.
+        Hanya mengetatkan (kunci no-loss); tak pernah melonggarkan. Kembalikan jumlah."""
+        n = 0
+        for sym, pos in self.open.items():
+            price = self._last_price(sym)
+            if not price:
+                continue
+            long = pos["side"] == "long"
+            in_profit = price > pos["entry"] if long else price < pos["entry"]
+            be = pos["entry"]
+            tighter = be > pos["sl"] if long else be < pos["sl"]
+            if in_profit and tighter:
+                pos["sl"] = be
+                n += 1
+        return n
+
+    def _agent_portfolio_review(self, rs) -> None:
+        """POINT 2 — agen otonom meninjau SEMUA posisi terbuka berkala (REDUCE_RISK/FLAT).
+        Teknik gemini punya jalur kelola sendiri (_gemini_manage) → dilewati di sini."""
+        if not self.autonomous or self.use_gemini_trader or not rs.enabled or not self.open:
+            return
+        now = time.time()
+        if now - self._last_portfolio < self._autonomous_interval:
+            return
+        self._last_portfolio = now
+        one_r = self.balance_usd * self.risk_frac
+        dec = self.react.manage_portfolio(self._portfolio_view(),
+                                          daily_pnl_r=(self._day_pnl / one_r if one_r else 0.0),
+                                          lessons=self.lessons.recent(5))
+        act = dec.get("action")
+        if act == "FLAT":
+            if self.live and not self._allow_live_gemini:    # destruktif di LIVE → butuh izin
+                log.warning("AGENT FLAT diblokir di LIVE (set gemini.allow_live_trader: true)")
+                return
+            for sym in list(self.open):
+                price = self._last_price(sym)
+                if price:
+                    self._close_usd(sym, price, "agent_flat")
+            log.info(f"AGENT FLAT — tutup semua posisi: {dec.get('reasoning')}")
+            self.notify.send(f"🤖 <b>AGENT FLAT</b> — {dec.get('reasoning')}")
+        elif act == "REDUCE_RISK":
+            n = self._tighten_to_breakeven()
+            if n:
+                log.info(f"AGENT REDUCE_RISK — {n} stop → breakeven: {dec.get('reasoning')}")
 
     def _portfolio_view(self) -> dict:
         """Snapshot SEMUA posisi terbuka + eksposur — konteks korelasi/risiko untuk Gemini."""
@@ -893,6 +961,7 @@ class ForwardTester:
                 if blocked is None:
                     self._open_usd(sym, side, atr, rs)
                     c["blocked"] = "→ posisi dibuka"
+        self._agent_portfolio_review(rs)   # POINT 2: agen otonom kelola portofolio (REDUCE_RISK/FLAT)
         self._write_status(rs, news_veto, note)
         self._persist_state()        # saldo+posisi durable -> tahan restart
         self._persist_logs(news_veto, note)   # histori news + screening (on-change)

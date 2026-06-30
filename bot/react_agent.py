@@ -34,6 +34,7 @@ from .logger import log
 from .signals import Signal
 
 ACTIONS = ("ENTER_LONG", "ENTER_SHORT", "SKIP", "REDUCE_RISK", "FLAT")
+PORTFOLIO_ACTIONS = ("HOLD", "REDUCE_RISK", "FLAT")   # aksi level-portofolio (point 2: otonomi)
 DECISION_LOG = Path("logs/decision_log.jsonl")
 
 
@@ -141,28 +142,98 @@ class ReactAgent:
         }
 
     @staticmethod
-    def _prompt(s: dict) -> str:
+    def _state_block(s: dict) -> str:
+        return (
+            f"- Symbol: {s['symbol']}\n"
+            f"- Price: {s['price']}, ATR: {s['atr']} ({s['atr_pct']}%)\n"
+            f"- Funding (8h): {s['funding']}  OI 1h%: {s['oi_change_1h_pct']}  CVD 1h: {s['cvd_1h']}\n"
+            f"- Regime: {s['regime']}\n"
+            f"- Signal: side={s['signal_side']} conf={s['signal_confidence']} "
+            f"long={s['long_score']} short={s['short_score']}\n"
+            f"- Open positions: {s['n_positions']}/{s['max_positions']}  Daily PnL: {s['daily_pnl_r']}R\n"
+            f"- Recent lessons: {json.dumps(s['recent_lessons'], default=str)}\n"
+        )
+
+    @classmethod
+    def _prompt(cls, s: dict) -> str:
         return (
             "You are a trading agent. Analyze this market state and decide.\n"
             "You MANAGE the decision; you do NOT predict the signal (scores are given).\n\n"
-            "State:\n"
-            f"- Symbol: {s['symbol']}\n"
-            f"- Price: {s['price']}, ATR: {s['atr']} ({s['atr_pct']}%)\n"
-            f"- Funding rate (8h): {s['funding']}\n"
-            f"- OI change 1h: {s['oi_change_1h_pct']}%\n"
-            f"- CVD 1h: {s['cvd_1h']}\n"
-            f"- Regime: {s['regime']}\n"
-            f"- Signal: side={s['signal_side']} confidence={s['signal_confidence']} "
-            f"long={s['long_score']} short={s['short_score']}\n"
-            f"- Open positions: {s['n_positions']}/{s['max_positions']}\n"
-            f"- Daily PnL: {s['daily_pnl_r']}R\n"
-            f"- Recent lessons: {json.dumps(s['recent_lessons'], default=str)}\n\n"
-            "Available actions: ENTER_LONG, ENTER_SHORT, SKIP, REDUCE_RISK, FLAT\n"
+            "State:\n" + cls._state_block(s) +
+            "\nAvailable actions: ENTER_LONG, ENTER_SHORT, SKIP, REDUCE_RISK, FLAT\n"
             "Respond ONLY with valid JSON:\n"
             '{"action":"SKIP","reasoning":"one sentence why","confidence":0.0,'
             '"key_risks":["risk1","risk2"],"lesson_triggered":"id of the lesson that '
             'influenced this (from Recent lessons), or empty string"}'
         )
+
+    # ---------------------- ReAct TOOL-LOOP (point 1: agent otonom) ----------------------
+    @classmethod
+    def _tool_prompt(cls, s: dict, tools: dict, transcript: list) -> str:
+        tool_list = "\n".join(f"  - {n}: {t['desc']}" for n, t in tools.items())
+        hist = ""
+        if transcript:
+            lines = []
+            for i, x in enumerate(transcript):
+                obs = x.get("obs", x.get("error"))
+                lines.append(f"  {i + 1}. {x.get('tool')}({json.dumps(x.get('args', {}), default=str)}) "
+                             f"-> {json.dumps(obs, default=str)}")
+            hist = "\nObservasi yang sudah kamu kumpulkan:\n" + "\n".join(lines)
+        return (
+            "You are an AUTONOMOUS trading agent. INVESTIGATE with tools, THEN decide.\n"
+            "You manage decisions; signal scores are given (you don't predict them).\n\n"
+            "State:\n" + cls._state_block(s) +
+            "\nTools (call to gather evidence BEFORE deciding):\n" + tool_list + hist +
+            "\n\nReply with EXACTLY ONE JSON object — either:\n"
+            '  tool call:      {"tool":"<name>","args":{...}}\n'
+            '  final decision: {"action":"ENTER_LONG|ENTER_SHORT|SKIP|REDUCE_RISK|FLAT",'
+            '"reasoning":"...","confidence":0.0,"key_risks":[],"lesson_triggered":""}\n'
+            "Call a tool only if it would change your decision; otherwise decide now."
+        )
+
+    @staticmethod
+    def _parse_tool_step(text: str | None) -> dict | None:
+        if not text:
+            return None
+        try:
+            return json.loads(text[text.find("{"):text.rfind("}") + 1])
+        except Exception:  # boundary
+            return None
+
+    def decide_with_tools(self, sig: Signal, tools: dict, *, max_iters: int = 4,
+                          regime: str | None = None, alt: dict | None = None,
+                          n_positions: int = 0, max_positions: int = 0, daily_pnl_r: float = 0.0,
+                          lessons: list | None = None, shadow: bool = False) -> Decision:
+        """Loop ReAct sejati: nalar → panggil tool → observasi → nalar → aksi final.
+        Gagal/parse-error/maxiters → fallback ke decide() single-shot (TAK pernah blokir)."""
+        obs_kwargs = dict(regime=regime, alt=alt, n_positions=n_positions,
+                          max_positions=max_positions, daily_pnl_r=daily_pnl_r, lessons=lessons)
+        if not self.enabled or not tools:
+            return self.decide(sig, shadow=shadow, **obs_kwargs)
+        state = self.observe(sig, **obs_kwargs)
+        scores = {"long": state["long_score"], "short": state["short_score"]}
+        self.calls += 1
+        transcript: list = []
+        for _ in range(max(1, max_iters)):
+            step = self._parse_tool_step(
+                self.client.generate(self._tool_prompt(state, tools, transcript), purpose="react_tool"))
+            if step is None:
+                break
+            if step.get("action"):                       # AKSI FINAL
+                out = self._sanitize(step)
+                if out is None:
+                    break
+                d = self._build(sig, state, scores, out, "LLM_TOOL", shadow)
+                self._record(d)
+                return d
+            name = step.get("tool")                      # PANGGILAN TOOL
+            if name in tools:
+                obs = tools[name]["fn"](step.get("args") or {})
+                transcript.append({"tool": name, "args": step.get("args") or {}, "obs": obs})
+            else:
+                transcript.append({"tool": name, "error": "unknown tool"})
+        self.fallbacks += 1                              # tak capai aksi → fallback single-shot
+        return self.decide(sig, shadow=shadow, **obs_kwargs)
 
     # ---------------------- ACT + RECORD ----------------------
     def decide(self, sig: Signal, *, regime: str | None = None, alt: dict | None = None,
@@ -249,6 +320,50 @@ class ReactAgent:
             "market_state": d.market_state,
             "outcome": None, "outcome_r": None, "filled_at_close": False,
         }, path=self.log_path)
+
+    # ---------------------- POINT 2: aksi level-portofolio (otonomi) ----------------------
+    def manage_portfolio(self, portfolio: dict, *, daily_pnl_r: float = 0.0,
+                         lessons: list | None = None) -> dict:
+        """Aksi portofolio otonom: HOLD | REDUCE_RISK | FLAT. HANYA boleh mengurangi risiko
+        (di-enforce pemanggil). Fail-safe = HOLD. Dicatat ke decision_log (audit)."""
+        out = {"action": "HOLD", "reasoning": "llm off → hold", "confidence": 0.0}
+        if self.enabled:
+            self.calls += 1
+            prompt = (
+                "You are an AUTONOMOUS trading agent managing an OPEN PORTFOLIO.\n"
+                "You may ONLY reduce risk — never add.\n"
+                f"Daily PnL: {round(float(daily_pnl_r), 3)}R\n"
+                f"Portfolio: {json.dumps(portfolio, default=str)}\n"
+                f"Recent lessons: {json.dumps(lessons or [], default=str)}\n"
+                "Actions: HOLD (do nothing), REDUCE_RISK (move stops to breakeven on winners), "
+                "FLAT (close everything now — only if regime/news clearly dangerous).\n"
+                'Respond ONLY JSON: {"action":"HOLD","reasoning":"one sentence","confidence":0.0}'
+            )
+            parsed = self._parse_tool_step(self.client.generate(prompt, purpose="portfolio"))
+            out = self._sanitize_portfolio(parsed) if parsed is not None else out
+        else:
+            self.fallbacks += 1
+        decision_log.append({
+            "ts": _utcnow(), "id": uuid.uuid4().hex, "symbol": "*PORTFOLIO*",
+            "action": out["action"], "reasoning": out["reasoning"],
+            "confidence": out["confidence"], "key_risks": [], "lesson_triggered": "",
+            "source": "LLM" if self.enabled else "LLM_DISABLED", "signal_scores": {},
+            "react_action": "", "market_state": {"portfolio": portfolio},
+            "outcome": None, "outcome_r": None, "filled_at_close": False,
+        }, path=self.log_path)
+        return out
+
+    @staticmethod
+    def _sanitize_portfolio(data: dict) -> dict:
+        action = str(data.get("action", "")).upper().strip()
+        if action not in PORTFOLIO_ACTIONS:
+            return {"action": "HOLD", "reasoning": "aksi tak valid → hold", "confidence": 0.0}
+        try:
+            conf = max(0.0, min(float(data.get("confidence", 0.0)), 1.0))
+        except (TypeError, ValueError):
+            conf = 0.0
+        return {"action": action, "reasoning": str(data.get("reasoning", ""))[:200],
+                "confidence": round(conf, 3)}
 
     def health(self) -> dict:
         """Rasio ketersediaan LLM vs fallback (untuk panel Agent Health)."""

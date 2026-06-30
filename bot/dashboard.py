@@ -797,7 +797,7 @@ def api_agent_health(limit: int = 300) -> JSONResponse:
     rows = decision_log.recent(min(max(1, limit), 1000))
     total = len(rows)
     by_source = Counter(r.get("source", "?") for r in rows)
-    llm = by_source.get("LLM", 0)
+    llm = by_source.get("LLM", 0) + by_source.get("LLM_TOOL", 0)   # tool-loop = LLM aktif
     fallbacks = total - llm
     return JSONResponse({
         "total": total, "llm": llm, "fallbacks": fallbacks,
