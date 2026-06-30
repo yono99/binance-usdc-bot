@@ -91,8 +91,28 @@ def test_sanitize_rejects_invalid(trader):
 
 
 def test_sanitize_clamps_conviction(trader):
-    out = trader._sanitize({"setup": "breakout_continuation", "side": "long", "conviction": 9})
+    out = trader._sanitize({"setup": "breakout_continuation", "side": "long",
+                            "conviction": 9, "sl": 95.0, "tp": 110.0})
     assert out["conviction"] == 1.0 and out["side"] == "long"
+
+
+def test_sanitize_requires_sl(trader):
+    # Gemini trader penuh: side actionable tanpa SL valid → FLAT (fail-safe).
+    out = trader._sanitize({"setup": "trend_pullback", "side": "long", "conviction": 0.7})
+    assert out["side"] == "flat" and out["setup"] == "no_trade"
+    bad = trader._sanitize({"setup": "trend_pullback", "side": "long",
+                            "conviction": 0.7, "sl": "x"})
+    assert bad["side"] == "flat"
+
+
+def test_sanitize_passes_sl_tp(trader):
+    out = trader._sanitize({"setup": "trend_pullback", "side": "long",
+                            "conviction": 0.6, "sl": 98.5, "tp": 105.0})
+    assert out["sl"] == 98.5 and out["tp"] == 105.0
+    # TP opsional → None bila tak ada/invalid, SL tetap wajib
+    no_tp = trader._sanitize({"setup": "trend_pullback", "side": "long",
+                              "conviction": 0.6, "sl": 98.5})
+    assert no_tp["sl"] == 98.5 and no_tp["tp"] is None
 
 
 def test_commit_skips_flat(db, trader):

@@ -293,12 +293,13 @@ class ForwardTester:
         # circuit breaker harian diatur user dari UI (0 = nonaktif) — hot-reload
         self.daily_max_loss_pct = float(rs.daily_max_loss_pct)
         self.daily_max_trades = int(rs.daily_max_trades)
-        # teknik "gemini": arah dari Gemini (SL/TP/sizing tetap deterministik)
+        # teknik "gemini": Gemini menentukan arah + SL/TP (timing bebas); ukuran/leverage dari UI
         self.use_gemini_trader = (rs.technique == "gemini")
         if self.use_gemini_trader and self.gtrader is None:
             from .gemini_trader import GeminiTrader
             self.gtrader = GeminiTrader(self.settings, self.cfg)
-            log.info("Teknik GEMINI aktif — Gemini menentukan arah; risk deterministik.")
+            log.info("Teknik GEMINI aktif — Gemini menentukan arah + SL/TP (entry timing bebas); "
+                     "ukuran & leverage dari UI, level divalidasi kode.")
         self.fee = rs.fee_pct()                 # taker (market) / maker (limit)
         self.slippage = 0.0 if rs.order_type == "limit" else self._base_slippage
         if rs.gemini_model:                     # model Gemini pilihan UI (hot-reload) + fallback
@@ -486,6 +487,30 @@ class ForwardTester:
             except Exception as e:  # boundary
                 log.warning(f"settle gemini live {sym} gagal: {e}")
 
+    @staticmethod
+    def _valid_entry_sl(is_long: bool, entry: float, sl, liq: float) -> float | None:
+        """Validasi SL usulan Gemini. Kembalikan SL terpakai (mungkin di-clamp ke DALAM
+        likuidasi) atau None bila tak bisa valid (→ pemanggil batal buka posisi).
+        GUARDRAIL: SL harus di sisi benar & memicu SEBELUM likuidasi, kalau tidak SL percuma."""
+        try:
+            sl = float(sl)
+        except (TypeError, ValueError):
+            return None
+        buf = 0.0005                                   # 0.05% buffer di dalam likuidasi
+        if is_long:
+            if sl >= entry:                            # SL long wajib di bawah entry
+                return None
+            floor = liq * (1 + buf)                    # jangan di/ bawah likuidasi
+            if floor >= entry:                         # leverage terlalu tinggi → tak ada ruang SL
+                return None
+            return max(sl, floor)                      # clamp naik bila terlalu dekat likuidasi
+        if sl <= entry:                                # SL short wajib di atas entry
+            return None
+        cap = liq * (1 - buf)
+        if cap <= entry:
+            return None
+        return min(sl, cap)                            # clamp turun bila terlalu dekat likuidasi
+
     def _open_usd(self, sym: str, side: int, atr: float, rs: RuntimeSettings) -> None:
         # Gemini: ukuran skala conviction (lantai 20%) — arah AI, ukuran tetap aturan.
         bet = rs.bet_usd
@@ -513,6 +538,21 @@ class ForwardTester:
         else:
             tp = entry + atr * self.bt.tp_mult if is_long else entry - atr * self.bt.tp_mult
         liq = liquidation_price(entry, is_long, rs.liquidation_frac())
+        # Gemini trader penuh: SL/TP dari Gemini menggantikan ATR — TAPI divalidasi KODE.
+        # Guardrail: SL wajib di sisi benar & DI DALAM likuidasi (di-clamp bila perlu); TP sisi benar.
+        if gem:
+            g_sl = self._valid_entry_sl(is_long, entry, gem["dec"].get("sl"), liq)
+            if g_sl is None:
+                c = self.sig_cache.setdefault(sym, {})
+                c["blocked"] = "SL Gemini invalid → skip"
+                log.warning(f"{sym}: SL Gemini {gem['dec'].get('sl')} invalid vs "
+                            f"entry={entry:.6f}/liq={liq:.6f} → tak buka posisi")
+                return
+            sl = g_sl
+            g_tp = gem["dec"].get("tp")
+            if isinstance(g_tp, (int, float)) and ((is_long and g_tp > entry) or
+                                                   (not is_long and g_tp < entry)):
+                tp = float(g_tp)                    # TP Gemini valid; selain itu pakai TP ATR
         if self.live:                               # UANG NYATA: order asli + SL/TP exchange
             try:
                 qty = float(self.ex.client.amount_to_precision(sym, qty))
@@ -709,8 +749,15 @@ class ForwardTester:
                     and now - self._last_manage.get(sym, 0) >= self._manage_interval):
                 self._last_manage[sym] = now
                 self._gemini_manage(sym, df_closed)
-            if df_closed.index[-1] != self.last_closed.get(sym):
-                self.last_closed[sym] = df_closed.index[-1]
+            # KAPAN evaluasi entry?
+            #  - Gemini trader: timing BEBAS → tiap siklus (selama belum ada posisi & bot ON).
+            #  - Teknik rules: hanya saat bar baru tertutup (sinyal berbasis bar).
+            bar_closed = df_closed.index[-1] != self.last_closed.get(sym)
+            free_gemini = (self.use_gemini_trader and self.gtrader is not None
+                           and rs.enabled and sym not in self.open)
+            if bar_closed or free_gemini:
+                if bar_closed:
+                    self.last_closed[sym] = df_closed.index[-1]
                 if self.use_gemini_trader and self.gtrader is not None:
                     side, atr, gdec, gctx = self._gemini_decision(sym, df_closed)
                     c["gemini"] = {"dec": gdec, "ctx": gctx}

@@ -147,7 +147,17 @@ class GeminiTrader:
         except (TypeError, ValueError):
             conv = 0.0
         conv = max(0.0, min(conv, 1.0))
+        # Gemini trader penuh: WAJIB sertakan SL (invalidasi). Tanpa SL valid → FLAT (fail-safe).
+        try:
+            sl = float(data.get("sl"))
+        except (TypeError, ValueError):
+            return {**_FLAT, "rationale": "tanpa SL valid → flat (invalidasi wajib)"}
+        try:
+            tp = float(data.get("tp"))
+        except (TypeError, ValueError):
+            tp = None                                  # TP opsional → kode fallback ke ATR
         return {"setup": setup, "side": side, "conviction": round(conv, 3),
+                "sl": sl, "tp": tp,
                 "rationale": str(data.get("rationale", ""))[:200]}
 
     # ---------- kelola posisi terbuka (exit-only, ~1 menit) ----------

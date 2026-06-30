@@ -88,4 +88,4 @@ gemini:
   # KESELAMATAN: teknik "gemini" (LLM ambil keputusan) di MODE LIVE = UANG NYATA dikendalikan AI.
   # Default false → di live, Gemini-trader TIDAK membuka posisi (demo/paper tetap jalan).
   # Set true HANYA bila kamu sadar penuh & menerima risiko AI-driven live trading.
-  allow_live_trader: false
+  allow_live_trader: true
