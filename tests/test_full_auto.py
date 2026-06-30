@@ -24,7 +24,7 @@ def _build(cfg, agent_over):
 
 def test_full_auto_enables_both(cfg):
     ft = _build(cfg, {"full_auto": True})
-    assert ft.tool_loop is True and ft.autonomous is True
+    assert ft.tool_loop is True and ft.autonomous is True and ft.use_planner is True
 
 
 def test_default_off(cfg):

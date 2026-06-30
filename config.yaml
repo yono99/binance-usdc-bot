@@ -109,3 +109,8 @@ agent:
   # risiko. Di LIVE, FLAT butuh allow_live_trader: true. Default off (paper-aman).
   autonomous: false
   autonomous_interval_s: 300
+  # PLANNER tipis: agen menetapkan TUJUAN sesi (stance/bias/kuota trade & eksposur) tiap
+  # plan_horizon_h jam → keputusan per-tick tunduk padanya. HANYA bisa mengetatkan (lebih
+  # konservatif dari batasmu), tak pernah melonggarkan. Ikut menyala bila full_auto: true.
+  planner: false
+  plan_horizon_h: 6
