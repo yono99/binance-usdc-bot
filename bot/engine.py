@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import time
 
-from . import decision_log
+from . import decision_log, evolve
 from .config import Settings
 from .exchange import Exchange
 from .execution import Executor
@@ -51,7 +51,9 @@ class Engine:
         equity = self.ex.equity_usdc()
 
         # Layer 7 dulu: kelola posisi terbuka & catat exit
+        closed_any = False
         for sym, pnl, was_sl in self.pm.monitor(self._price):
+            closed_any = True
             self.risk.record_close(pnl)
             self.rotator.on_close(sym, was_sl)
             # Phase 2: tautkan hasil ke keputusan entri (alasan → outcome R).
@@ -67,6 +69,12 @@ class Engine:
                         self.lessons.record_trigger(row["lesson_triggered"], correct=outcome_r > 0)
                     self.lessons.derive_from_trade(row)
                 self.lessons.score_and_retire()
+        # Phase 4: evolusi threshold dgn validasi OOS (gated internal ≥20 trade tertutup).
+        if closed_any:
+            try:
+                evolve.run(self.cfg, apply=True)
+            except Exception as e:  # boundary — evolusi tak boleh mematikan loop
+                log.warning(f"evolusi gagal: {e}")
 
         # Layer 5: circuit breaker harian
         if self.risk.breaker_tripped(equity):
