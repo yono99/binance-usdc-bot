@@ -225,3 +225,27 @@ are both dead on definitive universes. The directional-prediction hypothesis spa
 illiquid pairs), which require a different research program (forward L2 collection
 is already scaffolded in `l2collect.py`); or (2) stop. Do not go live with anything
 that failed the four bars.
+
+---
+
+## Fase 4 — H24 funding-settlement seasonality (2026-07-02)
+
+New engine `bot/settlement.py` (rebalances exactly at pre-settlement bars, PnL =
+price + actually-charged funding via cumf) + `settlement_alpha.py` CLI. 4 tests
+incl. funding-income sign control; 357 green.
+
+Definitive run: 60 most-liquid USDT perps × 17520 hourly bars (2y) + full funding
+history, fee 0.02 + slip 0.03, grid 6 (offset {0,1} × hold {1,4,8}), 5 windows.
+
+Result: OOS mean **−0.1917%**/rebalance over **1250** rebalances (very well-powered),
+win 33.6%, Sharpe −0.303. IS Sharpe negative in *all* windows. Decomposition: cost
+is 0.20%/rebalance → gross PnL ≈ **+0.008% ≈ zero**. There is no settlement-timed
+flow effect at 1h granularity in either direction — the raw effect is nil, so the
+reverse trade is equally dead (flipping zero gross still loses the cost).
+
+### Verdict: **REJECTED**
+**Falsifier (was):** "funding-payers' position-closing creates predictable pre/post
+settlement drift, direction given by funding sign." Falsified cleanly: gross effect
+is zero, not merely cost-eaten. Mechanical-schedule rationale was sound; the market
+prices it. Next in queue per RESEARCH_HYPOTHESES_PHASE4.md: H26 illiquidity-shock
+reversal, then H25 carry×momentum double-sort.

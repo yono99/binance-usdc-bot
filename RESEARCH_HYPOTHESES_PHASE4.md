@@ -7,7 +7,7 @@
 
 | # | Hipotesis | Prioritas | Status |
 |---|---|---|---|
-| H24 | Seasonality settlement funding | TINGGI | **UJI BERJALAN** |
+| H24 | Seasonality settlement funding | TINGGI | **DITOLAK** (2026-07-02: OOS −0.19%/rebal, n=1250; gross ≈ 0 — efeknya nihil dua arah) |
 | H25 | Carry × momentum double-sort | SEDANG-TINGGI | antre |
 | H26 | Reversal syok illikuiditas (Amihud dinamis) | SEDANG-TINGGI | antre |
 | H27 | Dislokasi basis lintas-venue cross-sectional | SEDANG | antre |
