@@ -321,6 +321,7 @@ class ForwardTester:
         self._plan_day, self._last_plan_ts, self._session_trades = day, now, 0
         hard = self.daily_max_trades or 1_000_000
         ctx = {"balance_usd": round(self.balance_usd, 2), "day_pnl_usd": round(self._day_pnl, 2),
+               "bet_usd": rs.bet_usd, "leverage": rs.leverage,   # sizing: margin kecil × leverage
                "portfolio": self._portfolio_view(), "news": self._last_news_note,
                "lessons": self.lessons.recent(5)}
         self._session_plan = self.planner.make_plan(ctx, hard_max_trades=hard)

@@ -43,9 +43,15 @@ class SessionPlanner:
             return default_plan(hard_max_trades)
         prompt = (
             "You are an autonomous trading agent setting a SESSION PLAN (not a single trade).\n"
-            "Choose a conservative stance for the next few hours given the context.\n"
+            "PRODUCT CONTEXT: this bot supports MINIMAL-CAPITAL traders (from ~$10). A SMALL "
+            "balance is NORMAL & expected — do NOT treat it as a reason to stop trading. Capital "
+            "is deployed via SMALL MARGIN + LEVERAGE, not by sitting idle. Be defensive only for "
+            "genuine market danger (news/regime/drawdown), NOT merely because the balance is small.\n"
             f"Context: {json.dumps(ctx, default=str)}\n"
-            f"Hard cap new trades this session: {hard_max_trades} (you may go LOWER, never higher).\n"
+            f"Hard cap new trades this session: {hard_max_trades} (you may go LOWER, never higher; "
+            "but keep at least 1 unless you choose stance=risk_off).\n"
+            "max_exposure_frac is a fraction of balance; keep it high enough that at least one "
+            "normal-size position fits (small accounts need most of their balance as margin).\n"
             "Respond ONLY JSON:\n"
             '{"stance":"aggressive|normal|defensive|risk_off","bias":"long|short|neutral",'
             '"max_new_trades":<int <= cap>,"max_exposure_frac":<0..1>,"reasoning":"one sentence"}'
@@ -73,11 +79,17 @@ class SessionPlanner:
             mef = float(data.get("max_exposure_frac", 1.0))
         except (TypeError, ValueError):
             mef = 1.0
+        stance = stance if stance in STANCES else "normal"
+        mnt = max(0, min(mnt, int(hard_max_trades)))
+        mef = max(0.0, min(mef, 1.0))
+        # LANTAI modal-minim: kecuali stance=risk_off (stop eksplisit), jangan cekik akun kecil —
+        # sisakan ≥1 trade & eksposur cukup agar minimal 1 posisi muat. risk_off = cara berhenti.
+        if stance != "risk_off":
+            mnt = max(1, mnt)
+            mef = max(0.5, mef)
         return {
-            "stance": stance if stance in STANCES else "normal",
-            "bias": bias if bias in BIASES else "neutral",
-            "max_new_trades": max(0, min(mnt, int(hard_max_trades))),   # clamp ≤ cap manusia
-            "max_exposure_frac": max(0.0, min(mef, 1.0)),
+            "stance": stance, "bias": bias if bias in BIASES else "neutral",
+            "max_new_trades": mnt, "max_exposure_frac": round(mef, 3),
             "reasoning": str(data.get("reasoning", ""))[:200], "ts": _utcnow(),
         }
 
