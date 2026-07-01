@@ -161,6 +161,22 @@ def score_turnover(close, vol, window):
     return -_roll_mean(np.log(np.where(dvol > 0, dvol, np.nan)), window)
 
 
+def score_illiq_shock(close, vol, shock_window, ret_window=3, base_window=60, thr=1.5):
+    """H26: reversal syok illikuiditas. Amihud DINAMIS: ratio = illiq trailing
+    pendek / baseline panjang. Saat likuiditas mendadak hilang (ratio > thr,
+    ambang STRUKTURAL tetap — bukan di-tune), harga overshoot → fade arah gerak
+    ret_window terakhir. Skor = −sign(past) × ratio; non-syok = NaN."""
+    r = returns_panel(close)
+    dvol = close * vol
+    illiq = np.abs(r) / np.where(dvol > 0, dvol, np.nan)
+    shock = _roll_mean(illiq, shock_window)
+    base = _roll_mean(illiq, base_window)
+    ratio = shock / np.where(base > 0, base, np.nan)
+    past = _roll_sum(r, ret_window)
+    sc = -np.sign(past) * ratio
+    return np.where(ratio > thr, sc, np.nan)
+
+
 def score_funding_accel(level, interval):
     """H15: akselerasi funding. level=[T×N] rate 8h ffilled. velocity = beda antar
     interval; accel = beda velocity. Skor: short saat crowding funding mengakselerasi

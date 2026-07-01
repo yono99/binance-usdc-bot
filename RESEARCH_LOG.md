@@ -249,3 +249,24 @@ settlement drift, direction given by funding sign." Falsified cleanly: gross eff
 is zero, not merely cost-eaten. Mechanical-schedule rationale was sound; the market
 prices it. Next in queue per RESEARCH_HYPOTHESES_PHASE4.md: H26 illiquidity-shock
 reversal, then H25 carry×momentum double-sort.
+
+---
+
+## Fase 4 — H26 illiquidity-shock reversal (2026-07-02)
+
+Builder `xs_signals.score_illiq_shock` (dynamic Amihud: ratio short/long-window
+illiquidity, structural threshold 1.5 declared upfront, fade sign of last-3d move;
+non-shocked = NaN). 3 new tests incl. shock-market positive/negative controls.
+
+- **Pilot** (208 small-caps × 800d): OOS **+0.5443%**/rebalance, positive in all
+  3 windows, but n=76 → p_adj=0.737. Underpowered, not tuned further.
+- **Definitive** (103 small-caps × 1400d, same grid, trials counted 8 cumulative):
+  OOS **−0.3542%** over 175 rebalances, win 49.7%, windows split 4+/4−.
+
+The pilot's +0.54% was a small-sample artifact — textbook trap #2 (skew/carry died
+the same way in Phase 2). With 2.3× the OOS sample the effect flips sign.
+
+### Verdict: **REJECTED**
+**Falsifier (was):** "sudden liquidity withdrawal causes overshoot that reverts
+within days, net of stressed costs." Falsified on the larger sample; the apparent
+edge does not survive more data, let alone cost-stress ×2.

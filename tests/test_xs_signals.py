@@ -60,3 +60,46 @@ def test_score_engine_reverse_flips_sign():
     _, oos_norm = xs.walk_forward_scores(close, panels, [24], 0.3, 0.0, 800, 300)
     _, oos_rev = xs.walk_forward_scores(close, panels, [24], 0.3, 0.0, 800, 300, reverse=True)
     assert oos_norm.mean() > 0 and oos_rev.mean() < 0     # reverse = kebalikan
+
+
+def _shock_market(revert: bool, N=24, T=3000, seed=13):
+    """H26: tiap simbol dapat 'syok likuiditas' berkala (volume /20, overshoot
+    ±6%) tersebar antar simbol. revert=True → drift balik 6 hari (reversal nyata);
+    revert=False → overshoot permanen (tak ada edge)."""
+    rng = np.random.default_rng(seed)
+    r = rng.normal(0, 0.01, (T, N))
+    vol = np.full((T, N), 1e6)
+    for i in range(N):
+        for t0 in range(100 + int(i * 30 / N), T - 12, 30):
+            sign = 1 if (t0 + i) % 2 == 0 else -1
+            r[t0, i] += sign * 0.06
+            vol[t0:t0 + 6, i] /= 20.0
+            if revert:
+                r[t0 + 1:t0 + 7, i] -= sign * 0.008
+    close = 100 * np.exp(np.cumsum(r, axis=0))
+    return close, vol
+
+
+def test_illiq_shock_positive_control():
+    close, vol = _shock_market(revert=True)
+    panels = {f"is{w}": xss.score_illiq_shock(close, vol, w) for w in (3, 5)}
+    _, oos = xs.walk_forward_scores(close, panels, holds=[3, 5], quantile=0.3,
+                                    cost_frac=0.0, train_len=800, test_len=300)
+    v = xs.verdict(oos, 4)
+    assert v["mean"] > 0 and v["ok"], v["reason"]
+
+
+def test_illiq_shock_negative_control():
+    close, vol = _shock_market(revert=False, seed=21)
+    panels = {f"is{w}": xss.score_illiq_shock(close, vol, w) for w in (3, 5)}
+    _, oos = xs.walk_forward_scores(close, panels, holds=[3, 5], quantile=0.3,
+                                    cost_frac=0.0, train_len=800, test_len=300)
+    assert not xs.verdict(oos, 4)["ok"]
+
+
+def test_illiq_shock_nan_when_no_shock():
+    rng = np.random.default_rng(2)
+    close = 100 * np.exp(np.cumsum(rng.normal(0, 0.01, (500, 6)), axis=0))
+    vol = np.full((500, 6), 1e6)                     # likuiditas stabil → tanpa syok
+    sc = xss.score_illiq_shock(close, vol, 3)
+    assert np.isfinite(sc[100:]).mean() < 0.35       # mayoritas NaN (ratio ~1 < thr)

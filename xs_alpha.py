@@ -35,7 +35,8 @@ DEFAULT_UNIVERSE = [
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--hypothesis", required=True,
-                   choices=["resid_mom", "leadlag", "ivol", "skew", "funding_accel", "sector"])
+                   choices=["resid_mom", "leadlag", "ivol", "skew", "funding_accel", "sector",
+                            "illiq_shock"])
     p.add_argument("--symbols", nargs="*", default=None)
     p.add_argument("--tf", default="1h")
     p.add_argument("--bars", type=int, default=8000)
@@ -76,6 +77,9 @@ def build_panels(hyp, close, btc_idx, level, windows=None, beta_win=240, vol=Non
         w = windows or (60, 90)
         return ({f"sec{cw}": sector.score_sector_leadlag(close, vol, cw, lead_lookback=3)
                  for cw in w}, [5, 10])
+    if hyp == "illiq_shock":     # H26 — reversal syok likuiditas (daily: syok 3/5 hari)
+        w = windows or (3, 5)
+        return ({f"is{sw}": xss.score_illiq_shock(close, vol, sw) for sw in w}, [3, 5])
     raise ValueError(hyp)
 
 
@@ -111,7 +115,7 @@ def main() -> None:
     close = panel.to_numpy()
     level = carry.align_funding(fundings, panel.index, list(panel.columns))[0] if need_funding else None
     vol = (xs.volume_panel(dfs, panel.index, list(panel.columns))
-           if args.hypothesis == "sector" else None)
+           if args.hypothesis in ("sector", "illiq_shock") else None)
     log.info(f"Panel: {panel.shape[1]} simbol × {len(panel)} bar ({tf}), BTC@{btc_idx}.")
 
     cost_frac = 4 * (args.fee + args.slippage) / 100 * args.stress_mult
