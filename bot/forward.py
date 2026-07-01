@@ -77,6 +77,7 @@ class ForwardTester:
         self.corr_threshold = float(_r.get("corr_threshold", 0) or 0)
         self.corr_lookback = int(_r.get("corr_lookback", 0) or 0)
         self.news = NewsVeto(self.settings, self.cfg)
+        self._news_base = self.news.enabled     # kemampuan dasar (Gemini+config); UI bisa mematikan
         # ReAct agent: gerbang entry AKTIF utk teknik non-gemini (Gemini mati → fallback ikut sinyal).
         self.react = ReactAgent(self.settings, self.cfg)
         self.lessons = LessonsEngine(self.settings, self.cfg)
@@ -205,6 +206,19 @@ class ForwardTester:
         side = 1 if dec["side"] == "long" else (-1 if dec["side"] == "short" else 0)
         return side, atr_val, dec, ctx
 
+    def _btc_lead(self) -> dict:
+        """Gerak BTC (pemimpin pasar) pada bar TERTUTUP: 1bar & 3bar % + arah.
+        Alt ber-beta lebih tinggi → gerak turun BTC sering diperbesar/diperpanjang di alt."""
+        buf = self.buffers.get("BTC/USDC:USDC")
+        if buf is None or len(buf) < 5:
+            return {}
+        c = buf["close"]
+        last, prev, prev3 = float(c.iloc[-2]), float(c.iloc[-3]), float(c.iloc[-5])
+        r1 = (last / prev - 1) * 100 if prev else 0.0
+        r3 = (last / prev3 - 1) * 100 if prev3 else 0.0
+        return {"ret_1bar_pct": round(r1, 3), "ret_3bar_pct": round(r3, 3),
+                "dir": 1 if r1 > 0 else (-1 if r1 < 0 else 0)}
+
     def _react_gate(self, sym: str, side: int, atr: float, df_closed, price: float):
         """Konsultasi ReactAgent sbg gerbang entry (teknik NON-gemini). OBSERVE pakai
         alt-data nyata (funding/OI/CVD) + regime + pelajaran. Kembalikan (permitted, action,
@@ -229,7 +243,8 @@ class ForwardTester:
         kw = dict(regime=regime, alt=alt, n_positions=len(self.open),
                   max_positions=self.max_open, daily_pnl_r=daily_pnl_r,
                   lessons=self.lessons.recent(10), shadow=self.ab_shadow,
-                  memory=self.agent_memory)     # ingat observasi/keputusan lintas-tick
+                  memory=self.agent_memory,     # ingat observasi/keputusan lintas-tick
+                  btc_lead=self._btc_lead())    # dominansi BTC (alt ber-beta lebih tinggi)
         if self.tool_loop:                      # agent OTONOM: nalar+panggil tool iteratif
             from .tools import ToolContext, build_tools
             ctx = ToolContext(ex=self.ex, open_positions=self.open, buffers=self.buffers,
@@ -474,6 +489,7 @@ class ForwardTester:
         self.autonomous = bool(_ag.get("autonomous", False)) or rs.agent_autonomous or full
         self.use_planner = bool(_ag.get("planner", False)) or rs.agent_planner or full
         self.ab_shadow = bool(_ag.get("ab_shadow", False)) or rs.agent_ab_shadow
+        self.news.enabled = self._news_base and bool(rs.news_veto)   # toggle news-veto dari UI
         # teknik "gemini": Gemini menentukan arah + SL/TP (timing bebas); ukuran/leverage dari UI
         self.use_gemini_trader = (rs.technique == "gemini")
         if self.use_gemini_trader and self.gtrader is None:

@@ -9,6 +9,7 @@ const FLAGS: { k: keyof AgentSettings; lbl: string; hint: string }[] = [
   { k: "agent_autonomous", lbl: "Autonomous", hint: "kelola portofolio (REDUCE_RISK/FLAT)" },
   { k: "agent_planner", lbl: "Planner", hint: "tujuan sesi (stance/bias/kuota)" },
   { k: "agent_ab_shadow", lbl: "A/B shadow", hint: "catat verdict tanpa memblokir" },
+  { k: "news_veto", lbl: "News-veto", hint: "veto entry saat berita high-impact" },
 ];
 
 export function AgentControls() {

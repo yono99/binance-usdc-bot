@@ -95,6 +95,19 @@ def build_tools(ctx: ToolContext) -> dict[str, dict]:
         return {"open_interest": oi.get("openInterestAmount") or oi.get("openInterest"),
                 "value_usd": oi.get("openInterestValue")}
 
+    def get_btc_context(args):
+        # BTC = pemimpin pasar; alt ber-beta lebih tinggi (gerak BTC diperbesar di alt).
+        sym = "BTC/USDC:USDC"
+        buf = ctx.buffers.get(sym)
+        if buf is None or len(buf) < 4:
+            df = ctx.ex.ohlcv(sym, ctx.cfg.get("market", {}).get("timeframe", "15m"), limit=5)
+            buf = df
+        c = buf["close"]
+        r1 = (float(c.iloc[-1]) / float(c.iloc[-2]) - 1) * 100
+        r3 = (float(c.iloc[-1]) / float(c.iloc[-4]) - 1) * 100
+        return {"ret_1bar_pct": round(r1, 3), "ret_3bar_pct": round(r3, 3),
+                "dir": 1 if r1 > 0 else (-1 if r1 < 0 else 0)}
+
     def get_lessons(args):
         if ctx.lessons is None:
             return {"lessons": []}
@@ -114,6 +127,9 @@ def build_tools(ctx: ToolContext) -> dict[str, dict]:
                         "fn": get_funding},
         "get_open_interest": {"desc": "Open interest saat ini — partisipasi/leverage pasar (non-OHLCV)",
                               "fn": get_open_interest},
+        "get_btc_context": {"desc": "Gerak BTC (pemimpin pasar) 1bar & 3bar % + arah — alt "
+                            "ber-beta lebih tinggi; BTC turun sering diperbesar di alt",
+                            "fn": get_btc_context},
         "get_lessons": {"desc": "Pelajaran teruji terbaru (arg: limit)", "fn": get_lessons},
     }
     return {name: {"desc": t["desc"], "fn": _safe(t["fn"])} for name, t in tools.items()}

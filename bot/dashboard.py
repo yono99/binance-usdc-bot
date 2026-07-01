@@ -822,7 +822,7 @@ def api_ab() -> JSONResponse:
 
 
 _AGENT_FLAGS = ("agent_full_auto", "agent_tool_loop", "agent_autonomous",
-                "agent_planner", "agent_ab_shadow")
+                "agent_planner", "agent_ab_shadow", "news_veto")
 
 
 @app.get("/api/agent-settings")
@@ -917,7 +917,8 @@ async function load(){
    ||'<tr><td colspan=6 class=mut>belum ada evolusi</td></tr>';}
 }
 const AGFLAGS=[["agent_full_auto","Full-auto"],["agent_tool_loop","Tool-loop"],
-  ["agent_autonomous","Autonomous"],["agent_planner","Planner"],["agent_ab_shadow","A/B shadow"]];
+  ["agent_autonomous","Autonomous"],["agent_planner","Planner"],["agent_ab_shadow","A/B shadow"],
+  ["news_veto","News-veto"]];
 async function loadAgentCtl(){
   const s=await j('/api/agent-settings'); if(!s)return;
   $('#agentctl').innerHTML=AGFLAGS.map(([k,lbl])=>
