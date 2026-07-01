@@ -12,9 +12,32 @@ const FLAGS: { k: keyof AgentSettings; lbl: string; hint: string }[] = [
   { k: "news_veto", lbl: "News-veto", hint: "veto entry saat berita high-impact" },
 ];
 
+// Peringatan konsekuensi SEBELUM menyalakan (atau mematikan proteksi).
+const WARN: Partial<Record<keyof AgentSettings, { on?: string; off?: string }>> = {
+  agent_full_auto: {
+    on: "Full-auto = tool-loop + autonomous + planner sekaligus.\n\nTool-loop memanggil banyak tool tiap keputusan → BANYAK panggilan Gemini; di free-tier bisa kena rate-limit (429). Di LIVE, aksi FLAT butuh allow_live_trader.\n\nLanjut menyalakan?",
+  },
+  agent_tool_loop: {
+    on: "Tool-loop: agen memanggil tool berulang tiap keputusan → jauh lebih banyak panggilan Gemini. Di free-tier gampang kena 429.\n\nLanjut?",
+  },
+  agent_autonomous: {
+    on: "Autonomous: agen boleh MENUTUP SEMUA posisi (FLAT) atau menggeser stop ke breakeven otomatis. Di LIVE, FLAT butuh allow_live_trader.\n\nLanjut?",
+  },
+  agent_planner: {
+    on: "Planner menetapkan tujuan sesi yang bisa MEMBATASI entry (kuota trade/eksposur, atau risk-off = stop buka posisi).\n\nLanjut?",
+  },
+  agent_ab_shadow: {
+    on: "A/B shadow: ReAct mengevaluasi tapi TIDAK memblokir — rules tetap mengeksekusi SEMUA entry (untuk mengukur nilai agen).\n\nLanjut?",
+  },
+  news_veto: {
+    off: "Mematikan News-veto: entry TETAP dibuka walau ada berita high-impact (proteksi berita nonaktif).\n\nLanjut mematikan?",
+  },
+};
+
 export function AgentControls() {
   const [s, setS] = useState<AgentSettings | null>(null);
   const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
   const { data: health } = usePoll<AgentHealth>(api.agentHealth, 10000);
   const { data: plan } = usePoll<AgentPlan>(api.agentPlan, 15000);
   const { data: ab } = usePoll<AgentAB>(api.agentAB, 15000);
@@ -24,9 +47,17 @@ export function AgentControls() {
   }, []);
 
   const toggle = async (k: keyof AgentSettings, v: boolean) => {
+    const w = v ? WARN[k]?.on : WARN[k]?.off;      // peringatan sesuai arah (nyalakan/matikan)
+    if (w && !window.confirm(w)) {
+      setS((p) => (p ? { ...p } : p));             // batal → paksa render ulang, kembalikan centang
+      return;
+    }
     setBusy(true);
     try {
       setS(await api.saveAgentSettings({ [k]: v }));
+      const lbl = FLAGS.find((f) => f.k === k)?.lbl ?? k;
+      setNotice(`✓ ${lbl} ${v ? "ON" : "OFF"} — diterapkan (bot pakai siklus berikutnya)`);
+      setTimeout(() => setNotice(""), 4500);
     } finally {
       setBusy(false);
     }
@@ -48,9 +79,11 @@ export function AgentControls() {
           </label>
         ))}
       </div>
+      {notice && <div className="pos" style={{ marginTop: 8 }}>{notice}</div>}
       <div className="sub" style={{ marginTop: 8 }}>
         full_auto menyalakan tool_loop + autonomous + planner. LIVE FLAT tetap butuh
-        allow_live_trader. Tool-loop = lebih banyak panggilan Gemini.
+        allow_live_trader. Tool-loop = lebih banyak panggilan Gemini (bisa 429 di free-tier).
+        Mencentang yang berisiko akan minta konfirmasi dulu.
       </div>
 
       <div className="cards" style={{ marginTop: 14 }}>
