@@ -821,8 +821,8 @@ def api_ab() -> JSONResponse:
     return JSONResponse(ab.report())
 
 
-_AGENT_FLAGS = ("agent_full_auto", "agent_tool_loop", "agent_autonomous",
-                "agent_planner", "agent_ab_shadow", "news_veto")
+_AGENT_FLAGS = ("agent_full_auto", "agent_tool_loop", "agent_autonomous", "agent_planner",
+                "agent_ab_shadow", "agent_manager_mode", "news_veto")
 
 
 @app.get("/api/agent-settings")
@@ -916,10 +916,11 @@ async function load(){
    `<td>${esc(x.p_value??'—')}</td><td>${x.applied?'<span class=pos>YA</span>':'<span class=mut>tidak</span>'}</td></tr>`).join('')
    ||'<tr><td colspan=6 class=mut>belum ada evolusi</td></tr>';}
 }
-const AGFLAGS=[["agent_full_auto","Full-auto"],["agent_tool_loop","Tool-loop"],
-  ["agent_autonomous","Autonomous"],["agent_planner","Planner"],["agent_ab_shadow","A/B shadow"],
-  ["news_veto","News-veto"]];
-const AGWARN={agent_full_auto:{on:"Full-auto = tool-loop+autonomous+planner. Tool-loop = BANYAK panggilan Gemini (bisa 429 free-tier). LIVE FLAT butuh allow_live_trader. Lanjut?"},
+const AGFLAGS=[["agent_manager_mode","Manager-mode"],["agent_full_auto","Full-auto"],
+  ["agent_tool_loop","Tool-loop"],["agent_autonomous","Autonomous"],["agent_planner","Planner"],
+  ["agent_ab_shadow","A/B shadow"],["news_veto","News-veto"]];
+const AGWARN={agent_manager_mode:{on:"Manager-mode (Jalan A): agent = MANAJER DISIPLIN. Arah dari RULES (mematikan teknik gemini), planner+autonomous ON, tool-loop OFF (hemat token). Lanjut?"},
+  agent_full_auto:{on:"Full-auto = tool-loop+autonomous+planner. Tool-loop = BANYAK panggilan Gemini (bisa 429 free-tier). LIVE FLAT butuh allow_live_trader. Lanjut?"},
   agent_tool_loop:{on:"Tool-loop: panggilan Gemini jauh lebih banyak tiap keputusan (bisa 429). Lanjut?"},
   agent_autonomous:{on:"Autonomous: agen boleh TUTUP SEMUA posisi (FLAT)/geser stop otomatis. LIVE FLAT butuh allow_live_trader. Lanjut?"},
   agent_planner:{on:"Planner bisa MEMBATASI entry (kuota/eksposur/risk-off). Lanjut?"},
