@@ -172,3 +172,34 @@ breakeven baseline; two are materially worse.** Consistent with the program thes
 directional edge is unlikely to live at 15m bar resolution on liquid majors. Cascade results
 add a positive-knowledge byproduct: at this resolution, large-volatility events **continue**
 (momentum) rather than revert.
+
+---
+
+## Fase 3 — H13 sector lead-lag & H14 listing-age (2026-07-02)
+
+New infrastructure on `feat/alpha-research-phase3`: `bot/sector.py` (rolling-correlation
+greedy clustering, per-cluster leader by dollar-volume, follower score = leader trailing
+return, plugged into the generic score engine) and `bot/lifecycle.py` + `lifecycle.py` CLI
+(cohort walk-forward over the *listing-date* axis: age-window + direction selected on the
+earliest-listed cohort, tested once on the latest-listed cohort; guards for listing-date
+dispersion and left-censored history). 10 new tests with positive/negative controls; 353 green.
+
+### H13 sector lead-lag — majors-only run
+`xs_alpha.py --hypothesis sector --tf 1d`, 27 USDT majors × 1984 bars, fee 0.02 + slip 0.05:
+OOS mean **+0.2366%**/rebalance over 114 rebalances, win 50.9%, Sharpe 0.043, **p_adj=1.000**
+over 4 trials → **REJECTED** on this universe. Caveat: 27 BTC-correlated majors barely form
+distinct narrative clusters; a definitive test needs a wide small-cap universe (meme/AI/L1).
+
+### H14 listing-age lifecycle — full-universe definitive run
+`lifecycle.py --settle USDT --bars 3000`, **760 symbols**, listing span 2338 days (dispersion
+guard: feasible), cost/trade 0.14%. Train cohort (n=456) picked **SHORT ages 1–8 days**
+(train mean −1.91%/trade — new listings historically dropped in week one). Latest-listed
+test cohort (n=299): **−0.5529%**/trade after direction and costs → the raw effect *flipped
+sign* in recent cohorts. Verdict: **REJECTED** — the week-one fade is regime-dependent, not
+a durable structural mispricing.
+
+### Verdict summary
+Both remaining orthogonal directional angles from the handoff are now tested. H14 is
+definitively dead (760 symbols, honest cohort OOS). H13 is dead on majors; the only open
+directional question is H13 on a wide small-cap universe. After that, the honest remaining
+options are execution/liquidity edges or stopping.
