@@ -270,3 +270,29 @@ the same way in Phase 2). With 2.3× the OOS sample the effect flips sign.
 **Falsifier (was):** "sudden liquidity withdrawal causes overshoot that reverts
 within days, net of stressed costs." Falsified on the larger sample; the apparent
 edge does not survive more data, let alone cost-stress ×2.
+
+---
+
+## Fase 4 — H25 carry × momentum double-sort (2026-07-02)
+
+`carry.carry_returns` extended with an optional momentum gate (symbol eligible
+only when residual momentum opposes funding sign — targeting the documented
+carry failure mode: shorting a pump still in progress) + `walk_forward_carry_mom`
++ `carry_mom.py` CLI. Key control: in a synthetic market built to mimic the
+failure mode, plain carry LOSES while gated carry WINS — so a real-data failure
+is a fact about the market, not the engine. 6 carry tests green.
+
+Definitive run: 103 small-caps × 1400d daily, full funding history (income
+realized via cumf), grid 4 (mom {5,10} × hold {3,7}, smooth fixed 3), 9 windows,
+fee 0.02 + slip 0.05:
+
+OOS mean **−0.5375%**/rebalance over 263 rebalances, win 44.1%, Sharpe −0.127.
+Windows split 3+/6−; IS Sharpe mostly negative too.
+
+### Verdict: **REJECTED**
+**Falsifier (was):** "conditioning carry on opposed momentum removes the
+run-over-by-pump failure and leaves positive net carry." Falsified: even with
+the gate AND realized funding income counted, the strategy loses after costs.
+The funding premium in small-caps is simply not large enough to survive the
+price risk left after gating. Carry angle is now fully exhausted (majors,
+small-cap, gated).

@@ -65,3 +65,63 @@ def test_honesty_price_run_over_cancels_carry():
     oos, n_trials = _run(close, level, cumf)
     # income funding kecil vs pergerakan harga besar melawan → tak untung
     assert verdict(oos, n_trials)["mean"] <= 0
+
+
+# ---------------------- H25: carry × momentum double-sort ----------------------
+
+def _carry_mom_market(T=2000, seed=17, noise=0.008):
+    """12 simbol, 4 kelompok: funding & drift dirancang agar carry POLOS mati
+    (short pumper kelindas, long dumper kelindas) tapi carry TERSARING momentum
+    hidup (short exhausted, long recovering).
+    Kembalikan (close, level, cumf, mom)."""
+    import numpy as np
+    rng = np.random.default_rng(seed)
+    N = 12
+    drift = np.zeros(N)
+    lvl = np.zeros(N)
+    drift[0:3], lvl[0:3] = +0.012, +0.004      # pumping: funding tertinggi, masih naik
+    drift[3:6], lvl[3:6] = -0.006, +0.002      # exhausted: funding tinggi, sudah turun
+    drift[6:9], lvl[6:9] = -0.012, -0.004      # dumping: funding paling negatif, masih jatuh
+    drift[9:12], lvl[9:12] = +0.006, -0.002    # recovering: funding negatif, sudah naik
+    r = drift + rng.normal(0, noise, (T, N))
+    close = 100 * np.exp(np.cumsum(r, axis=0))
+    level = np.tile(lvl, (T, 1))
+    cumf = np.cumsum(level, axis=0)            # dibebankan tiap bar (proxy harian)
+    from bot.xs_signals import _roll_sum, returns_panel
+    mom = _roll_sum(returns_panel(close), 5)
+    return close, level, cumf, mom
+
+
+def test_carry_mom_gate_rescues_carry():
+    """Kontrol positif H25: carry polos NEGATIF (kelindas pump/dump yang masih
+    jalan), carry ber-gerbang momentum POSITIF & lolos verdict."""
+    import numpy as np
+    close, level, cumf, mom = _carry_mom_market()
+    times = range(20, close.shape[0] - 3, 3)
+    plain = carry.carry_returns(close, level, cumf, times, smooth=3, hold=3,
+                                quantile=0.3, cost_frac=0.0)
+    gated = carry.carry_returns(close, level, cumf, times, smooth=3, hold=3,
+                                quantile=0.3, cost_frac=0.0, mom=mom)
+    assert plain.mean() < 0 < gated.mean()
+
+    windows, oos = carry.walk_forward_carry_mom(close, level, cumf, {"m5": mom},
+                                                holds=[3, 7], smooth=3, quantile=0.3,
+                                                cost_frac=0.0, train_len=700, test_len=300)
+    v = carry.verdict(oos, 2)
+    assert v["mean"] > 0 and v["ok"], v["reason"]
+
+
+def test_carry_mom_negative_control():
+    """Tanpa struktur (drift & funding acak, tak berhubungan) → gated tak lolos."""
+    import numpy as np
+    rng = np.random.default_rng(23)
+    T, N = 2000, 12
+    close = 100 * np.exp(np.cumsum(rng.normal(0, 0.008, (T, N)), axis=0))
+    level = np.tile(rng.normal(0, 0.002, N), (T, 1))
+    cumf = np.zeros((T, N))
+    from bot.xs_signals import _roll_sum, returns_panel
+    mom = _roll_sum(returns_panel(close), 5)
+    _, oos = carry.walk_forward_carry_mom(close, level, cumf, {"m5": mom},
+                                          holds=[3, 7], smooth=3, quantile=0.3,
+                                          cost_frac=0.0, train_len=700, test_len=300)
+    assert not carry.verdict(oos, 2)["ok"]

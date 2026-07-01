@@ -8,7 +8,7 @@
 | # | Hipotesis | Prioritas | Status |
 |---|---|---|---|
 | H24 | Seasonality settlement funding | TINGGI | **DITOLAK** (2026-07-02: OOS −0.19%/rebal, n=1250; gross ≈ 0 — efeknya nihil dua arah) |
-| H25 | Carry × momentum double-sort | SEDANG-TINGGI | antre |
+| H25 | Carry × momentum double-sort | SEDANG-TINGGI | **DITOLAK** (2026-07-02: OOS −0.54%/rebal n=263, incl. income funding — sudut carry TAMAT) |
 | H26 | Reversal syok illikuiditas (Amihud dinamis) | SEDANG-TINGGI | **DITOLAK** (2026-07-02: pilot +0.54% n=76 = artefak; definitif 103×1400d → −0.35%, n=175) |
 | H27 | Dislokasi basis lintas-venue cross-sectional | SEDANG | antre |
 | H28 | VRP timing via Deribit DVOL | SEDANG | antre (butuh fetcher DVOL) |
