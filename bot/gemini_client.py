@@ -46,6 +46,29 @@ def _st(key: str) -> dict:
     return _states.setdefault(key, {"cooldown_until": 0.0, "fails": 0, "last_used": 0.0})
 
 
+# Circuit-breaker GLOBAL: hentikan panggil Gemini saat gagal beruntun (anti-spiral 429).
+# Module-level → SEMUA layer (news/react/planner/trader/dst) ikut mundur bersama.
+_breaker = {"fails": 0, "open_until": 0.0}
+BREAKER_FAILS = 5          # kegagalan penuh beruntun sebelum breaker TERBUKA
+BREAKER_COOLDOWN = 60.0    # detik breaker terbuka (skip semua panggilan → fallback deterministik)
+
+
+def _breaker_open() -> bool:
+    return time.time() < _breaker["open_until"]
+
+
+def _breaker_record(ok: bool) -> None:
+    if ok:
+        _breaker["fails"] = 0
+        return
+    _breaker["fails"] += 1
+    if _breaker["fails"] >= BREAKER_FAILS:
+        _breaker["open_until"] = time.time() + BREAKER_COOLDOWN
+        _breaker["fails"] = 0
+        log.warning(f"Gemini circuit-breaker TERBUKA {BREAKER_COOLDOWN:.0f}s — "
+                    "hentikan panggilan (anti-spiral 429); pakai fallback deterministik.")
+
+
 def _get_client(key: str):
     c = _clients.get(key)
     if c is None:
@@ -125,6 +148,8 @@ class GeminiClient:
         """Teks respons, atau None bila semua key/model gagal (fail-open)."""
         if not self.available:
             return None
+        if _breaker_open():                 # breaker terbuka → jangan panggil (putus spiral 429)
+            return None
         last_err = ""
         for rnd in range(self.rounds):
             any_transient = False
@@ -145,6 +170,7 @@ class GeminiClient:
                         ot = int(getattr(u, "candidates_token_count", 0) or 0)
                         tt = int(getattr(u, "total_token_count", 0) or (pt + ot))
                         store.log_gemini_usage(model, purpose, ki, pt, ot, tt, ok=True)
+                        _breaker_record(True)          # sukses → reset breaker
                         return txt
                     except Exception as e:  # boundary
                         last_err = str(e)
@@ -174,4 +200,5 @@ class GeminiClient:
             else:
                 break
         log.warning(f"Gemini {purpose} gagal semua key/model: {last_err[:160]}")
+        _breaker_record(False)             # gagal penuh → dekati/buka breaker (anti-spiral)
         return None

@@ -25,6 +25,11 @@ type Form = {
   daily_max_loss_pct: number;
   daily_max_trades: number;
   poll_seconds: number;
+  gemini_decide_seconds: number;
+  gemini_manage_seconds: number;
+  gemini_portfolio_seconds: number;
+  gemini_plan_hours: number;
+  gemini_tool_iters: number;
   mode: string;
   order_type: string;
   taker_fee_pct: number;
@@ -65,6 +70,11 @@ export function ControlPanel({
     daily_max_loss_pct: d.daily_max_loss_pct,
     daily_max_trades: d.daily_max_trades,
     poll_seconds: d.poll_seconds,
+    gemini_decide_seconds: d.gemini_decide_seconds ?? 180,
+    gemini_manage_seconds: d.gemini_manage_seconds ?? 60,
+    gemini_portfolio_seconds: d.gemini_portfolio_seconds ?? 300,
+    gemini_plan_hours: d.gemini_plan_hours ?? 6,
+    gemini_tool_iters: d.gemini_tool_iters ?? 4,
     mode: d.mode || "",
     order_type: d.order_type,
     taker_fee_pct: d.taker_fee_pct,
@@ -121,6 +131,9 @@ export function ControlPanel({
     ["max_open_positions", "Max posisi"], ["poll_seconds", "Interval screening"],
     ["daily_max_loss_pct", "Stop-loss harian %"], ["daily_max_trades", "Max trade harian"],
     ["taker_fee_pct", "Fee taker %"], ["maker_fee_pct", "Fee maker %"],
+    ["gemini_decide_seconds", "Interval keputusan"], ["gemini_manage_seconds", "Interval kelola"],
+    ["gemini_portfolio_seconds", "Interval portofolio"], ["gemini_plan_hours", "Interval planner"],
+    ["gemini_tool_iters", "Maks tool-loop"],
   ];
 
   const save = async () => {
@@ -141,7 +154,12 @@ export function ControlPanel({
             target_profit_pct: res.target_profit_pct,
             max_open_positions: res.max_open_positions, poll_seconds: res.poll_seconds,
             daily_max_loss_pct: res.daily_max_loss_pct, daily_max_trades: res.daily_max_trades,
-            taker_fee_pct: res.taker_fee_pct, maker_fee_pct: res.maker_fee_pct } : p
+            taker_fee_pct: res.taker_fee_pct, maker_fee_pct: res.maker_fee_pct,
+            gemini_decide_seconds: res.gemini_decide_seconds ?? p.gemini_decide_seconds,
+            gemini_manage_seconds: res.gemini_manage_seconds ?? p.gemini_manage_seconds,
+            gemini_portfolio_seconds: res.gemini_portfolio_seconds ?? p.gemini_portfolio_seconds,
+            gemini_plan_hours: res.gemini_plan_hours ?? p.gemini_plan_hours,
+            gemini_tool_iters: res.gemini_tool_iters ?? p.gemini_tool_iters } : p
     );
     setAdjusted(adj);
     setSaved(" tersimpan ✓ (bot menerapkan tiap siklus)");
@@ -296,6 +314,37 @@ export function ControlPanel({
         <label>
           Timeframe (otomatis)
           <input value={s.timeframe} disabled />
+        </label>
+        <label style={{ gridColumn: "1 / -1", marginTop: 6, fontWeight: 600 }}>
+          Penyetelan Gemini (frekuensi panggilan → hemat RPM/token)
+          <span className="sub" style={{ fontWeight: 400 }}>
+            {" "}· makin besar = makin jarang panggil Gemini = makin hemat
+          </span>
+        </label>
+        <label>
+          Interval keputusan (dtk) · <span className="sub">teknik gemini per simbol</span>
+          <input type="number" min={30} max={3600} step={5} value={form.gemini_decide_seconds}
+            onChange={(e) => set("gemini_decide_seconds", +e.target.value)} />
+        </label>
+        <label>
+          Interval kelola posisi (dtk)
+          <input type="number" min={30} max={3600} step={5} value={form.gemini_manage_seconds}
+            onChange={(e) => set("gemini_manage_seconds", +e.target.value)} />
+        </label>
+        <label>
+          Interval review portofolio (dtk)
+          <input type="number" min={60} max={3600} step={10} value={form.gemini_portfolio_seconds}
+            onChange={(e) => set("gemini_portfolio_seconds", +e.target.value)} />
+        </label>
+        <label>
+          Interval planner (jam)
+          <input type="number" min={1} max={24} step={1} value={form.gemini_plan_hours}
+            onChange={(e) => set("gemini_plan_hours", +e.target.value)} />
+        </label>
+        <label>
+          Maks langkah tool-loop · <span className="sub">makin kecil = makin hemat token</span>
+          <input type="number" min={1} max={8} step={1} value={form.gemini_tool_iters}
+            onChange={(e) => set("gemini_tool_iters", +e.target.value)} />
         </label>
       </div>
       {adjusted.length > 0 && (

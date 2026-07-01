@@ -499,6 +499,12 @@ class ForwardTester:
         # circuit breaker harian diatur user dari UI (0 = nonaktif) — hot-reload
         self.daily_max_loss_pct = float(rs.daily_max_loss_pct)
         self.daily_max_trades = int(rs.daily_max_trades)
+        # Penyetelan Gemini dari UI (hot-reload) — atur frekuensi panggilan → hemat RPM/token.
+        self._decide_interval = int(rs.gemini_decide_seconds)
+        self._manage_interval = int(rs.gemini_manage_seconds)
+        self._autonomous_interval = int(rs.gemini_portfolio_seconds)
+        self._plan_horizon_h = int(rs.gemini_plan_hours)
+        self.tool_max_iters = int(rs.gemini_tool_iters)
         # Flag agent: config.yaml OR toggle UI (hot-reload tanpa restart). full_auto → semua.
         # Manager-mode (Jalan A) meng-override jadi posture manajer disiplin (lihat _agent_posture).
         _ag = self.cfg.get("agent", {})
