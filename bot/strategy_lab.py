@@ -108,12 +108,13 @@ def build_grid_v2(conf_list, sl_list, tp_list, htf_opts, regime_opts) -> list[di
 
 def walk_forward_v2(df: pd.DataFrame, cfg: dict, grid: list[dict], bt: Backtester,
                     train_len: int, test_len: int, min_trades: int,
-                    htf_mult: int, sessions: set | None):
+                    htf_mult: int, sessions: set | None,
+                    btc_ret: np.ndarray | None = None):
     """Strategi v2 (HTF + regime + sesi)."""
     f2 = precompute_v2(df, cfg, htf_mult)
     return run_walk(df, cfg, grid, bt, f2.base,
                     lambda g: decide_v2(f2, g, cfg, sessions),
-                    train_len, test_len, min_trades)
+                    train_len, test_len, min_trades, btc_ret)
 
 
 # ----------------------- v3: + funding & open interest -----------------------
@@ -163,12 +164,13 @@ def build_grid_v3(conf_list, sl_list, tp_list, htf_opts, regime_opts,
 def walk_forward_v3(df: pd.DataFrame, cfg: dict, grid: list[dict], bt: Backtester,
                     train_len: int, test_len: int, min_trades: int,
                     htf_mult: int, sessions: set | None,
-                    funding_z: np.ndarray, oi_delta: np.ndarray):
+                    funding_z: np.ndarray, oi_delta: np.ndarray,
+                    btc_ret: np.ndarray | None = None):
     """Strategi v3 (v2 + funding + open interest)."""
     f3 = precompute_v3(df, cfg, htf_mult, funding_z, oi_delta)
     return run_walk(df, cfg, grid, bt, f3.v2.base,
                     lambda g: decide_v3(f3, g, cfg, sessions),
-                    train_len, test_len, min_trades)
+                    train_len, test_len, min_trades, btc_ret)
 
 
 # ----------------------- v4: + order flow / CVD -----------------------
@@ -214,12 +216,13 @@ def build_grid_v4(conf_list, sl_list, tp_list, htf_opts, regime_opts,
 def walk_forward_v4(df: pd.DataFrame, cfg: dict, grid: list[dict], bt: Backtester,
                     train_len: int, test_len: int, min_trades: int,
                     htf_mult: int, sessions: set | None, funding_z: np.ndarray,
-                    oi_delta: np.ndarray, cvd_imb: np.ndarray, cvd_div: np.ndarray):
+                    oi_delta: np.ndarray, cvd_imb: np.ndarray, cvd_div: np.ndarray,
+                    btc_ret: np.ndarray | None = None):
     """Strategi v4 (v3 + order flow/CVD)."""
     f4 = precompute_v4(df, cfg, htf_mult, funding_z, oi_delta, cvd_imb, cvd_div)
     return run_walk(df, cfg, grid, bt, f4.v3.v2.base,
                     lambda g: decide_v4(f4, g, cfg, sessions),
-                    train_len, test_len, min_trades)
+                    train_len, test_len, min_trades, btc_ret)
 
 
 # ----------------------- v5: cross-exchange basis (Binance vs Bybit) -----------------------
@@ -258,12 +261,13 @@ def build_grid_v5(z_list, sl_list, tp_list) -> list[dict]:
 
 
 def walk_forward_v5(df: pd.DataFrame, cfg: dict, grid: list[dict], bt: Backtester,
-                    train_len: int, test_len: int, min_trades: int, basis_z: np.ndarray):
+                    train_len: int, test_len: int, min_trades: int, basis_z: np.ndarray,
+                    btc_ret: np.ndarray | None = None):
     """Strategi v5 (cross-exchange basis mean-reversion)."""
     f5 = precompute_v5(df, cfg, basis_z)
     return run_walk(df, cfg, grid, bt, f5.base,
                     lambda g: decide_v5(f5, g),
-                    train_len, test_len, min_trades)
+                    train_len, test_len, min_trades, btc_ret)
 
 
 # ----------------------- v6: liquidation cascade (proxy OHLCV) -----------------------
@@ -311,12 +315,13 @@ def build_grid_v6(k_list, sl_list, tp_list) -> list[dict]:
 
 
 def walk_forward_v6(df: pd.DataFrame, cfg: dict, grid: list[dict], bt: Backtester,
-                    train_len: int, test_len: int, min_trades: int):
+                    train_len: int, test_len: int, min_trades: int,
+                    btc_ret: np.ndarray | None = None):
     """Strategi v6 (liquidation cascade fade)."""
     f6 = precompute_v6(df, cfg)
     return run_walk(df, cfg, grid, bt, f6.base,
                     lambda g: decide_v6(f6, g, cfg),
-                    train_len, test_len, min_trades)
+                    train_len, test_len, min_trades, btc_ret)
 
 
 # ----------------------- v7: funding regime sebagai SINYAL PRIMER -----------------------
@@ -353,9 +358,10 @@ def build_grid_v7(z_list, sl_list, tp_list) -> list[dict]:
 
 
 def walk_forward_v7(df: pd.DataFrame, cfg: dict, grid: list[dict], bt: Backtester,
-                    train_len: int, test_len: int, min_trades: int, funding_z: np.ndarray):
+                    train_len: int, test_len: int, min_trades: int, funding_z: np.ndarray,
+                    btc_ret: np.ndarray | None = None):
     """Strategi v7 (funding regime sebagai sinyal primer)."""
     f7 = precompute_v7(df, cfg, funding_z)
     return run_walk(df, cfg, grid, bt, f7.base,
                     lambda g: decide_v7(f7, g),
-                    train_len, test_len, min_trades)
+                    train_len, test_len, min_trades, btc_ret)

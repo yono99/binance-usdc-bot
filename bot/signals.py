@@ -71,7 +71,8 @@ def _score_structure(df: pd.DataFrame) -> tuple[float, int]:
     return 0.0, 0
 
 
-def evaluate(symbol: str, df: pd.DataFrame, cfg: dict) -> Signal:
+def evaluate(symbol: str, df: pd.DataFrame, cfg: dict,
+             btc_ret_pct: float | None = None) -> Signal:
     c = cfg["signals"]
     w = c["weights"]
     price = float(df["close"].iloc[-1])
@@ -102,7 +103,21 @@ def evaluate(symbol: str, df: pd.DataFrame, cfg: dict) -> Signal:
     else:
         regime = "range"
 
-    reason = f"trend({td},{ts:.2f}) mom({md},{ms:.2f}) struct({sd},{ss:.2f})"
+    # Gerbang dominansi BTC (mother coin) — direction-aware, dipakai semua teknik.
+    # Entri lawan arah BTC saat BTC bergerak kuat → dibatalkan (side=skip). Skor
+    # long/short mentah TETAP dipertahankan untuk OBSERVE ReactAgent.
+    if side in ("long", "short"):
+        from . import altdata
+        gate = altdata.btc_gate(1 if side == "long" else -1, btc_ret_pct, cfg)
+        if not gate["allow"]:
+            side, conf = "skip", conf
+            reason_btc = f" | BTC-gate: {gate['reason']}"
+        else:
+            reason_btc = ""
+    else:
+        reason_btc = ""
+
+    reason = f"trend({td},{ts:.2f}) mom({md},{ms:.2f}) struct({sd},{ss:.2f}){reason_btc}"
     return Signal(symbol, side, conf, price, atr_val, reason,
                   long_score=round(float(long_score), 3),
                   short_score=round(float(short_score), 3), regime=regime)

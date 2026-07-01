@@ -86,9 +86,18 @@ class ReactAgent:
         self.enabled = bool(settings.gemini_enabled and self.client.available)
         self.min_conf_skip = float(gcfg.get("react_min_skip_conf", 0.3))
         self.log_path = Path(log_path)
+        # Devil's Advocate (rem adversarial, adaptasi debat Bull/Bear TradingAgents).
+        dcfg = gcfg.get("devil_advocate", {})
+        self.devil_enabled = bool(dcfg.get("enabled", False))
+        self.devil_threshold = float(dcfg.get("veto_threshold", 0.7))
+        dmodel = dcfg.get("model")
+        self.devil_client = (GeminiClient(settings.gemini_keys, dmodel)
+                             if dmodel and dmodel != gcfg.get("model") else self.client)
         # Telemetri kesehatan agen (dibaca panel Agent Health, Phase 6).
         self.calls = 0
         self.fallbacks = 0
+        self.devil_calls = 0
+        self.devil_vetoes = 0
 
     # ---------------------- OBSERVE ----------------------
     def observe(self, sig: Signal, *, regime: str | None = None, alt: dict | None = None,
@@ -211,6 +220,67 @@ class ReactAgent:
         except Exception:  # boundary
             return None
 
+    # ---------------------- DEVIL'S ADVOCATE (adaptasi debat Bull/Bear TradingAgents) ---------
+    @classmethod
+    def _devil_prompt(cls, s: dict, out: dict) -> str:
+        side = "LONG" if out["action"] == "ENTER_LONG" else "SHORT"
+        return (
+            "You are the DEVIL'S ADVOCATE on a trading desk. Another agent PROPOSES to "
+            f"ENTER {side} on {s['symbol']}. Your ONLY job is to argue AGAINST it — find the "
+            "STRONGEST reasons this entry will LOSE. Be skeptical, not agreeable; if the case "
+            "against is weak, say so honestly.\n\n"
+            f"Proposed entry reasoning: {out.get('reasoning', '')}\n\n"
+            "Market state:\n" + cls._state_block(s) + _BTC_NOTE +
+            "\nWeigh especially: entering AGAINST BTC lead, price extended from mean, thin/ambiguous "
+            "signal score, adverse funding, chasing a move, regime=chaos or range.\n"
+            "Respond ONLY with valid JSON:\n"
+            '{"strength":0.0,"objections":["strongest reason against","second"],'
+            '"recommend":"VETO"}\n'
+            "strength = how strong the case AGAINST is (0.0 = no real objection, 1.0 = clearly a bad entry)."
+        )
+
+    @staticmethod
+    def _parse_devil(text: str | None) -> dict | None:
+        if not text:
+            return None
+        try:
+            d = json.loads(text[text.find("{"):text.rfind("}") + 1])
+        except Exception:  # boundary — parse gagal → fail-open (kritik diabaikan)
+            return None
+        try:
+            strength = max(0.0, min(float(d.get("strength", 0.0)), 1.0))
+        except (TypeError, ValueError):
+            return None
+        obj = d.get("objections") or []
+        if not isinstance(obj, list):
+            obj = [str(obj)]
+        return {"strength": round(strength, 3),
+                "objections": [str(o)[:120] for o in obj][:5],
+                "recommend": str(d.get("recommend", "")).upper().strip()}
+
+    def _devil_advocate(self, sig: Signal, state: dict, out: dict) -> dict:
+        """Pass adversarial: tantang HANYA aksi ENTER. strength ≥ threshold → batalkan
+        jadi SKIP. Gagal/parse-error → fail-open (proceed). Objection dicatat ke key_risks."""
+        if not self.devil_enabled or out["action"] not in ("ENTER_LONG", "ENTER_SHORT"):
+            return out
+        self.devil_calls += 1
+        verdict = self._parse_devil(
+            self.devil_client.generate(self._devil_prompt(state, out), purpose="devil_advocate"))
+        if verdict is None:
+            return out                                   # fail-open
+        if verdict["objections"]:                        # audit: selalu catat keberatan
+            out["key_risks"] = (out["key_risks"] + verdict["objections"])[:6]
+        if verdict["strength"] >= self.devil_threshold:
+            self.devil_vetoes += 1
+            top = verdict["objections"][0] if verdict["objections"] else "objection kuat"
+            out["action"] = "SKIP"
+            out["reasoning"] = (out["reasoning"] +
+                                f" | DEVIL veto ({verdict['strength']:.2f}): {top}").strip(" |")
+        else:
+            out["reasoning"] = (out["reasoning"] +
+                                f" | devil cleared ({verdict['strength']:.2f})").strip(" |")
+        return out
+
     def decide_with_tools(self, sig: Signal, tools: dict, *, max_iters: int = 4,
                           regime: str | None = None, alt: dict | None = None,
                           n_positions: int = 0, max_positions: int = 0, daily_pnl_r: float = 0.0,
@@ -236,6 +306,7 @@ class ReactAgent:
                 out = self._sanitize(step)
                 if out is None:
                     break
+                out = self._devil_advocate(sig, state, out)   # rem adversarial
                 d = self._build(sig, state, scores, out, "LLM_TOOL", shadow, memory)
                 self._record(d)
                 return d
@@ -282,6 +353,7 @@ class ReactAgent:
             else:
                 out["reasoning"] = (out["reasoning"] + " | low-conf SKIP → veto fallback tahan").strip(" |")
 
+        out = self._devil_advocate(sig, state, out)    # rem adversarial (bisa ubah ENTER→SKIP)
         d = self._build(sig, state, scores, out, source, shadow, memory)
         self._record(d)
         return d
@@ -391,4 +463,6 @@ class ReactAgent:
         total = self.calls + self.fallbacks
         return {"llm_calls": self.calls, "fallbacks": self.fallbacks,
                 "fallback_rate": round(self.fallbacks / total, 3) if total else 0.0,
-                "enabled": self.enabled}
+                "enabled": self.enabled,
+                "devil_calls": self.devil_calls, "devil_vetoes": self.devil_vetoes,
+                "devil_veto_rate": round(self.devil_vetoes / self.devil_calls, 3) if self.devil_calls else 0.0}

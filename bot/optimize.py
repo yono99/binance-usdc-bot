@@ -168,8 +168,14 @@ def _side_key(g: dict):
 
 
 def run_walk(df: pd.DataFrame, cfg: dict, grid: list[dict], bt: Backtester, f: Features,
-             make_side, train_len: int, test_len: int, min_trades: int):
-    """Walk-forward generik. `make_side(g)->np.ndarray` menghasilkan side untuk param g."""
+             make_side, train_len: int, test_len: int, min_trades: int,
+             btc_ret: np.ndarray | None = None):
+    """Walk-forward generik. `make_side(g)->np.ndarray` menghasilkan side untuk param g.
+
+    Gerbang dominansi BTC (mother coin) diterapkan DI SINI — satu titik untuk SEMUA
+    teknik (v1–v7 semua lewat run_walk): entri lawan-arah BTC saat BTC bergerak kuat
+    → dinolkan. btc_ret=None → gerbang non-aktif (backward compatible)."""
+    from .altdata import btc_gate_side
     warm = warmup(cfg)
     n = len(df)
     cache: dict = {}
@@ -177,7 +183,10 @@ def run_walk(df: pd.DataFrame, cfg: dict, grid: list[dict], bt: Backtester, f: F
     def side_for(g: dict) -> np.ndarray:
         key = _side_key(g)
         if key not in cache:
-            cache[key] = make_side(g)
+            side = make_side(g)
+            if btc_ret is not None:
+                side = btc_gate_side(side, btc_ret, cfg)
+            cache[key] = side
         return cache[key]
 
     results: list[WindowResult] = []
@@ -210,8 +219,9 @@ def run_walk(df: pd.DataFrame, cfg: dict, grid: list[dict], bt: Backtester, f: F
 
 
 def walk_forward(df: pd.DataFrame, cfg: dict, grid: list[dict], bt: Backtester,
-                 train_len: int, test_len: int, min_trades: int = 15):
+                 train_len: int, test_len: int, min_trades: int = 15,
+                 btc_ret: np.ndarray | None = None):
     """Strategi v1 (trend murni)."""
     f = precompute(df, cfg)
     return run_walk(df, cfg, grid, bt, f, lambda g: decide(f, g["entry_confidence"]),
-                    train_len, test_len, min_trades)
+                    train_len, test_len, min_trades, btc_ret)

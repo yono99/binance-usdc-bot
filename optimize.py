@@ -113,6 +113,28 @@ def main() -> None:
 
     htf_mult = args.htf_mult or cfg["strategy"]["htf_mult"]
     sessions = set(args.sessions) if args.sessions else (set(cfg["strategy"]["sessions"]) or None)
+
+    # Dominansi BTC (mother coin): muat close BTC sekali → gerbang direction-aware
+    # dipakai SEMUA teknik (v1–v7) via run_walk. enabled=false → nonaktif.
+    from bot.altdata import btc_ret_arr
+    btc_close = None
+    bcfg = cfg.get("btc", {})
+    if bcfg.get("enabled", True):
+        try:
+            btc_sym = bcfg.get("symbol", "BTC/USDC:USDC")
+            btc_df = load_ohlcv(args.snapshot_dir, btc_sym, tf) if args.snapshot_dir else None
+            if btc_df is None:
+                btc_df = fetch_history(ex, btc_sym, tf, args.bars)
+                if args.snapshot_dir:
+                    save_ohlcv(btc_df, args.snapshot_dir, btc_sym, tf)
+            btc_close = btc_df["close"]
+            log.info(f"BTC-gate: {btc_sym} {len(btc_close)} bar (dump_pct={bcfg.get('dump_pct', 0.5)}%)")
+        except Exception as e:  # boundary — gagal muat BTC → gerbang nonaktif
+            log.warning(f"BTC-gate nonaktif (muat BTC gagal): {e}")
+
+    def btc_ret_for(df):
+        return btc_ret_arr(btc_close, df.index) if btc_close is not None else None
+
     if args.strategy == "v7":
         grid = build_grid_v7(args.funding_z, args.sl, args.tp)
 
@@ -123,7 +145,7 @@ def main() -> None:
             log.info(f"{sym}: funding terisi {int((funding_z != 0).sum())}/{len(df)} bar, "
                      f"|z|≥{min(args.funding_z)}: {int((abs(funding_z) >= min(args.funding_z)).sum())} bar")
             return walk_forward_v7(df, cfg, grid, bt, args.train, args.test,
-                                   args.min_trades, funding_z)
+                                   args.min_trades, funding_z, btc_ret=btc_ret_for(df))
     elif args.strategy == "v6":
         grid = build_grid_v6(args.cascade_k, args.sl, args.tp)
 
@@ -135,7 +157,8 @@ def main() -> None:
             events = int(((ra >= min(args.cascade_k)) & (vr >= cfg["strategy"]["cascade_vol_mult"])).sum())
             log.info(f"{sym}: cascade events (k≥{min(args.cascade_k)}, vol≥"
                      f"{cfg['strategy']['cascade_vol_mult']}): {events}/{len(df)} bar")
-            return walk_forward_v6(df, cfg, grid, bt, args.train, args.test, args.min_trades)
+            return walk_forward_v6(df, cfg, grid, bt, args.train, args.test, args.min_trades,
+                                   btc_ret=btc_ret_for(df))
     elif args.strategy == "v5":
         grid = build_grid_v5(args.basis_z, args.sl, args.tp)
 
@@ -147,7 +170,7 @@ def main() -> None:
                      f"basis_z aktif {int((bz != 0).sum())}/{len(df)} bar, "
                      f"|z|>2: {int((abs(bz) > 2).sum())} bar")
             return walk_forward_v5(df, cfg, grid, bt, args.train, args.test,
-                                   args.min_trades, bz)
+                                   args.min_trades, bz, btc_ret=btc_ret_for(df))
     elif args.strategy == "v4":
         grid = build_grid_v4(args.conf, args.sl, args.tp, [True], [True, False],
                              [False, True], [False], [False, True])
@@ -161,7 +184,8 @@ def main() -> None:
             log.info(f"{sym}: funding {int((funding_z!=0).sum())}/{len(df)}, "
                      f"OI {int((oid!=0).sum())}/{len(df)}, CVD {int((imb!=0).sum())}/{len(df)} bar")
             return walk_forward_v4(df, cfg, grid, bt, args.train, args.test, args.min_trades,
-                                   htf_mult, sessions, funding_z, oid, imb, div)
+                                   htf_mult, sessions, funding_z, oid, imb, div,
+                                   btc_ret=btc_ret_for(df))
     elif args.strategy == "v3":
         grid = build_grid_v3(args.conf, args.sl, args.tp, [True], [True, False],
                              [False, True], [False, True])
@@ -175,18 +199,19 @@ def main() -> None:
             nz_o = int((oid != 0).sum())
             log.info(f"{sym}: funding terisi {nz_f}/{len(df)} bar, OI terisi {nz_o}/{len(df)} bar")
             return walk_forward_v3(df, cfg, grid, bt, args.train, args.test, args.min_trades,
-                                   htf_mult, sessions, funding_z, oid)
+                                   htf_mult, sessions, funding_z, oid, btc_ret=btc_ret_for(df))
     elif args.strategy == "v2":
         grid = build_grid_v2(args.conf, args.sl, args.tp, [False, True], [False, True])
 
         def run_wf(df, sym):
             return walk_forward_v2(df, cfg, grid, bt, args.train, args.test,
-                                   args.min_trades, htf_mult, sessions)
+                                   args.min_trades, htf_mult, sessions, btc_ret=btc_ret_for(df))
     else:
         grid = build_grid(args.conf, args.sl, args.tp)
 
         def run_wf(df, sym):
-            return walk_forward(df, cfg, grid, bt, args.train, args.test, args.min_trades)
+            return walk_forward(df, cfg, grid, bt, args.train, args.test, args.min_trades,
+                                btc_ret=btc_ret_for(df))
 
     log.info(f"Walk-forward strategy={args.strategy} tf={tf} bars={args.bars} "
              f"train={args.train} test={args.test} grid={len(grid)}/window symbols={symbols}")

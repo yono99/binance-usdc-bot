@@ -69,7 +69,8 @@ class Backtester:
         s = self.cfg["signals"]
         return max(s["ema_slow"], s["atr_period"], s["adx_period"], 20) + 5
 
-    def run_symbol(self, symbol: str, df: pd.DataFrame) -> list[Trade]:
+    def run_symbol(self, symbol: str, df: pd.DataFrame,
+                   btc_close: pd.Series | None = None) -> list[Trade]:
         if len(df) < self._warmup() + 10:
             log.warning(f"{symbol}: data kurang ({len(df)} bar), skip")
             return []
@@ -78,6 +79,12 @@ class Backtester:
         pos: dict | None = None
         warm = self._warmup()
         n = len(df)
+
+        # Dominansi BTC: deret gerak % BTC selaras per bar (None → gerbang nonaktif).
+        btc_ret = None
+        if btc_close is not None:
+            from .altdata import btc_ret_arr
+            btc_ret = btc_ret_arr(btc_close, df.index)
 
         for i in range(warm, n):
             row = df.iloc[i]
@@ -97,7 +104,9 @@ class Backtester:
                     pos = None
 
             if pos is None:
-                sig = evaluate(symbol, df.iloc[:i], self.cfg)  # hanya bar tertutup
+                # gerak BTC pada bar tertutup terakhir (i-1) untuk gerbang dominansi
+                br = float(btc_ret[i - 1]) if btc_ret is not None else None
+                sig = evaluate(symbol, df.iloc[:i], self.cfg, btc_ret_pct=br)  # hanya bar tertutup
                 if sig.actionable and sig.atr > 0:
                     if self.maker:
                         pos = self._maybe_maker(symbol, sig, df, i)
