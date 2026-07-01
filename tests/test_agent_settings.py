@@ -25,6 +25,16 @@ def test_get_agent_settings(monkeypatch):
     monkeypatch.setattr(dashboard, "load_settings", lambda mode=None: RuntimeSettings(agent_planner=True))
     b = json.loads(dashboard.api_get_agent_settings().body)
     assert b["agent_planner"] is True and b["agent_full_auto"] is False
+    assert b["news_veto"] is True                      # default ON, tersedia di UI
+
+
+def test_news_veto_toggle_off(monkeypatch):
+    saved = {}
+    cur = RuntimeSettings()
+    monkeypatch.setattr(dashboard, "load_settings", lambda mode=None: cur)
+    monkeypatch.setattr(dashboard, "save_settings", lambda s: saved.update(s=s))
+    b = json.loads(dashboard.api_set_agent_settings({"news_veto": False}).body)
+    assert b["news_veto"] is False and saved["s"].news_veto is False
 
 
 def test_post_agent_settings_is_non_destructive(monkeypatch):

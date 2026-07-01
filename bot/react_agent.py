@@ -33,6 +33,13 @@ from .gemini_layer import GeminiLayer
 from .logger import log
 from .signals import Signal
 
+_BTC_NOTE = (
+    "\nDOMINANSI BTC: BTC memimpin pasar; altcoin ber-BETA LEBIH TINGGI — gerak BTC sering "
+    "DIPERBESAR & DIPERPANJANG di alt (BTC turun 1 bar → alt bisa turun 2-3 bar). Pakai "
+    "'BTC leader' di state: untuk LONG alt HINDARI masuk saat BTC turun; BTC lemah = "
+    "konfluensi SHORT alt. Untuk BTC sendiri, abaikan field ini."
+)
+
 ACTIONS = ("ENTER_LONG", "ENTER_SHORT", "SKIP", "REDUCE_RISK", "FLAT")
 PORTFOLIO_ACTIONS = ("HOLD", "REDUCE_RISK", "FLAT")   # aksi level-portofolio (point 2: otonomi)
 DECISION_LOG = Path("logs/decision_log.jsonl")
@@ -86,10 +93,11 @@ class ReactAgent:
     # ---------------------- OBSERVE ----------------------
     def observe(self, sig: Signal, *, regime: str | None = None, alt: dict | None = None,
                 n_positions: int = 0, max_positions: int = 0, daily_pnl_r: float = 0.0,
-                lessons: list | None = None, memory=None) -> dict:
+                lessons: list | None = None, memory=None, btc_lead: dict | None = None) -> dict:
         alt = alt or {}
         return {
             "recent_memory": memory.summary(sig.symbol) if memory is not None else [],
+            "btc_lead": btc_lead or {},
             "symbol": sig.symbol,
             "price": sig.price,
             "atr": sig.atr,
@@ -152,6 +160,7 @@ class ReactAgent:
             f"- Signal: side={s['signal_side']} conf={s['signal_confidence']} "
             f"long={s['long_score']} short={s['short_score']}\n"
             f"- Open positions: {s['n_positions']}/{s['max_positions']}  Daily PnL: {s['daily_pnl_r']}R\n"
+            f"- BTC leader (1bar/3bar %, dir): {json.dumps(s.get('btc_lead', {}), default=str)}\n"
             f"- Recent lessons: {json.dumps(s['recent_lessons'], default=str)}\n"
             f"- Recent memory (this symbol): {json.dumps(s.get('recent_memory', []), default=str)}\n"
         )
@@ -161,7 +170,7 @@ class ReactAgent:
         return (
             "You are a trading agent. Analyze this market state and decide.\n"
             "You MANAGE the decision; you do NOT predict the signal (scores are given).\n\n"
-            "State:\n" + cls._state_block(s) +
+            "State:\n" + cls._state_block(s) + _BTC_NOTE +
             "\nAvailable actions: ENTER_LONG, ENTER_SHORT, SKIP, REDUCE_RISK, FLAT\n"
             "Respond ONLY with valid JSON:\n"
             '{"action":"SKIP","reasoning":"one sentence why","confidence":0.0,'
@@ -184,7 +193,7 @@ class ReactAgent:
         return (
             "You are an AUTONOMOUS trading agent. INVESTIGATE with tools, THEN decide.\n"
             "You manage decisions; signal scores are given (you don't predict them).\n\n"
-            "State:\n" + cls._state_block(s) +
+            "State:\n" + cls._state_block(s) + _BTC_NOTE +
             "\nTools (call to gather evidence BEFORE deciding):\n" + tool_list + hist +
             "\n\nReply with EXACTLY ONE JSON object — either:\n"
             '  tool call:      {"tool":"<name>","args":{...}}\n'
@@ -205,12 +214,13 @@ class ReactAgent:
     def decide_with_tools(self, sig: Signal, tools: dict, *, max_iters: int = 4,
                           regime: str | None = None, alt: dict | None = None,
                           n_positions: int = 0, max_positions: int = 0, daily_pnl_r: float = 0.0,
-                          lessons: list | None = None, shadow: bool = False, memory=None) -> Decision:
+                          lessons: list | None = None, shadow: bool = False, memory=None,
+                          btc_lead: dict | None = None) -> Decision:
         """Loop ReAct sejati: nalar → panggil tool → observasi → nalar → aksi final.
         Gagal/parse-error/maxiters → fallback ke decide() single-shot (TAK pernah blokir).
         memory (opsional): observasi tool & keputusan diingat lintas-tick."""
         obs_kwargs = dict(regime=regime, alt=alt, n_positions=n_positions, max_positions=max_positions,
-                          daily_pnl_r=daily_pnl_r, lessons=lessons, memory=memory)
+                          daily_pnl_r=daily_pnl_r, lessons=lessons, memory=memory, btc_lead=btc_lead)
         if not self.enabled or not tools:
             return self.decide(sig, shadow=shadow, **obs_kwargs)
         state = self.observe(sig, **obs_kwargs)
@@ -243,12 +253,13 @@ class ReactAgent:
     # ---------------------- ACT + RECORD ----------------------
     def decide(self, sig: Signal, *, regime: str | None = None, alt: dict | None = None,
                n_positions: int = 0, max_positions: int = 0, daily_pnl_r: float = 0.0,
-               lessons: list | None = None, shadow: bool = False, memory=None) -> Decision:
+               lessons: list | None = None, shadow: bool = False, memory=None,
+               btc_lead: dict | None = None) -> Decision:
         """shadow=True (mode A/B): agen tetap menalar & MENCATAT verdict, tapi eksekusi
         dipaksa mengikuti rules (permits()=True) → bisa bandingkan rules vs rules+ReAct."""
         state = self.observe(sig, regime=regime, alt=alt, n_positions=n_positions,
                              max_positions=max_positions, daily_pnl_r=daily_pnl_r,
-                             lessons=lessons, memory=memory)
+                             lessons=lessons, memory=memory, btc_lead=btc_lead)
         scores = {"long": state["long_score"], "short": state["short_score"]}
 
         if not self.enabled:

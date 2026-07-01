@@ -87,6 +87,7 @@ export interface AgentSettings {
   agent_autonomous: boolean;
   agent_planner: boolean;
   agent_ab_shadow: boolean;
+  news_veto: boolean;
 }
 
 export interface AgentHealth {
