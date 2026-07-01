@@ -464,6 +464,13 @@ class ForwardTester:
         # circuit breaker harian diatur user dari UI (0 = nonaktif) — hot-reload
         self.daily_max_loss_pct = float(rs.daily_max_loss_pct)
         self.daily_max_trades = int(rs.daily_max_trades)
+        # Flag agent: config.yaml OR toggle UI (hot-reload tanpa restart). full_auto → semua.
+        _ag = self.cfg.get("agent", {})
+        full = bool(_ag.get("full_auto", False)) or rs.agent_full_auto
+        self.tool_loop = bool(_ag.get("tool_loop", False)) or rs.agent_tool_loop or full
+        self.autonomous = bool(_ag.get("autonomous", False)) or rs.agent_autonomous or full
+        self.use_planner = bool(_ag.get("planner", False)) or rs.agent_planner or full
+        self.ab_shadow = bool(_ag.get("ab_shadow", False)) or rs.agent_ab_shadow
         # teknik "gemini": Gemini menentukan arah + SL/TP (timing bebas); ukuran/leverage dari UI
         self.use_gemini_trader = (rs.technique == "gemini")
         if self.use_gemini_trader and self.gtrader is None:

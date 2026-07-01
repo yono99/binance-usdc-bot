@@ -821,6 +821,28 @@ def api_ab() -> JSONResponse:
     return JSONResponse(ab.report())
 
 
+_AGENT_FLAGS = ("agent_full_auto", "agent_tool_loop", "agent_autonomous",
+                "agent_planner", "agent_ab_shadow")
+
+
+@app.get("/api/agent-settings")
+def api_get_agent_settings(mode: str = None) -> JSONResponse:
+    """Status flag agent (per-mode). Toggle dari UI → hot-reload di bot tanpa restart."""
+    s = load_settings(mode)
+    return JSONResponse({k: getattr(s, k) for k in _AGENT_FLAGS})
+
+
+@app.post("/api/agent-settings")
+def api_set_agent_settings(payload: dict) -> JSONResponse:
+    """Patch HANYA flag agent (non-destruktif: setting lain tak tersentuh)."""
+    s = load_settings(payload.get("mode"))
+    for k in _AGENT_FLAGS:
+        if k in payload:
+            setattr(s, k, bool(payload[k]))
+    save_settings(s)
+    return JSONResponse({k: getattr(s, k) for k in _AGENT_FLAGS})
+
+
 @app.get("/api/plan")
 def api_plan() -> JSONResponse:
     """Rencana sesi terakhir (planner): stance/bias/kuota."""
@@ -849,6 +871,9 @@ AGENT_PAGE = """<!doctype html><html lang="id"><head><meta charset="utf-8">
 <span class="mut"><a href="/">← dashboard utama</a> · auto-refresh 10s</span></header>
 <div class="wrap">
  <div class="card"><h2>Agent Health</h2><div id="health" class="chips mut">memuat…</div></div>
+ <div class="card"><h2>Kontrol Agent <span class="mut">(hot-reload, tanpa restart)</span></h2>
+   <div id="agentctl" class="chips">memuat…</div>
+   <div class="mut" style="margin-top:8px">full_auto = tool_loop + autonomous + planner. LIVE FLAT tetap butuh allow_live_trader.</div></div>
  <div class="card"><h2>A/B — rules vs rules+ReAct</h2><div id="ab" class="mut">memuat…</div></div>
  <div class="card"><h2>Keputusan Terakhir</h2><table id="dec"><thead><tr><th>waktu</th><th>simbol</th>
    <th>aksi</th><th>conf</th><th>sumber</th><th>alasan</th><th>outcome</th><th>R</th></tr></thead><tbody></tbody></table></div>
@@ -891,6 +916,19 @@ async function load(){
    `<td>${esc(x.p_value??'—')}</td><td>${x.applied?'<span class=pos>YA</span>':'<span class=mut>tidak</span>'}</td></tr>`).join('')
    ||'<tr><td colspan=6 class=mut>belum ada evolusi</td></tr>';}
 }
+const AGFLAGS=[["agent_full_auto","Full-auto"],["agent_tool_loop","Tool-loop"],
+  ["agent_autonomous","Autonomous"],["agent_planner","Planner"],["agent_ab_shadow","A/B shadow"]];
+async function loadAgentCtl(){
+  const s=await j('/api/agent-settings'); if(!s)return;
+  $('#agentctl').innerHTML=AGFLAGS.map(([k,lbl])=>
+    `<label style="margin-right:14px"><input type="checkbox" data-k="${k}" ${s[k]?'checked':''}> ${esc(lbl)}</label>`).join('');
+  document.querySelectorAll('#agentctl input').forEach(el=>el.addEventListener('change',async e=>{
+    const b={}; b[e.target.dataset.k]=e.target.checked;
+    await fetch('/api/agent-settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
+    loadAgentCtl();
+  }));
+}
+loadAgentCtl();
 load();setInterval(load,10000);
 </script></body></html>"""
 
