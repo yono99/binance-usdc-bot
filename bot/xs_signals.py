@@ -102,6 +102,65 @@ def score_skew(close, window):
     return -_roll_skew(returns_panel(close), window)
 
 
+def _roll_mean(a: np.ndarray, window: int) -> np.ndarray:
+    T, N = a.shape
+    out = np.full((T, N), np.nan)
+    for t in range(window - 1, T):
+        out[t] = np.nanmean(a[t - window + 1:t + 1], axis=0)
+    return out
+
+
+def score_bab(close, btc_idx, beta_window):
+    """Betting-against-beta (Frazzini-Pedersen): long low-β, short high-β. Premi
+    kendala-leverage. Skor = −beta."""
+    r = returns_panel(close)
+    return -rolling_beta(r, r[:, btc_idx], beta_window)
+
+
+def score_st_reversal(close, btc_idx, lookback, beta_window):
+    """Short-term reversal RESIDUAL: long yang baru turun (idio), short yang baru
+    naik. Premi penyedia likuiditas. Skor = −Σ residual lookback pendek."""
+    r = returns_panel(close)
+    beta = rolling_beta(r, r[:, btc_idx], beta_window)
+    resid = residual_returns(r, r[:, btc_idx], beta)
+    return -_roll_sum(resid, lookback)
+
+
+def _roll_coskew(r, rb, window):
+    T, N = r.shape
+    out = np.full((T, N), np.nan)
+    for t in range(window - 1, T):
+        w = r[t - window + 1:t + 1]
+        wb = rb[t - window + 1:t + 1]
+        wbc = wb - np.nanmean(wb)
+        ic = w - np.nanmean(w, axis=0)
+        out[t] = np.nanmean(ic * (wbc ** 2)[:, None], axis=0)
+    return out
+
+
+def score_coskew(close, btc_idx, window):
+    """Coskewness dgn BTC: aset yang jatuh saat BTC bergejolak (coskew negatif)
+    = risiko → dibayar premi. Skor = −coskew (long coskew negatif)."""
+    r = returns_panel(close)
+    return -_roll_coskew(r, r[:, btc_idx], window)
+
+
+def score_amihud(close, vol, window):
+    """Amihud illiquidity: |return| per dollar-volume. Illikuid = premi. Skor =
+    +illiquidity (long illikuid, short likuid)."""
+    r = returns_panel(close)
+    dvol = close * vol
+    illiq = np.abs(r) / np.where(dvol > 0, dvol, np.nan)
+    return _roll_mean(illiq, window)
+
+
+def score_turnover(close, vol, window):
+    """Turnover anomaly: high-turnover underperform (overvaluation/attention). Skor
+    = −log(dollar-volume) (long low-turnover)."""
+    dvol = close * vol
+    return -_roll_mean(np.log(np.where(dvol > 0, dvol, np.nan)), window)
+
+
 def score_funding_accel(level, interval):
     """H15: akselerasi funding. level=[T×N] rate 8h ffilled. velocity = beda antar
     interval; accel = beda velocity. Skor: short saat crowding funding mengakselerasi

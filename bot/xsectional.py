@@ -35,6 +35,17 @@ def align_close_panel(dfs: dict[str, pd.DataFrame], min_coverage: float = 0.9) -
     return panel
 
 
+def volume_panel(dfs: dict, index, columns: list[str]) -> np.ndarray:
+    """Panel volume [waktu × simbol] selaras ke `index`/`columns` (untuk sinyal
+    likuiditas). ffill causal; 0 bila tak ada."""
+    cols = {}
+    for s in columns:
+        v = dfs[s]["volume"] if s in dfs and "volume" in dfs[s] else None
+        cols[s] = (v.reindex(index, method="ffill").fillna(0.0) if v is not None
+                   else pd.Series(0.0, index=index))
+    return pd.DataFrame(cols, index=index)[columns].to_numpy()
+
+
 def _rebalance_times(t0: int, t1: int, lookback: int, hold: int) -> range:
     """Titik rebalance non-overlap di [t0,t1): mulai setelah lookback, langkah = hold,
     sisakan hold bar ke depan untuk forward-return."""
