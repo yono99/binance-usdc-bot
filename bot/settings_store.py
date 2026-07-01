@@ -61,6 +61,8 @@ class RuntimeSettings:
     agent_autonomous: bool = False              # kelola portofolio (REDUCE_RISK/FLAT)
     agent_planner: bool = False                 # tujuan sesi (stance/bias/kuota)
     agent_ab_shadow: bool = False               # A/B: ReAct catat verdict tanpa memblokir
+    agent_manager_mode: bool = False             # JALAN A: agent = manajer disiplin (rules arah,
+    #                                              planner+autonomous ON, tool_loop OFF, no gemini-arah)
     news_veto: bool = True                       # veto entry saat berita high-impact (toggle UI)
 
     def clamp(self) -> "RuntimeSettings":
@@ -79,8 +81,8 @@ class RuntimeSettings:
         self.maker_fee_pct = max(0.0, float(self.maker_fee_pct))
         self.gemini_model = str(self.gemini_model or "").strip()
         self.mode = self.mode if self.mode in ("", "dry", "test", "live") else ""
-        for f in ("agent_full_auto", "agent_tool_loop", "agent_autonomous",
-                  "agent_planner", "agent_ab_shadow", "news_veto"):
+        for f in ("agent_full_auto", "agent_tool_loop", "agent_autonomous", "agent_planner",
+                  "agent_ab_shadow", "agent_manager_mode", "news_veto"):
             setattr(self, f, bool(getattr(self, f)))
         # symbols kosong = "screening SEMUA pair USDC" (di-resolve oleh bot)
         return self

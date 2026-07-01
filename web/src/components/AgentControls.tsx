@@ -4,6 +4,7 @@ import { usePoll } from "../hooks";
 import type { AgentAB, AgentHealth, AgentPlan, AgentSettings } from "../types";
 
 const FLAGS: { k: keyof AgentSettings; lbl: string; hint: string }[] = [
+  { k: "agent_manager_mode", lbl: "Manager-mode", hint: "Jalan A: manajer disiplin (rules arah, planner+autonomous, tool-loop off)" },
   { k: "agent_full_auto", lbl: "Full-auto", hint: "tool-loop + autonomous + planner" },
   { k: "agent_tool_loop", lbl: "Tool-loop", hint: "nalar + panggil tool (boros LLM)" },
   { k: "agent_autonomous", lbl: "Autonomous", hint: "kelola portofolio (REDUCE_RISK/FLAT)" },
@@ -14,6 +15,9 @@ const FLAGS: { k: keyof AgentSettings; lbl: string; hint: string }[] = [
 
 // Peringatan konsekuensi SEBELUM menyalakan (atau mematikan proteksi).
 const WARN: Partial<Record<keyof AgentSettings, { on?: string; off?: string }>> = {
+  agent_manager_mode: {
+    on: "Manager-mode (Jalan A): agent jadi MANAJER DISIPLIN.\n\nArah trade dari RULES deterministik (mematikan teknik gemini/arah-LLM), planner + autonomous ON, tool-loop OFF (hemat token). Fokus: kelola risiko & bertahan, bukan menebak arah.\n\nLanjut?",
+  },
   agent_full_auto: {
     on: "Full-auto = tool-loop + autonomous + planner sekaligus.\n\nTool-loop memanggil banyak tool tiap keputusan → BANYAK panggilan Gemini; di free-tier bisa kena rate-limit (429). Di LIVE, aksi FLAT butuh allow_live_trader.\n\nLanjut menyalakan?",
   },

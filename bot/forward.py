@@ -463,6 +463,22 @@ class ForwardTester:
 
     # ---------- mode store (USD leverage + likuidasi, diatur dari UI) ----------
 
+    @staticmethod
+    def _agent_posture(cfg_agent: dict, rs) -> dict:
+        """Resolusi flag agent: config.yaml OR toggle UI; full_auto → semua. Manager-mode
+        (Jalan A) MENG-OVERRIDE jadi manajer disiplin: tool_loop OFF, autonomous+planner ON,
+        arah dari RULES (bukan gemini). PURE → mudah diuji."""
+        full = bool(cfg_agent.get("full_auto", False)) or rs.agent_full_auto
+        tool_loop = bool(cfg_agent.get("tool_loop", False)) or rs.agent_tool_loop or full
+        autonomous = bool(cfg_agent.get("autonomous", False)) or rs.agent_autonomous or full
+        use_planner = bool(cfg_agent.get("planner", False)) or rs.agent_planner or full
+        ab_shadow = bool(cfg_agent.get("ab_shadow", False)) or rs.agent_ab_shadow
+        use_gemini_trader = (rs.technique == "gemini")
+        if rs.agent_manager_mode:                    # JALAN A: manajer disiplin, frugal
+            tool_loop, autonomous, use_planner, use_gemini_trader = False, True, True, False
+        return {"tool_loop": tool_loop, "autonomous": autonomous, "use_planner": use_planner,
+                "ab_shadow": ab_shadow, "use_gemini_trader": use_gemini_trader}
+
     def _apply_settings(self) -> RuntimeSettings:
         rs = load_settings()
         eff = rs.mode or self.settings.mode               # mode diminta dari UI (atau .env)
@@ -484,15 +500,15 @@ class ForwardTester:
         self.daily_max_loss_pct = float(rs.daily_max_loss_pct)
         self.daily_max_trades = int(rs.daily_max_trades)
         # Flag agent: config.yaml OR toggle UI (hot-reload tanpa restart). full_auto → semua.
+        # Manager-mode (Jalan A) meng-override jadi posture manajer disiplin (lihat _agent_posture).
         _ag = self.cfg.get("agent", {})
-        full = bool(_ag.get("full_auto", False)) or rs.agent_full_auto
-        self.tool_loop = bool(_ag.get("tool_loop", False)) or rs.agent_tool_loop or full
-        self.autonomous = bool(_ag.get("autonomous", False)) or rs.agent_autonomous or full
-        self.use_planner = bool(_ag.get("planner", False)) or rs.agent_planner or full
-        self.ab_shadow = bool(_ag.get("ab_shadow", False)) or rs.agent_ab_shadow
+        posture = self._agent_posture(_ag, rs)
+        self.tool_loop = posture["tool_loop"]
+        self.autonomous = posture["autonomous"]
+        self.use_planner = posture["use_planner"]
+        self.ab_shadow = posture["ab_shadow"]
+        self.use_gemini_trader = posture["use_gemini_trader"]
         self.news.enabled = self._news_base and bool(rs.news_veto)   # toggle news-veto dari UI
-        # teknik "gemini": Gemini menentukan arah + SL/TP (timing bebas); ukuran/leverage dari UI
-        self.use_gemini_trader = (rs.technique == "gemini")
         if self.use_gemini_trader and self.gtrader is None:
             from .gemini_trader import GeminiTrader
             self.gtrader = GeminiTrader(self.settings, self.cfg)
