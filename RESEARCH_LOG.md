@@ -296,3 +296,43 @@ the gate AND realized funding income counted, the strategy loses after costs.
 The funding premium in small-caps is simply not large enough to survive the
 price risk left after gating. Carry angle is now fully exhausted (majors,
 small-cap, gated).
+
+---
+
+## Fase 4 — sisa antrian: H31, H32, H27, H28 (2026-07-02)
+
+Engines: `xs_signals.score_downside_beta` (H31), `bot/tsmom.py` + `tsmom_alpha.py`
+(H32), `xs_signals.score_venue_basis` + `basis_alpha.py` (H27, Bybit closes via
+altdata.fetch_bybit_close, cached `data/snap_bybit`), `vrp_alpha.py` (H28, Deribit
+DVOL public API cached `data/snap_dvol_btc_1d.pkl`). All with +/− controls
+(downside-beta control needed drift compensation: asymmetric conditional beta
+mechanically drags −a·E|rb| unconditional drift). 361 tests green.
+
+| H | Setup | OOS | Verdict |
+|---|---|---|---|
+| H31 downside-beta | 103×1400d | −1.14%/rebal, n=112, win 42.9% | ❌ (cousin of dead BAB/coskew, as expected) |
+| H32 TSMOM 1d | 103×1400d, lb {30,60,90} | +0.45%, n=184, p_adj=0.59 | ❌ weak-positive-insignificant (H18 pattern) |
+| H27 venue basis | 76 dual-venue ×1400d | −0.18%, n=220, win 43.6%, IS negatif | ❌ |
+| H28 VRP (DVOL gate on −ivol) | 103×1400d | **+2.06%, n=38, win 71%, p_adj=0.036 → LOLOS awal** | lihat bawah |
+
+### H28 — kandidat pertama yang lolos p_adj, lalu gugur di validasi lanjutan
+- Run awal (103×1400d): +2.0620%/rebal, semua 8 window positif, p_adj=0.0365. 
+- Cost-stress ×2: mean bertahan (+1.78% — efek >> biaya) tapi p_adj=0.083.
+- **Replikasi 78×1800d: mean menyusut separuh (+1.0869%), p_adj=0.336; stress ×2:
+  p_adj=0.456.** Pola shrinkage klasik artefak (H18/H26 signature), meski tanda
+  tetap positif di kedua sampel (win 65–71%).
+- Konteks program-level yang jujur: setelah ~20 hipotesis diuji, SATU p_adj=0.036
+  pada n=38 kira-kira yang diharapkan dari kebetulan (expected false positive
+  @α=0.05 × 20 ≈ 1).
+
+### Verdict H28: **REJECTED** (palang #4 pada replikasi & stress)
+Catatan positif satu-satunya di seluruh program: H28 adalah satu-satunya sinyal
+dengan OOS positif konsisten di dua universe + tahan biaya secara ekonomis. Bila
+suatu saat ingin satu forward paper-test tanpa risiko, ini kandidatnya — tapi
+TIDAK memenuhi syarat live berdasarkan aturan program.
+
+## Fase 4 — PENUTUP
+Seluruh antrian direksional habis: H24–H28, H31, H32 semua DITOLAK. Bersama
+Fase 1–3: **22 hipotesis, 0 lolos empat palang.** Yang tersisa dan masih hidup:
+perekam L2 (H30 spread capture — struktural) & perekam OI (H19/H29) — keduanya
+menunggu data matang, bukan menunggu ide baru.

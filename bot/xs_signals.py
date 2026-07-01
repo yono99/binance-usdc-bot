@@ -177,6 +177,44 @@ def score_illiq_shock(close, vol, shock_window, ret_window=3, base_window=60, th
     return np.where(ratio > thr, sc, np.nan)
 
 
+def score_downside_beta(close, btc_idx, window, min_side: int = 10):
+    """H31: premi asimetri downside-beta. β⁻ = beta di hari BTC turun, β⁺ = beta
+    di hari BTC naik (keduanya window trailing ≤t). Aset yang jatuh lebih keras
+    daripada ikut naik (β⁻>β⁺) menyakitkan di saat terburuk → dibayar premi.
+    Skor = β⁻ − β⁺ (tinggi = long)."""
+    r = returns_panel(close)
+    rb = r[:, btc_idx]
+    T, N = r.shape
+    out = np.full((T, N), np.nan)
+    for t in range(window, T):
+        x = rb[t - window:t]
+        Y = r[t - window:t]
+        betas = []
+        for mask in (x < 0, x > 0):
+            if mask.sum() < min_side:
+                betas = None
+                break
+            xm = x[mask] - np.nanmean(x[mask])
+            denom = np.nansum(xm * xm)
+            if not np.isfinite(denom) or denom <= 0:
+                betas = None
+                break
+            Ym = Y[mask] - np.nanmean(Y[mask], axis=0)
+            betas.append(np.nansum(xm[:, None] * Ym, axis=0) / denom)
+        if betas is not None:
+            out[t] = betas[0] - betas[1]
+    return out
+
+
+def score_venue_basis(basis: np.ndarray, window: int) -> np.ndarray:
+    """H27: dislokasi basis lintas-venue. basis[t,i] = close_binance/close_bybit − 1.
+    Premium yang melebar vs baseline sendiri = crowding lokal → fade.
+    Skor = −z-score(basis, rolling window). NaN bila std 0/na."""
+    m = _roll_mean(basis, window)
+    s = _roll_std(basis, window)
+    return -(basis - m) / np.where(s > 0, s, np.nan)
+
+
 def score_funding_accel(level, interval):
     """H15: akselerasi funding. level=[T×N] rate 8h ffilled. velocity = beda antar
     interval; accel = beda velocity. Skor: short saat crowding funding mengakselerasi

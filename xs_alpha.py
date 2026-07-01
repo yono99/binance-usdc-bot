@@ -36,7 +36,7 @@ def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--hypothesis", required=True,
                    choices=["resid_mom", "leadlag", "ivol", "skew", "funding_accel", "sector",
-                            "illiq_shock"])
+                            "illiq_shock", "dbeta"])
     p.add_argument("--symbols", nargs="*", default=None)
     p.add_argument("--tf", default="1h")
     p.add_argument("--bars", type=int, default=8000)
@@ -80,6 +80,9 @@ def build_panels(hyp, close, btc_idx, level, windows=None, beta_win=240, vol=Non
     if hyp == "illiq_shock":     # H26 — reversal syok likuiditas (daily: syok 3/5 hari)
         w = windows or (3, 5)
         return ({f"is{sw}": xss.score_illiq_shock(close, vol, sw) for sw in w}, [3, 5])
+    if hyp == "dbeta":           # H31 — premi asimetri downside-beta (daily)
+        w = windows or (60, 120)
+        return ({f"db{x}": xss.score_downside_beta(close, btc_idx, x) for x in w}, [5, 10])
     raise ValueError(hyp)
 
 

@@ -103,3 +103,76 @@ def test_illiq_shock_nan_when_no_shock():
     vol = np.full((500, 6), 1e6)                     # likuiditas stabil → tanpa syok
     sc = xss.score_illiq_shock(close, vol, 3)
     assert np.isfinite(sc[100:]).mean() < 0.35       # mayoritas NaN (ratio ~1 < thr)
+
+
+def test_downside_beta_recovers_asymmetry():
+    """H31 mekanik: aset dgn β⁻=2, β⁺=0.5 → skor ≈ 1.5; simetris → ≈ 0."""
+    rng = np.random.default_rng(5)
+    T = 2000
+    rb = rng.normal(0, 0.01, T)
+    asym = np.where(rb < 0, 2.0 * rb, 0.5 * rb)
+    sym = 1.0 * rb
+    r = np.column_stack([rb, asym, sym]) + rng.normal(0, 5e-4, (T, 3))
+    close = 100 * np.exp(np.cumsum(r, axis=0))
+    sc = xss.score_downside_beta(close, 0, window=250)
+    assert abs(np.nanmean(sc[500:, 1]) - 1.5) < 0.3
+    assert abs(np.nanmean(sc[500:, 2])) < 0.3
+
+
+def test_downside_beta_engine_controls():
+    """H31 engine: drift ∝ asimetri → lolos; tanpa drift → gugur."""
+    rng = np.random.default_rng(11)
+    T, N = 3000, 10
+    rb = rng.normal(0, 0.01, T)
+    asyms = np.linspace(0.0, 1.0, N)
+
+    def market(mu_scale):
+        cols = [rb]
+        comp = np.abs(rb).mean()          # beta asimetris menyeret drift −a·E|rb| → netralkan
+        for a in asyms:
+            beta_t = np.where(rb < 0, 1.0 + a, 1.0 - a)
+            cols.append(beta_t * rb + a * comp + mu_scale * a + rng.normal(0, 0.004, T))
+        return 100 * np.exp(np.cumsum(np.column_stack(cols), axis=0))
+
+    close = market(0.003)
+    panels = {"db": xss.score_downside_beta(close, 0, window=250)}
+    _, oos = xs.walk_forward_scores(close, panels, holds=[5, 10], quantile=0.3,
+                                    cost_frac=0.0, train_len=800, test_len=300)
+    v = xs.verdict(oos, 2)
+    assert v["mean"] > 0 and v["ok"], v["reason"]
+
+    close0 = market(0.0)
+    panels0 = {"db": xss.score_downside_beta(close0, 0, window=250)}
+    _, oos0 = xs.walk_forward_scores(close0, panels0, holds=[5, 10], quantile=0.3,
+                                     cost_frac=0.0, train_len=800, test_len=300)
+    assert not xs.verdict(oos0, 2)["ok"]
+
+
+def _basis_market(link: bool, T=2500, N=12, seed=31):
+    """H27: basis AR-noise per simbol + event spike +4σ berkala. link=True →
+    3 hari setelah spike harga jatuh (dislokasi bermakna); False → tak berefek."""
+    rng = np.random.default_rng(seed)
+    r = rng.normal(0, 0.008, (T, N))
+    basis = rng.normal(0, 0.0005, (T, N))
+    for i in range(N):
+        for t0 in range(120 + i * 3, T - 6, 40):
+            basis[t0:t0 + 3, i] += 0.004                 # spike ~+4σ (3 hari)
+            if link:
+                r[t0 + 1:t0 + 4, i] -= 0.006             # harga turun sesudahnya
+    close = 100 * np.exp(np.cumsum(r, axis=0))
+    return close, basis
+
+
+def test_venue_basis_engine_controls():
+    close, basis = _basis_market(link=True)
+    panels = {"vb": xss.score_venue_basis(basis, window=30)}
+    _, oos = xs.walk_forward_scores(close, panels, holds=[2, 5], quantile=0.3,
+                                    cost_frac=0.0, train_len=800, test_len=300)
+    v = xs.verdict(oos, 2)
+    assert v["mean"] > 0 and v["ok"], v["reason"]
+
+    close0, basis0 = _basis_market(link=False, seed=37)
+    panels0 = {"vb": xss.score_venue_basis(basis0, window=30)}
+    _, oos0 = xs.walk_forward_scores(close0, panels0, holds=[2, 5], quantile=0.3,
+                                     cost_frac=0.0, train_len=800, test_len=300)
+    assert not xs.verdict(oos0, 2)["ok"]
