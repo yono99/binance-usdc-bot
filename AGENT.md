@@ -88,6 +88,12 @@ SEMUA posisi terbuka & boleh **REDUCE_RISK** (geser stop ke breakeven pada yang 
 memberi agen sinyal non-OHLCV (L2 imbalance, funding/basis premium, open interest) —
 karena OHLCV murni sudah diarbitrase. Ini bahan baku edge yang belum tentu habis.
 
+**Memori lintas-tick** (`bot/memory.py`, otomatis saat tool-loop) — agen mengingat
+observasi tool & keputusan terakhir per simbol (time/size-bounded) → penalaran
+berkesinambungan antar-siklus (tak menyelidiki dari nol tiap tick). Disuntik ke prompt
+sebagai "Recent memory"; di-snapshot ke SQLite (tahan restart). Ingatan KERJA jangka
+pendek — bukan pengganti decision_log (audit permanen) / lessons (evidence-gated).
+
 **4. Planner tipis — goal-directed** (`planner: true`, `bot/planner.py`) — tiap
 `plan_horizon_h` jam agen menetapkan TUJUAN sesi: `stance` (aggressive/normal/defensive/
 risk_off), `bias` (long/short/neutral), kuota trade & eksposur. Keputusan per-tick TUNDUK

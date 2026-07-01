@@ -86,9 +86,10 @@ class ReactAgent:
     # ---------------------- OBSERVE ----------------------
     def observe(self, sig: Signal, *, regime: str | None = None, alt: dict | None = None,
                 n_positions: int = 0, max_positions: int = 0, daily_pnl_r: float = 0.0,
-                lessons: list | None = None) -> dict:
+                lessons: list | None = None, memory=None) -> dict:
         alt = alt or {}
         return {
+            "recent_memory": memory.summary(sig.symbol) if memory is not None else [],
             "symbol": sig.symbol,
             "price": sig.price,
             "atr": sig.atr,
@@ -152,6 +153,7 @@ class ReactAgent:
             f"long={s['long_score']} short={s['short_score']}\n"
             f"- Open positions: {s['n_positions']}/{s['max_positions']}  Daily PnL: {s['daily_pnl_r']}R\n"
             f"- Recent lessons: {json.dumps(s['recent_lessons'], default=str)}\n"
+            f"- Recent memory (this symbol): {json.dumps(s.get('recent_memory', []), default=str)}\n"
         )
 
     @classmethod
@@ -203,11 +205,12 @@ class ReactAgent:
     def decide_with_tools(self, sig: Signal, tools: dict, *, max_iters: int = 4,
                           regime: str | None = None, alt: dict | None = None,
                           n_positions: int = 0, max_positions: int = 0, daily_pnl_r: float = 0.0,
-                          lessons: list | None = None, shadow: bool = False) -> Decision:
+                          lessons: list | None = None, shadow: bool = False, memory=None) -> Decision:
         """Loop ReAct sejati: nalar → panggil tool → observasi → nalar → aksi final.
-        Gagal/parse-error/maxiters → fallback ke decide() single-shot (TAK pernah blokir)."""
-        obs_kwargs = dict(regime=regime, alt=alt, n_positions=n_positions,
-                          max_positions=max_positions, daily_pnl_r=daily_pnl_r, lessons=lessons)
+        Gagal/parse-error/maxiters → fallback ke decide() single-shot (TAK pernah blokir).
+        memory (opsional): observasi tool & keputusan diingat lintas-tick."""
+        obs_kwargs = dict(regime=regime, alt=alt, n_positions=n_positions, max_positions=max_positions,
+                          daily_pnl_r=daily_pnl_r, lessons=lessons, memory=memory)
         if not self.enabled or not tools:
             return self.decide(sig, shadow=shadow, **obs_kwargs)
         state = self.observe(sig, **obs_kwargs)
@@ -223,13 +226,15 @@ class ReactAgent:
                 out = self._sanitize(step)
                 if out is None:
                     break
-                d = self._build(sig, state, scores, out, "LLM_TOOL", shadow)
+                d = self._build(sig, state, scores, out, "LLM_TOOL", shadow, memory)
                 self._record(d)
                 return d
             name = step.get("tool")                      # PANGGILAN TOOL
             if name in tools:
                 obs = tools[name]["fn"](step.get("args") or {})
                 transcript.append({"tool": name, "args": step.get("args") or {}, "obs": obs})
+                if memory is not None:                   # ingat observasi utk tick berikutnya
+                    memory.remember("tool", sig.symbol, {name: obs})
             else:
                 transcript.append({"tool": name, "error": "unknown tool"})
         self.fallbacks += 1                              # tak capai aksi → fallback single-shot
@@ -238,22 +243,23 @@ class ReactAgent:
     # ---------------------- ACT + RECORD ----------------------
     def decide(self, sig: Signal, *, regime: str | None = None, alt: dict | None = None,
                n_positions: int = 0, max_positions: int = 0, daily_pnl_r: float = 0.0,
-               lessons: list | None = None, shadow: bool = False) -> Decision:
+               lessons: list | None = None, shadow: bool = False, memory=None) -> Decision:
         """shadow=True (mode A/B): agen tetap menalar & MENCATAT verdict, tapi eksekusi
         dipaksa mengikuti rules (permits()=True) → bisa bandingkan rules vs rules+ReAct."""
         state = self.observe(sig, regime=regime, alt=alt, n_positions=n_positions,
-                             max_positions=max_positions, daily_pnl_r=daily_pnl_r, lessons=lessons)
+                             max_positions=max_positions, daily_pnl_r=daily_pnl_r,
+                             lessons=lessons, memory=memory)
         scores = {"long": state["long_score"], "short": state["short_score"]}
 
         if not self.enabled:
             self.fallbacks += 1
-            return self._fallback(sig, state, scores, "LLM_DISABLED", shadow)
+            return self._fallback(sig, state, scores, "LLM_DISABLED", shadow, memory)
 
         self.calls += 1
         out = self.reason(state)
         if out is None:
             self.fallbacks += 1                        # LLM gagal → JANGAN blokir trading
-            return self._fallback(sig, state, scores, "LLM_UNAVAILABLE", shadow)
+            return self._fallback(sig, state, scores, "LLM_UNAVAILABLE", shadow, memory)
 
         source = "LLM"
         # SKIP keyakinan-rendah → jangan percaya; serahkan ke veto deterministik lama.
@@ -265,12 +271,12 @@ class ReactAgent:
             else:
                 out["reasoning"] = (out["reasoning"] + " | low-conf SKIP → veto fallback tahan").strip(" |")
 
-        d = self._build(sig, state, scores, out, source, shadow)
+        d = self._build(sig, state, scores, out, source, shadow, memory)
         self._record(d)
         return d
 
     def _fallback(self, sig: Signal, state: dict, scores: dict, source: str,
-                  shadow: bool = False) -> Decision:
+                  shadow: bool = False, memory=None) -> Decision:
         """Deterministik: ikuti sinyal rules bila veto lama (fail-open) mengizinkan."""
         if self._veto_allows(sig) and sig.actionable:
             action = "ENTER_LONG" if sig.side == "long" else "ENTER_SHORT"
@@ -280,7 +286,7 @@ class ReactAgent:
             reasoning = f"{source}: fallback — veto/regime menahan entry"
         out = {"action": action, "confidence": 0.0, "reasoning": reasoning,
                "key_risks": [], "lesson_triggered": ""}
-        d = self._build(sig, state, scores, out, source, shadow)
+        d = self._build(sig, state, scores, out, source, shadow, memory)
         self._record(d)
         return d
 
@@ -294,20 +300,24 @@ class ReactAgent:
             return True
 
     def _build(self, sig: Signal, state: dict, scores: dict, out: dict, source: str,
-               shadow: bool = False) -> Decision:
+               shadow: bool = False, memory=None) -> Decision:
         action = out["action"]
         react_action = ""
         if shadow and sig.actionable:
             # Mode A/B: catat verdict agen, TAPI paksa eksekusi ikut rules (ENTER searah sinyal).
             react_action = action
             action = "ENTER_LONG" if sig.side == "long" else "ENTER_SHORT"
-        return Decision(
+        d = Decision(
             id=uuid.uuid4().hex, ts=_utcnow(), symbol=sig.symbol,
             action=action, reasoning=out["reasoning"], confidence=out["confidence"],
             key_risks=out["key_risks"], lesson_triggered=out["lesson_triggered"], source=source,
             signal_scores=scores, react_action=react_action,
             market_state={"price": state["price"], "atr": state["atr"],
                           "funding": state["funding"], "regime": state["regime"]})
+        if memory is not None:                       # ingat keputusan lintas-tick
+            memory.remember("decision", d.symbol,
+                            {"action": react_action or action, "src": source})
+        return d
 
     def _record(self, d: Decision) -> None:
         """Append satu baris keputusan (outcome diisi nanti saat posisi tutup, Phase 2)."""

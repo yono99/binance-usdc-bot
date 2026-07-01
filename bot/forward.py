@@ -25,6 +25,7 @@ import json as _json
 
 from .lessons import LessonsEngine
 from .logger import LOG_DIR, journal, log
+from .memory import AgentMemory
 from .news import NewsVeto
 from .planner import SessionPlanner, default_plan
 from .react_agent import ReactAgent
@@ -79,6 +80,7 @@ class ForwardTester:
         # ReAct agent: gerbang entry AKTIF utk teknik non-gemini (Gemini mati → fallback ikut sinyal).
         self.react = ReactAgent(self.settings, self.cfg)
         self.lessons = LessonsEngine(self.settings, self.cfg)
+        self.agent_memory = AgentMemory()          # memori lintas-tick (point 4)
         self.ab_shadow = bool(self.cfg.get("agent", {}).get("ab_shadow", False))  # A/B: tak blokir
         _ag = self.cfg.get("agent", {})
         full = bool(_ag.get("full_auto", False))   # SATU saklar: nyalakan seluruh stack otonom
@@ -226,7 +228,8 @@ class ForwardTester:
         daily_pnl_r = self._day_pnl / one_r if one_r else 0.0
         kw = dict(regime=regime, alt=alt, n_positions=len(self.open),
                   max_positions=self.max_open, daily_pnl_r=daily_pnl_r,
-                  lessons=self.lessons.recent(10), shadow=self.ab_shadow)
+                  lessons=self.lessons.recent(10), shadow=self.ab_shadow,
+                  memory=self.agent_memory)     # ingat observasi/keputusan lintas-tick
         if self.tool_loop:                      # agent OTONOM: nalar+panggil tool iteratif
             from .tools import ToolContext, build_tools
             ctx = ToolContext(ex=self.ex, open_positions=self.open, buffers=self.buffers,
@@ -506,6 +509,7 @@ class ForwardTester:
         if abs(st.get("cfg_balance", self._last_cfg_balance) - self._last_cfg_balance) < 1e-9:
             self.balance_usd = float(st.get("balance", self.balance_usd))
         self.open = st.get("open", {}) or {}
+        self.agent_memory.restore(st.get("agent_memory"))   # memori lintas-tick tahan restart
         # pulihkan state circuit breaker harian bila masih hari yang sama (UTC)
         if st.get("day") == str(pd.Timestamp.utcnow().date()):
             self._day_pnl = float(st.get("day_pnl", 0.0))
@@ -543,7 +547,8 @@ class ForwardTester:
                                 "cfg_balance": self._last_cfg_balance,
                                 "day": str(self._day), "day_pnl": round(self._day_pnl, 4),
                                 "day_trades": self._day_trades,
-                                "day_start_balance": round(self._day_start_balance, 6)})
+                                "day_start_balance": round(self._day_start_balance, 6),
+                                "agent_memory": self.agent_memory.snapshot()})   # memori lintas-tick
         except Exception as e:  # boundary
             log.warning(f"persist state gagal: {e}")
 

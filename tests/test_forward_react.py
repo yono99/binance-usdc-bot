@@ -17,6 +17,8 @@ def _bare_ft():
     ft.ab_shadow = False
     ft.tool_loop = False
     ft.tool_max_iters = 4
+    from bot.memory import AgentMemory
+    ft.agent_memory = AgentMemory()
     ft.lessons = types.SimpleNamespace(recent=lambda n: [])
 
     def _raise(*a, **k):
