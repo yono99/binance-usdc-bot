@@ -919,14 +919,24 @@ async function load(){
 const AGFLAGS=[["agent_full_auto","Full-auto"],["agent_tool_loop","Tool-loop"],
   ["agent_autonomous","Autonomous"],["agent_planner","Planner"],["agent_ab_shadow","A/B shadow"],
   ["news_veto","News-veto"]];
+const AGWARN={agent_full_auto:{on:"Full-auto = tool-loop+autonomous+planner. Tool-loop = BANYAK panggilan Gemini (bisa 429 free-tier). LIVE FLAT butuh allow_live_trader. Lanjut?"},
+  agent_tool_loop:{on:"Tool-loop: panggilan Gemini jauh lebih banyak tiap keputusan (bisa 429). Lanjut?"},
+  agent_autonomous:{on:"Autonomous: agen boleh TUTUP SEMUA posisi (FLAT)/geser stop otomatis. LIVE FLAT butuh allow_live_trader. Lanjut?"},
+  agent_planner:{on:"Planner bisa MEMBATASI entry (kuota/eksposur/risk-off). Lanjut?"},
+  agent_ab_shadow:{on:"A/B shadow: ReAct catat verdict tanpa memblokir (rules tetap eksekusi). Lanjut?"},
+  news_veto:{off:"Matikan News-veto: entry TETAP jalan walau ada berita high-impact. Lanjut?"}};
 async function loadAgentCtl(){
   const s=await j('/api/agent-settings'); if(!s)return;
   $('#agentctl').innerHTML=AGFLAGS.map(([k,lbl])=>
-    `<label style="margin-right:14px"><input type="checkbox" data-k="${k}" ${s[k]?'checked':''}> ${esc(lbl)}</label>`).join('');
+    `<label style="margin-right:14px"><input type="checkbox" data-k="${k}" ${s[k]?'checked':''}> ${esc(lbl)}</label>`).join('')+
+    '<span id="agnote" class="pos" style="margin-left:8px"></span>';
   document.querySelectorAll('#agentctl input').forEach(el=>el.addEventListener('change',async e=>{
-    const b={}; b[e.target.dataset.k]=e.target.checked;
-    await fetch('/api/agent-settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
-    loadAgentCtl();
+    const k=e.target.dataset.k, v=e.target.checked;
+    const w=v?(AGWARN[k]||{}).on:(AGWARN[k]||{}).off;
+    if(w && !window.confirm(w)){ loadAgentCtl(); return; }   // batal → kembalikan centang
+    await fetch('/api/agent-settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({[k]:v})});
+    await loadAgentCtl();
+    const n=document.getElementById('agnote'); if(n){ n.textContent='✓ '+k+' '+(v?'ON':'OFF')+' diterapkan'; setTimeout(()=>{if(n)n.textContent='';},4000); }
   }));
 }
 loadAgentCtl();
