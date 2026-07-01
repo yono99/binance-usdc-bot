@@ -109,3 +109,72 @@ handoff larang; satu-satunya pembeda = horizon 1d belum diuji formal. Hampir pas
 3. H26 → H25 → H27 → H28 → H31 → H32, masing-masing bunuh-cepat.
 
 Aturan tetap: verdict hanya dari 4 palang; hasil apa pun dicatat di RESEARCH_LOG.md.
+
+---
+
+# PROGRAM AKTIF & PRA-REGISTRASI FASE 5 (ditulis 2026-07-02, SEBELUM data ada)
+
+> Bagian ini adalah kontrak dengan diri sendiri: kriteria evaluasi ditetapkan
+> SEKARANG, sebelum satu pun titik data forward terkumpul. Menggeser palang
+> setelah melihat data = membatalkan seluruh nilai uji. Tiga program berjalan
+> otomatis (Scheduled Task `BinanceBot_Collectors`, launcher `start_collectors.ps1`,
+> dedupe via `logs/*.pid`).
+
+## A. H28 forward paper-test (daemon `h28_forward.py`, mulai 2026-07-02)
+
+**Setup beku:** gate gap DVOL−RV30 > 0.10; basket −ivol q0.3 dollar-neutral
+(universe beku `h28_universe.txt`, 103 simbol); hold 10 hari; biaya 0.28%/siklus;
+output `data/h28_forward/trades.jsonl`.
+
+**Kriteria evaluasi PRA-REGISTRASI:**
+- Evaluasi PERTAMA hanya setelah **≥15 siklus tertutup** (perkiraan: 6–12 bulan).
+  Dilarang menilai sebelum itu; dilarang menghentikan lebih awal karena hasil
+  buruk ATAU baik (keduanya bias).
+- LOLOS bila: mean pnl_net > 0 DAN t-test satu-sisi p < 0.05 (INI SATU TRIAL —
+  tanpa koreksi, karena tak ada grid yang dipilih; semua parameter beku).
+- Bila LOLOS → naik ke paper-test tahap 2 dgn sizing realistis & slippage terukur
+  dari data L2. Bila GAGAL → H28 mati permanen, jangan revisit.
+- Larangan keras: mengubah gate/hold/universe di tengah jalan = test batal.
+
+## B. H30 spread capture maker (data L2 via `l2collect.py`, mulai 2026-07-02)
+
+**Data:** 8 pair (CRV/BOME/FIL/NEAR/NEO/PNUT = spread 9–15bps; BTC/ETH = baseline),
+10 level, 2 detik, `data/l2/*.jsonl.gz`.
+
+**Riset layak setelah ≥4 minggu data.** Rencana uji (pra-registrasi):
+1. **Ukur dulu, jangan simulasi dulu:** distribusi spread per jam-hari, half-life
+   spread, frekuensi mid-cross (proxy fill), ukuran adverse move pasca-fill-proxy.
+2. Estimasi edge kotor per round-trip quoting 1 level: spread/2 − adverse
+   selection terukur. Bila estimasi KOTOR < 3bps di pair terbaik → H30 mati tanpa
+   perlu simulasi (bunuh cepat).
+3. Bila lolos (2): simulasi replay KONSERVATIF (fill hanya bila harga MENEMBUS
+   level quote, bukan menyentuh; antrian diasumsikan terburuk).
+4. Bila lolos (3): forward paper-quote → baru bicara uang recehan.
+**Failure mode yang diwaspadai:** snapshot 2s melewatkan dinamika antrian →
+semua estimasi fill WAJIB konservatif; hasil optimis = curiga bug dulu.
+
+## C. H19 OI crowding-freshness (data via `oicollect.py`, mulai 2026-07-02)
+
+**Data:** OI semua perp USDT+USDC per jam, `data/oi/*.jsonl.gz`.
+**Riset layak setelah ≥6 bulan.** Uji: skor = −sign(funding) × ΔOI%(3d), aktif
+hanya di |funding| ekstrem; engine `walk_forward_scores` yang sudah ada; grid
+maks 4 trial; palang 4 standar. Sebelum 6 bulan: JANGAN diintip untuk "preview".
+
+## D. Aturan untuk pengembang hipotesis berikutnya
+
+1. Baca RESEARCH_HANDOFF.md + file ini SEBELUM mengusulkan apa pun. 22 hipotesis
+   sudah mati — daftar lengkap di tabel atas & RESEARCH_LOG.md. Varian kecil dari
+   yang mati = dilarang.
+2. Hipotesis baru harus punya: rasional ekonomi + alasan belum ter-arbitrase +
+   grid ≤6 trial + failure mode tertulis SEBELUM dieksekusi (format file ini).
+3. Infrastruktur yang tersedia: builder 1-fungsi di `xs_signals.py` (cross-
+   sectional), `carry.py` (+gerbang), `settlement.py` (event-terjadwal),
+   `lifecycle.py` (sumbu listing-date), `statarb.py`, `combiner.py` (+lockbox),
+   `tsmom.py`, `sector.py`. Hampir semua ide bisa diuji <1 hari kerja.
+4. Sumber edge yang benar-benar belum tersentuh bila A–C nihil: on-chain flows,
+   sentimen real-time, event listing/delisting SPOT (bukan usia perp), dan
+   likuiditas eksekusi (arah H30). Semua butuh data baru — mulai rekam dulu,
+   riset belakangan (pola L2/OI).
+5. Prinsip tak berubah: OOS adalah hakim; n kecil = belum ada bukti; positif
+   tak signifikan = artefak sampai terbukti sebaliknya; LLM = rem, bukan gas;
+   dan TIDAK ADA yang di-live-kan tanpa lolos 4 palang.
