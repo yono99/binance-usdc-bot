@@ -718,9 +718,22 @@ class ForwardTester:
             return None
         return min(sl, cap)                            # clamp turun bila terlalu dekat likuidasi
 
+    @staticmethod
+    def _adaptive_bet(balance: float, bet_usd: float, bet_pct: float,
+                      open_positions: dict, gem_conv: float | None = None) -> float:
+        """Ukuran margin ADAPTIF: bet_pct>0 → %saldo (auto-scale $10→naik), else bet_usd tetap.
+        Skala conviction Gemini (lantai 20%), lalu CAP ke margin BEBAS (saldo − terkunci) agar
+        akun modal-minim tak pernah 'diam total'. Kembalikan 0.0 bila tak ada margin bebas."""
+        bet = balance * (bet_pct / 100.0) if bet_pct > 0 else bet_usd
+        if gem_conv is not None:
+            bet = max(bet * gem_conv, bet * 0.2)
+        locked = sum((p.get("bet") or 0) for p in open_positions.values())
+        avail = balance - locked
+        if avail < 0.10:
+            return 0.0
+        return min(bet, avail)
+
     def _open_usd(self, sym: str, side: int, atr: float, rs: RuntimeSettings) -> None:
-        # Gemini: ukuran skala conviction (lantai 20%) — arah AI, ukuran tetap aturan.
-        bet = rs.bet_usd
         gem = self.sig_cache.get(sym, {}).get("gemini") if self.use_gemini_trader else None
         # GERBANG LIVE: Gemini-trader tak boleh order UANG NYATA tanpa izin eksplisit.
         if gem and self.live and not self._allow_live_gemini:
@@ -729,10 +742,11 @@ class ForwardTester:
             c = self.sig_cache.setdefault(sym, {})
             c["blocked"] = "gemini-live dimatikan (config)"
             return
-        if gem:
-            conv = float(gem["dec"].get("conviction", 0.0) or 0.0)
-            bet = max(rs.bet_usd * conv, rs.bet_usd * 0.2)
-        if self.balance_usd < bet:
+        gem_conv = float(gem["dec"].get("conviction", 0.0) or 0.0) if gem else None
+        bet = self._adaptive_bet(self.balance_usd, rs.bet_usd, rs.bet_pct, self.open, gem_conv)
+        if bet <= 0:
+            c = self.sig_cache.setdefault(sym, {})
+            c["blocked"] = "margin bebas habis"
             return
         price = float(self.ex.ticker(sym)["last"])
         is_long = side == 1

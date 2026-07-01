@@ -42,7 +42,8 @@ class RuntimeSettings:
     technique: str = "auto"                     # scalping | swing | auto
     symbols: list[str] = field(default_factory=lambda: ["BTC/USDC:USDC"])
     leverage: int = 100                         # default 100x (paper) — likuidasi pada gerakan ~0.5%
-    bet_usd: float = 12.0                       # margin per posisi
+    bet_usd: float = 12.0                       # margin per posisi (dipakai bila bet_pct=0)
+    bet_pct: float = 0.0                         # ADAPTIF: >0 → margin = %saldo (auto-scale $10→naik)
     balance_usd: float = 12.0                   # saldo akun (paper)
     target_profit_pct: float = 0.0              # 0 = pakai TP dari ATR; >0 = TP = entry×(1+ini%)
     max_open_positions: int = 2                 # slot posisi paralel maksimum
@@ -66,6 +67,7 @@ class RuntimeSettings:
         self.technique = self.technique if self.technique in PRESETS else "auto"
         self.leverage = int(max(1, min(125, self.leverage)))
         self.bet_usd = max(0.01, float(self.bet_usd))
+        self.bet_pct = max(0.0, min(100.0, float(self.bet_pct)))   # 0 = pakai bet_usd tetap
         self.balance_usd = max(0.0, float(self.balance_usd))
         self.target_profit_pct = max(0.0, min(100.0, float(self.target_profit_pct)))   # >100% gerak harga = tak masuk akal
         self.max_open_positions = int(max(1, min(20, self.max_open_positions)))
