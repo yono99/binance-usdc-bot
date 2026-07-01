@@ -20,6 +20,7 @@ export interface Settings {
   symbols: string[];
   leverage: number;
   bet_usd: number;
+  bet_pct: number;
   balance_usd: number;
   target_profit_pct: number;
   max_open_positions: number;

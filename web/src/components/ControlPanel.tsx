@@ -18,6 +18,7 @@ type Form = {
   symbols: string[];
   leverage: number;
   bet_usd: number;
+  bet_pct: number;
   balance_usd: number;
   target_profit_pct: number;
   max_open_positions: number;
@@ -57,6 +58,7 @@ export function ControlPanel({
     symbols: d.symbols || [],
     leverage: d.leverage,
     bet_usd: d.bet_usd,
+    bet_pct: d.bet_pct ?? 0,
     balance_usd: d.balance_usd,
     target_profit_pct: d.target_profit_pct,
     max_open_positions: d.max_open_positions,
@@ -114,7 +116,8 @@ export function ControlPanel({
   // Bidang numerik yang divalidasi engine (clamp). Jika user input ngawur,
   // engine kembalikan ke batas wajar -> tampilkan peringatan apa yang disesuaikan.
   const NUM_FIELDS: [keyof Form, string][] = [
-    ["leverage", "Leverage"], ["bet_usd", "Bet"], ["target_profit_pct", "Target profit %"],
+    ["leverage", "Leverage"], ["bet_usd", "Bet"], ["bet_pct", "Bet % saldo"],
+    ["target_profit_pct", "Target profit %"],
     ["max_open_positions", "Max posisi"], ["poll_seconds", "Interval screening"],
     ["daily_max_loss_pct", "Stop-loss harian %"], ["daily_max_trades", "Max trade harian"],
     ["taker_fee_pct", "Fee taker %"], ["maker_fee_pct", "Fee maker %"],
@@ -134,7 +137,8 @@ export function ControlPanel({
     setS((prev) => (prev ? { ...prev, ...res } : res)); // merge, jaga 'techniques'
     // pakai nilai hasil clamp engine (kalau user input ngawur, ikut engine)
     setForm((p) =>
-      p ? { ...p, leverage: res.leverage, bet_usd: res.bet_usd, target_profit_pct: res.target_profit_pct,
+      p ? { ...p, leverage: res.leverage, bet_usd: res.bet_usd, bet_pct: res.bet_pct ?? 0,
+            target_profit_pct: res.target_profit_pct,
             max_open_positions: res.max_open_positions, poll_seconds: res.poll_seconds,
             daily_max_loss_pct: res.daily_max_loss_pct, daily_max_trades: res.daily_max_trades,
             taker_fee_pct: res.taker_fee_pct, maker_fee_pct: res.maker_fee_pct } : p
@@ -195,8 +199,17 @@ export function ControlPanel({
           <input type="number" min={1} max={125} value={form.leverage} onChange={(e) => set("leverage", +e.target.value)} />
         </label>
         <label>
-          Bet / margin (USD)
-          <input type="number" min={0.01} step={0.01} value={form.bet_usd} onChange={(e) => set("bet_usd", +e.target.value)} />
+          Bet / margin (USD) ·{" "}
+          <span className="sub">{form.bet_pct > 0 ? "diabaikan (pakai % saldo)" : "margin tetap"}</span>
+          <input type="number" min={0.01} step={0.01} value={form.bet_usd}
+            disabled={form.bet_pct > 0}
+            onChange={(e) => set("bet_usd", +e.target.value)} />
+        </label>
+        <label>
+          Bet % saldo (adaptif) ·{" "}
+          <span className="sub">0 = pakai margin tetap · &gt;0 = margin auto-scale saat modal tumbuh ($10→naik)</span>
+          <input type="number" min={0} max={100} step={0.5} value={form.bet_pct}
+            onChange={(e) => set("bet_pct", +e.target.value)} />
         </label>
         <label>
           Saldo (USD) — hidup{" "}
