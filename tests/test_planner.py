@@ -28,6 +28,20 @@ def test_sanitize_rejects_invalid_enum():
     assert p["stance"] == "normal" and p["bias"] == "neutral"
 
 
+def test_floor_prevents_choking_small_account():
+    # Planner terlalu defensif (0 trade, eksposur 5%) → lantai jaga akun modal-minim tetap bisa trade.
+    p = SessionPlanner.sanitize({"stance": "defensive", "max_new_trades": 0,
+                                 "max_exposure_frac": 0.05}, hard_max_trades=10)
+    assert p["max_new_trades"] >= 1 and p["max_exposure_frac"] >= 0.5
+
+
+def test_risk_off_can_stop_fully():
+    # risk_off = cara berhenti eksplisit → TIDAK di-lantai (boleh 0 trade).
+    p = SessionPlanner.sanitize({"stance": "risk_off", "max_new_trades": 0,
+                                 "max_exposure_frac": 0.0}, hard_max_trades=10)
+    assert p["max_new_trades"] == 0
+
+
 # ---------- enforce (hanya mengetatkan) ----------
 
 def _plan(**kw):
@@ -110,5 +124,5 @@ def test_refresh_plan_sets_and_resets(monkeypatch):
     ft.planner = types.SimpleNamespace(enabled=False,
                                        make_plan=lambda ctx, hard_max_trades: default_plan(hard_max_trades))
     monkeypatch.setattr(fwd.decision_log, "append", lambda *a, **k: None)
-    ft._refresh_plan(types.SimpleNamespace(enabled=True))
+    ft._refresh_plan(types.SimpleNamespace(enabled=True, bet_usd=2.0, leverage=100))
     assert ft._session_trades == 0 and ft._session_plan["max_new_trades"] == 5
