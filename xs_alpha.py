@@ -15,7 +15,7 @@ import argparse
 from rich.console import Console
 from rich.table import Table
 
-from bot import carry, xs_signals as xss, xsectional as xs
+from bot import carry, sector, xs_signals as xss, xsectional as xs
 from bot.altdata import fetch_funding
 from bot.backtest import fetch_history
 from bot.config import load_settings
@@ -35,7 +35,7 @@ DEFAULT_UNIVERSE = [
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--hypothesis", required=True,
-                   choices=["resid_mom", "leadlag", "ivol", "skew", "funding_accel"])
+                   choices=["resid_mom", "leadlag", "ivol", "skew", "funding_accel", "sector"])
     p.add_argument("--symbols", nargs="*", default=None)
     p.add_argument("--tf", default="1h")
     p.add_argument("--bars", type=int, default=8000)
@@ -54,7 +54,7 @@ def parse_args():
     return p.parse_args()
 
 
-def build_panels(hyp, close, btc_idx, level, windows=None, beta_win=240):
+def build_panels(hyp, close, btc_idx, level, windows=None, beta_win=240, vol=None):
     """Kembalikan (score_panels: dict, holds: list) untuk hipotesis terpilih.
     windows/beta_win dalam BAR — sesuaikan dgn timeframe (mis. daily: window 30-60)."""
     if hyp == "resid_mom":       # H3
@@ -72,6 +72,10 @@ def build_panels(hyp, close, btc_idx, level, windows=None, beta_win=240):
         return ({f"sk{x}": xss.score_skew(close, x) for x in w}, [120, 240])
     if hyp == "funding_accel":   # H15
         return ({f"fa{i}": xss.score_funding_accel(level, i) for i in (8, 24)}, [8, 24])
+    if hyp == "sector":          # H13 — klaster naratif, leader→follower (daily: window 60/90)
+        w = windows or (60, 90)
+        return ({f"sec{cw}": sector.score_sector_leadlag(close, vol, cw, lead_lookback=3)
+                 for cw in w}, [5, 10])
     raise ValueError(hyp)
 
 
@@ -106,10 +110,13 @@ def main() -> None:
     btc_idx = btc_cols[0]
     close = panel.to_numpy()
     level = carry.align_funding(fundings, panel.index, list(panel.columns))[0] if need_funding else None
+    vol = (xs.volume_panel(dfs, panel.index, list(panel.columns))
+           if args.hypothesis == "sector" else None)
     log.info(f"Panel: {panel.shape[1]} simbol × {len(panel)} bar ({tf}), BTC@{btc_idx}.")
 
     cost_frac = 4 * (args.fee + args.slippage) / 100 * args.stress_mult
-    panels, holds = build_panels(args.hypothesis, close, btc_idx, level, args.windows, args.beta_win)
+    panels, holds = build_panels(args.hypothesis, close, btc_idx, level, args.windows,
+                                 args.beta_win, vol)
     if args.holds:
         holds = args.holds
     n_trials = len(panels) * len(holds)
