@@ -1,5 +1,9 @@
 import type {
   Account,
+  AgentAB,
+  AgentHealth,
+  AgentPlan,
+  AgentSettings,
   GeminiTrader,
   GeminiUsage,
   NewsLogEntry,
@@ -42,6 +46,12 @@ export const api = {
   geminiUsage: (recent = 30) => getJSON<GeminiUsage>(`/api/gemini-usage?recent=${recent}`),
   geminiTrader: () => getJSON<GeminiTrader>("/api/gemini-trader"),
   geminiModels: () => getJSON<{ models: string[] }>("/api/gemini-models"),
+  agentSettings: () => getJSON<AgentSettings>("/api/agent-settings"),
+  saveAgentSettings: (body: Partial<AgentSettings>) =>
+    postJSON<AgentSettings>("/api/agent-settings", body),
+  agentHealth: () => getJSON<AgentHealth>("/api/agent-health"),
+  agentPlan: () => getJSON<AgentPlan>("/api/plan"),
+  agentAB: () => getJSON<AgentAB>("/api/ab"),
 
   saveSettings: (body: Record<string, unknown>) => postJSON<Settings>("/api/settings", body),
   validateKey: (key: string, secret: string) =>

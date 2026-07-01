@@ -81,6 +81,45 @@ export interface Status {
   symbols?: PairStatus[];
 }
 
+export interface AgentSettings {
+  agent_full_auto: boolean;
+  agent_tool_loop: boolean;
+  agent_autonomous: boolean;
+  agent_planner: boolean;
+  agent_ab_shadow: boolean;
+}
+
+export interface AgentHealth {
+  total: number;
+  llm: number;
+  fallbacks: number;
+  fallback_rate: number;
+  llm_available_rate: number;
+  by_source: Record<string, number>;
+}
+
+export interface AgentPlan {
+  stance?: string;
+  bias?: string;
+  max_new_trades?: number;
+  max_exposure_frac?: number;
+  reasoning?: string;
+  ts?: string;
+}
+
+export interface AgentAB {
+  verdict: string;
+  reason?: string;
+  n_total?: number;
+  n_kept?: number;
+  n_denied?: number;
+  exp_r_rules?: number | null;
+  exp_r_rules_react?: number | null;
+  improvement?: number | null;
+  p_value?: number | null;
+  significant?: boolean;
+}
+
 export interface Account {
   mode: string;
   api_valid: boolean | null;

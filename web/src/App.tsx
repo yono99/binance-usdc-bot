@@ -4,6 +4,7 @@ import { usePoll } from "./hooks";
 import type { Stats } from "./types";
 import { StatsCards } from "./components/StatsCards";
 import { ControlPanel } from "./components/ControlPanel";
+import { AgentControls } from "./components/AgentControls";
 import { AccountPanel } from "./components/AccountPanel";
 import { BotStatus } from "./components/BotStatus";
 import { PriceChart } from "./components/PriceChart";
@@ -51,6 +52,7 @@ export default function App() {
       </header>
       <div className="wrap">
         <ControlPanel status={status} available={available} account={account} />
+        <AgentControls />
         <AccountPanel acct={account} />
         <GeminiUsage />
         <BotStatus status={status} onAction={refreshAll} />
