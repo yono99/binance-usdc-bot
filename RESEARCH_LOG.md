@@ -203,3 +203,25 @@ Both remaining orthogonal directional angles from the handoff are now tested. H1
 definitively dead (760 symbols, honest cohort OOS). H13 is dead on majors; the only open
 directional question is H13 on a wide small-cap universe. After that, the honest remaining
 options are execution/liquidity edges or stopping.
+
+### H13 sector lead-lag — small-cap definitive run (2026-07-02)
+
+Universe: **208 small-caps** (from 760 cached; ≥800 daily bars, top-20 dollar-volume
+majors removed, median dvol floor 100k USDT/day, BTC kept for panel requirement),
+panel 208×800 daily, fee 0.02 + slip 0.05, train 300 / test 120, grid 4.
+
+- **Forward (follower follows leader):** OOS **−1.0058%**/rebalance over 45 rebalances,
+  win 40.0%, Sharpe −0.272. IS Sharpe negative in *all three* windows — no in-sample
+  signal to begin with. **REJECTED.**
+- **Reverse (follower fades leader), post-hoc check** (effective trials 8, not 4):
+  OOS **−0.2211%**, win 45.5%. **REJECTED.**
+
+### Phase 3 closing verdict
+H13 and H14 — the last two untested orthogonal directional angles from the handoff —
+are both dead on definitive universes. The directional-prediction hypothesis space
+(per-symbol TA, cross-sectional, stat-arb, lifecycle, sector rotation) is now
+**exhausted**: 15+ hypotheses honestly tested, 0 edges. Remaining honest options:
+(1) execution/liquidity structural edges (maker rebate, spread capture, TWAP in
+illiquid pairs), which require a different research program (forward L2 collection
+is already scaffolded in `l2collect.py`); or (2) stop. Do not go live with anything
+that failed the four bars.
