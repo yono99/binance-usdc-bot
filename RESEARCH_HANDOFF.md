@@ -202,3 +202,55 @@ Pilihan jujur, urut:
 
 **Jangan pernah** live-kan strategi yang gagal signifikansi/OOS demi "mencoba" — itu
 mentradingkan koin dengan biaya nyata. Seluruh nilai kerja ini ada pada disiplin itu.
+
+---
+
+# UPDATE 2026-07-02 — Fase 3–5 (penutup program direksional + program forward)
+
+> Bagian asli di atas mencakup Fase 1–2 (12+ hipotesis). Sesi Fase 3–4 menambah
+> 10 hipotesis lagi. **Total program: 22 hipotesis, 0 lolos empat palang.**
+> Ruang prediksi arah dinyatakan HABIS dengan bukti. Detail per-uji:
+> RESEARCH_LOG.md; registri + status: RESEARCH_HYPOTHESES_PHASE4.md.
+
+## Fase 3 (engine baru, keduanya DITOLAK definitif)
+| H | Engine | Hasil |
+|---|---|---|
+| H13 sektor lead-lag | `bot/sector.py` (clustering korelasi, leader by dvol) | majors +0.24% p_adj=1.0; small-cap 208×800d **−1.01%**; reverse −0.22% |
+| H14 listing-age | `bot/lifecycle.py` (cohort walk-forward sumbu listing-date) | 760 simbol, span 2338 hr: train SHORT umur 1–8hr −1.91% → OOS kohort baru **−0.55%** (efek berbalik) |
+
+## Fase 4 (registri H24–H32, semua DITOLAK)
+Terbaik sepanjang program: **H28 VRP-DVOL** (gate gap DVOL−RV30 pada basket
+−ivol) — satu-satunya yang pernah lolos p_adj (0.036, n=38, 8/8 window positif,
+win 71%) lalu gugur di replikasi 1800d (mean −50%, p_adj=0.336) & stress ×2.
+Mengalahkan H18 di semua dimensi (effect size ~20–40×, win 71% vs 50.4%) tapi
+tetap DITOLAK oleh palang. Lainnya: H24 settlement (gross≈0, n=1250), H25
+carry×momentum (−0.54% meski income dihitung — carry TAMAT), H26 illiq-shock
+(pilot +0.54% = artefak → definitif −0.35%), H27 venue-basis (−0.18%), H31
+downside-beta (−1.14%), H32 TSMOM 1d (+0.45% p_adj=0.59).
+
+## Yang BERJALAN sekarang (Fase 5 — menunggu data, bukan menunggu ide)
+Tiga daemon auto-start (Scheduled Task `BinanceBot_Collectors` →
+`start_collectors.ps1`, dedupe PID di `logs/*.pid`):
+1. `l2collect.py` — L2 8 pair USDC (6 spread-lebar + BTC/ETH baseline) @2s →
+   **H30 spread capture**, riset mulai ±Agustus 2026 (langkah pra-registrasi:
+   ukur dulu → bunuh-cepat bila edge kotor <3bps → simulasi konservatif).
+2. `oicollect.py` — OI 800 perp per jam → **H19 crowding-freshness**, uji ≥6 bulan.
+3. `h28_forward.py` — paper-test H28, parameter BEKU, evaluasi HANYA setelah
+   ≥15 siklus (t-test 1 trial). Universe beku: `h28_universe.txt`.
+Kriteria evaluasi ketiganya PRA-REGISTRASI di RESEARCH_HYPOTHESES_PHASE4.md —
+jangan digeser setelah melihat data.
+
+## Arah pengembangan tesis lanjutan (bila A–C nihil)
+Sumber edge yang belum tersentuh dan butuh REKAM DULU (pola L2/OI): on-chain
+flows, sentimen real-time, event listing/delisting SPOT. Ditambah investasi
+engineering yang pasti terpakai: eksekusi maker (order pasif, partial-fill) di
+`execution.py` — prasyarat H30 bila lolos. Untuk penerus: patuhi bagian D
+registri (format proposal, grid ≤6 trial, larangan varian dari 22 yang mati).
+
+## Infrastruktur riset final (semua teruji, kontrol +/−; 367 test hijau)
+`optimize.py` (per-simbol) · `xsectional.py`+`xs_signals.py` (cross-sectional,
+12 builder) · `carry.py` (+gerbang momentum) · `settlement.py` (event terjadwal)
+· `lifecycle.py` (sumbu listing-date) · `statarb.py` · `combiner.py` (lockbox) ·
+`sector.py` · `tsmom.py` · CLI: `xs_alpha.py`, `carry_mom.py`, `settlement_alpha.py`,
+`basis_alpha.py`, `vrp_alpha.py`, `tsmom_alpha.py`, `lifecycle.py`, `statarb.py`,
+`combine.py`. Hipotesis cross-sectional baru = 1 fungsi builder.
