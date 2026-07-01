@@ -99,6 +99,15 @@ export function AgentControls() {
           c={ab?.significant ? "pos" : ""}
         />
         <Mini
+          lbl="Drawdown rules→ReAct"
+          val={
+            ab?.risk_rules?.max_drawdown_r != null
+              ? `${ab.risk_rules.max_drawdown_r}R → ${ab.risk_react?.max_drawdown_r ?? "—"}R`
+              : "—"
+          }
+          c={ab?.reduces_risk ? "pos" : ""}
+        />
+        <Mini
           lbl="LLM vs fallback"
           val={health ? `${health.llm}/${health.fallbacks}` : "—"}
           c={health && health.fallback_rate > 0.5 ? "neg" : ""}
