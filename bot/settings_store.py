@@ -50,6 +50,12 @@ class RuntimeSettings:
     daily_max_loss_pct: float = 3.0             # circuit breaker: stop buka posisi bila rugi harian ≥ % saldo awal hari (0 = nonaktif)
     daily_max_trades: int = 20                  # circuit breaker: stop bila jumlah trade hari ini tercapai (0 = nonaktif)
     poll_seconds: int = 60                      # heartbeat bot (baca setting+monitor+status). Sinyal dievaluasi per bar TF.
+    # --- Penyetelan Gemini (atur frekuensi panggilan → hemat RPM/token), semua di UI ---
+    gemini_decide_seconds: int = 180            # throttle keputusan Gemini per simbol (teknik gemini)
+    gemini_manage_seconds: int = 60             # throttle kelola posisi Gemini (exit-only)
+    gemini_portfolio_seconds: int = 300         # throttle review portofolio (autonomous)
+    gemini_plan_hours: int = 6                  # interval planner (tujuan sesi)
+    gemini_tool_iters: int = 4                  # maks langkah tool-loop per keputusan
     order_type: str = "limit"                   # default maker (limit) | market (taker)
     taker_fee_pct: float = 0.05                 # fee taker (%) — market order
     maker_fee_pct: float = 0.02                 # fee maker (%) — limit order
@@ -76,6 +82,11 @@ class RuntimeSettings:
         self.daily_max_loss_pct = max(0.0, min(100.0, float(self.daily_max_loss_pct)))   # 0 = nonaktif; >100% saldo tak masuk akal
         self.daily_max_trades = int(max(0, min(1000, self.daily_max_trades)))            # 0 = nonaktif
         self.poll_seconds = int(max(5, min(3600, self.poll_seconds)))
+        self.gemini_decide_seconds = int(max(30, min(3600, self.gemini_decide_seconds)))
+        self.gemini_manage_seconds = int(max(30, min(3600, self.gemini_manage_seconds)))
+        self.gemini_portfolio_seconds = int(max(60, min(3600, self.gemini_portfolio_seconds)))
+        self.gemini_plan_hours = int(max(1, min(24, self.gemini_plan_hours)))
+        self.gemini_tool_iters = int(max(1, min(8, self.gemini_tool_iters)))
         self.order_type = self.order_type if self.order_type in ("market", "limit") else "market"
         self.taker_fee_pct = max(0.0, float(self.taker_fee_pct))
         self.maker_fee_pct = max(0.0, float(self.maker_fee_pct))

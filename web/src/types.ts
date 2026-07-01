@@ -27,6 +27,11 @@ export interface Settings {
   daily_max_loss_pct: number;
   daily_max_trades: number;
   poll_seconds: number;
+  gemini_decide_seconds: number;
+  gemini_manage_seconds: number;
+  gemini_portfolio_seconds: number;
+  gemini_plan_hours: number;
+  gemini_tool_iters: number;
   mode: string;
   order_type: string;
   taker_fee_pct: number;
