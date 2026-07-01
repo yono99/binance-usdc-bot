@@ -34,6 +34,19 @@ def _mean(xs):
     return float(np.mean(xs)) if xs else None
 
 
+def _risk_stats(rs: list) -> dict:
+    """Metrik RISIKO (Jalan A) atas urutan R kronologis: max drawdown, volatilitas, R terburuk.
+    Manajer disiplin dinilai dari PENGURANGAN risiko, bukan exp_R."""
+    if not rs:
+        return {"max_drawdown_r": None, "std_r": None, "worst_r": None, "n": 0}
+    arr = np.asarray(rs, dtype=float)
+    cum = np.cumsum(arr)
+    peak = np.maximum.accumulate(cum)
+    dd = float(np.max(peak - cum))                 # penurunan puncak→lembah terbesar (dalam R)
+    return {"max_drawdown_r": round(dd, 3), "std_r": round(float(arr.std()), 3),
+            "worst_r": round(float(arr.min()), 3), "n": int(arr.size)}
+
+
 def analyze(rows: list[dict], *, alpha: float = 0.05) -> dict:
     """Bandingkan rules-saja vs rules+ReAct. PURE → mudah diuji."""
     a = [float(r["outcome_r"]) for r in rows]
@@ -43,10 +56,15 @@ def analyze(rows: list[dict], *, alpha: float = 0.05) -> dict:
               if not str(r.get("react_action", "")).startswith("ENTER")]
 
     exp_a, exp_b, exp_d = _mean(a), _mean(kept), _mean(denied)
+    # Metrik RISIKO (Jalan A): rules-saja vs rules+ReAct (subset yang agent setujui).
+    risk_rules, risk_react = _risk_stats(a), _risk_stats(kept)
+    dd_r, dd_k = risk_rules["max_drawdown_r"], risk_react["max_drawdown_r"]
+    reduces_risk = bool(dd_r is not None and dd_k is not None and kept and dd_k < dd_r)
     base = {"n_total": len(a), "n_kept": len(kept), "n_denied": len(denied),
             "exp_r_rules": round(exp_a, 4) if exp_a is not None else None,
             "exp_r_rules_react": round(exp_b, 4) if exp_b is not None else None,
-            "exp_r_denied": round(exp_d, 4) if exp_d is not None else None}
+            "exp_r_denied": round(exp_d, 4) if exp_d is not None else None,
+            "risk_rules": risk_rules, "risk_react": risk_react, "reduces_risk": reduces_risk}
 
     if not rows:
         return {**base, "verdict": "NO_DATA",

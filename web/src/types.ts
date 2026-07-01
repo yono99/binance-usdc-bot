@@ -110,6 +110,13 @@ export interface AgentPlan {
   ts?: string;
 }
 
+export interface RiskStats {
+  max_drawdown_r: number | null;
+  std_r: number | null;
+  worst_r: number | null;
+  n: number;
+}
+
 export interface AgentAB {
   verdict: string;
   reason?: string;
@@ -121,6 +128,9 @@ export interface AgentAB {
   improvement?: number | null;
   p_value?: number | null;
   significant?: boolean;
+  risk_rules?: RiskStats;
+  risk_react?: RiskStats;
+  reduces_risk?: boolean;
 }
 
 export interface Account {

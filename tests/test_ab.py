@@ -33,6 +33,26 @@ def test_analyze_no_data():
     assert ab.analyze([])["verdict"] == "NO_DATA"
 
 
+# ---------- metrik risiko (Jalan A) ----------
+
+def test_risk_stats_drawdown():
+    r = ab._risk_stats([1.0, -1.0, 1.0, -1.0])   # cum 1,0,1,0 → dd=1
+    assert r["max_drawdown_r"] == 1.0 and r["worst_r"] == -1.0 and r["n"] == 4
+
+
+def test_risk_stats_empty():
+    assert ab._risk_stats([])["max_drawdown_r"] is None
+
+
+def test_analyze_reports_risk_reduction():
+    # ReAct setuju winner, tolak loser → drawdown subset agent < drawdown rules-saja
+    rows = _rows([("ENTER_LONG", 1.0)] * 10 + [("SKIP", -1.0)] * 10)
+    out = ab.analyze(rows)
+    assert out["risk_rules"]["max_drawdown_r"] > 0          # rules-saja punya drawdown
+    assert out["risk_react"]["max_drawdown_r"] == 0.0       # subset agent (winner) tanpa drawdown
+    assert out["reduces_risk"] is True
+
+
 def test_analyze_insufficient_when_one_arm_empty():
     out = ab.analyze(_rows([("ENTER_LONG", 1.0)] * 5))     # tak ada yang ditolak
     assert out["verdict"] == "INSUFFICIENT"

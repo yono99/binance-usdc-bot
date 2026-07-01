@@ -898,7 +898,10 @@ async function load(){
    `rules: exp_R <b>${ab.exp_r_rules??'—'}</b> (n=${ab.n_total??0}) · `+
    `rules+ReAct: exp_R <b>${ab.exp_r_rules_react??'—'}</b> (n=${ab.n_kept??0}) · `+
    `ditolak: exp_R ${ab.exp_r_denied??'—'} (n=${ab.n_denied??0})<br>`+
-   `improvement: ${ab.improvement??'—'} · p=${ab.p_value??'—'} · signifikan: ${sig}`;}
+   `improvement: ${ab.improvement??'—'} · p=${ab.p_value??'—'} · signifikan: ${sig}<br>`+
+   `<b>risiko (Jalan A):</b> drawdown rules ${ab.risk_rules?ab.risk_rules.max_drawdown_r:'—'}R → `+
+   `rules+ReAct ${ab.risk_react?ab.risk_react.max_drawdown_r:'—'}R · `+
+   `kurangi risiko: ${ab.reduces_risk?'<span class=pos>YA</span>':'<span class=mut>tidak</span>'}`;}
  const d=await j('/api/decisions?limit=20');
  if(d){$('#dec tbody').innerHTML=(d.decisions||[]).map(x=>`<tr><td class="mut">${esc((x.ts||'').slice(0,19))}</td>`+
    `<td>${esc(x.symbol)}</td><td><span class="pill">${esc(x.action)}</span></td><td>${(x.confidence??0)}</td>`+

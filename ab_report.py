@@ -21,6 +21,12 @@ def main() -> None:
     if r.get("p_value") is not None:
         print(f"improvement={r.get('improvement')}  p={r.get('p_value')}  "
               f"significant={r.get('significant')}")
+    rr, rk = r.get("risk_rules") or {}, r.get("risk_react") or {}
+    print("\n--- RISIKO (Jalan A: manajer disiplin) ---")
+    print(f"max drawdown : rules={rr.get('max_drawdown_r')}R  rules+ReAct={rk.get('max_drawdown_r')}R")
+    print(f"volatilitas  : rules std={rr.get('std_r')}  rules+ReAct std={rk.get('std_r')}")
+    print(f"R terburuk   : rules={rr.get('worst_r')}  rules+ReAct={rk.get('worst_r')}")
+    print(f"KURANGI RISIKO: {r.get('reduces_risk')}")
     print("\n--- raw ---")
     print(json.dumps(r, indent=2))
 

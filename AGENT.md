@@ -73,6 +73,11 @@ Opsi di `config.yaml` → `agent:` (semua default **off**, paper-aman):
 > **Cara cepat:** `full_auto: true` = satu saklar yang menyalakan tool_loop **dan**
 > autonomous sekaligus. (Flag individual tetap ada untuk kontrol granular.)
 
+> **JALAN A — `agent_manager_mode: true`** (toggle UI): agent = **MANAJER DISIPLIN**, bukan
+> peramal arah. Override: arah dari RULES (matikan teknik gemini), planner+autonomous ON,
+> tool_loop OFF (frugal). Untuk majors efisien di mana edge prediktif tipis → nilai agent =
+> kelola risiko & bertahan, BUKAN menaikkan exp_R. Ukur via metrik risiko A/B (di bawah).
+
 
 **1. Tool-loop sejati** (`tool_loop: true`) — agen tak lagi satu-shot. Ia **memanggil tool**
 iteratif (nalar → tool → observasi → nalar → aksi), maks `tool_max_iters`. Gagal → fallback
@@ -118,6 +123,11 @@ Denied            = yang ReAct TOLAK   → bila exp_R-nya lebih buruk, veto-nya 
 
 Verdict `REACT_ADDS_VALUE` **hanya** bila `exp_R(B) > exp_R(A)` DAN kept signifikan > denied
 (permutation test, `p<0.05`). Selain itu `NOT_PROVEN` — diterima jujur.
+
+**Metrik RISIKO (Jalan A):** karena manajer disiplin dinilai dari **pengurangan risiko**, bukan
+exp_R, `analyze` juga melaporkan **max drawdown, volatilitas (std), R terburuk** untuk rules-saja
+vs rules+ReAct, plus flag `reduces_risk`. Di majors, verdict exp_R bisa `NOT_PROVEN` **tapi**
+agent tetap bernilai bila `reduces_risk=true` (drawdown lebih kecil). Itulah tolok ukur Jalan A.
 
 ```bash
 python ab_report.py          # laporan CLI
