@@ -78,6 +78,9 @@ class RuntimeSettings:
     conf_full: float = 0.75                      # ≥ ini → ukuran penuh
     conf_min: float = 0.55                       # < ini → ABSTAIN (tak buka posisi)
     conf_reduced_mult: float = 0.5               # di antaranya → pengali ukuran
+    # --- Phase 6: pemantau drift kalibrasi (ALARM saja, TANPA auto-ubah threshold) ---
+    calib_drift_margin: float = 0.05             # Brier terkini − baseline 14h > ini → drift
+    calib_drift_min_n: int = 20                  # min sampel trade terkini sebelum menilai
 
     def clamp(self) -> "RuntimeSettings":
         self.technique = self.technique if self.technique in PRESETS else "auto"
@@ -107,6 +110,8 @@ class RuntimeSettings:
         self.conf_full = max(0.0, min(1.0, float(self.conf_full)))
         self.conf_min = max(0.0, min(self.conf_full, float(self.conf_min)))  # min ≤ full
         self.conf_reduced_mult = max(0.0, min(1.0, float(self.conf_reduced_mult)))
+        self.calib_drift_margin = max(0.0, min(1.0, float(self.calib_drift_margin)))
+        self.calib_drift_min_n = int(max(1, min(1000, self.calib_drift_min_n)))
         # symbols kosong = "screening SEMUA pair USDC" (di-resolve oleh bot)
         return self
 

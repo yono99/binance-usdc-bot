@@ -149,6 +149,7 @@ class ForwardTester:
         self.gtrader = None
         self.use_gemini_trader = False
         self._gem_closes = 0                      # pemicu refleksi berkala
+        self._calib_drifting = False              # Phase 6: status drift (anti-spam alarm)
         self._last_news_note = ""
         self._last_manage: dict = {}              # throttle kelola-posisi per simbol
         self._manage_interval = 60                # detik minimum antar review posisi (~1 menit)
@@ -887,6 +888,7 @@ class ForwardTester:
                 if self._gem_closes % 20 == 0:
                     res = self.gtrader.reflect()
                     log.info(f"Gemini refleksi (live): {res['active_lessons']} pelajaran aktif")
+                    self._check_calib_drift()            # Phase 6: alarm drift (tak blokir)
             except Exception as e:  # boundary
                 log.warning(f"settle gemini live {sym} gagal: {e}")
         # Tautkan close LIVE non-gemini (ReAct) ke decision_log — HANYA bila TEPAT SATU posisi
@@ -1073,6 +1075,7 @@ class ForwardTester:
                     res = self.gtrader.reflect()
                     log.info(f"Gemini refleksi: {res['settled']} settled, "
                              f"{res['active_lessons']} pelajaran aktif")
+                    self._check_calib_drift()                   # Phase 6: alarm drift (tak blokir)
             except Exception as e:  # boundary
                 log.warning(f"settle/reflect gemini {sym} gagal: {e}")
         else:
@@ -1087,6 +1090,40 @@ class ForwardTester:
         icon = {"liq": "💥 <b>LIKUIDASI</b>", "sl": "🛑 SL", "tp": "✅ TP",
                 "manual": "✋ CLOSE", "eod": "⏹ EOD"}.get(reason, reason)
         self.notify.send(f"{icon} {sym}\nPnL ${pnl:+.2f} · R {r:+.2f} · saldo ${self.balance_usd:.2f}")
+
+    def _check_calib_drift(self) -> None:
+        """Phase 6: pantau DRIFT kalibrasi (Brier terkini vs baseline 14-hari, per mode).
+        Bila memburuk melewati margin → ALARM Telegram + SARAN dicatat (jurnal), TANPA
+        mengubah threshold otomatis (keputusan manusia). Anti-spam: alarm HANYA saat MASUK
+        kondisi drift; reset saat pulih. Gagal/sampel kurang → diam (fail-safe)."""
+        from . import store
+        try:
+            rep = store.calibration_report(self.settings.mode, last_n=50, days=14)
+        except Exception as e:  # boundary — instrumentasi, tak boleh ganggu trading
+            log.warning(f"cek drift kalibrasi gagal: {e}")
+            return
+        cur, base = rep.get("last_50_trades", {}), rep.get("last_14_days", {})
+        cb, bb, n = cur.get("brier"), base.get("brier"), cur.get("n", 0) or 0
+        margin = float(getattr(self.rs, "calib_drift_margin", 0.05)) if self.rs else 0.05
+        min_n = int(getattr(self.rs, "calib_drift_min_n", 20)) if self.rs else 20
+        if cb is None or bb is None or n < min_n:
+            return
+        drifting = (cb - bb) > margin and cb > 0.25       # memburuk vs baseline & di bawah koin
+        if drifting and not self._calib_drifting:
+            self._calib_drifting = True
+            cur_min = float(getattr(self.rs, "conf_min", 0.55)) if self.rs else 0.55
+            suggest = round(min(0.95, cur_min + 0.05), 2)  # SARAN saja — tak diterapkan
+            self.notify.send(
+                f"⚠️ <b>DRIFT KALIBRASI</b> [{self.settings.mode}]\n"
+                f"Brier {n} trade terakhir {cb:.3f} > baseline 14h {bb:.3f} (+{cb - bb:.3f})\n"
+                f"Saran MANUAL: naikkan conf_min {cur_min:.2f}→{suggest:.2f}. Tidak diubah otomatis.")
+            journal("calib_drift", {"mode": self.settings.mode, "brier_recent": cb,
+                                    "brier_baseline": bb, "n": n, "margin": margin,
+                                    "suggest_conf_min": suggest})
+            log.warning(f"DRIFT KALIBRASI {self.settings.mode}: recent {cb:.3f} vs baseline "
+                        f"{bb:.3f} (+{cb - bb:.3f}) — saran conf_min→{suggest:.2f} (MANUAL)")
+        elif not drifting and self._calib_drifting:
+            self._calib_drifting = False                   # pulih → boleh alarm lagi nanti
 
     def _monitor_usd(self, sym: str, buf: "pd.DataFrame | None" = None) -> None:
         if self.live:                               # live: SL/TP/liq ditangani exchange + reconcile

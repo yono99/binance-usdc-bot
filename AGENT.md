@@ -109,6 +109,15 @@ di `decision_log` (`symbol="*PLAN*"`) & endpoint `/api/plan`. Ikut menyala bila 
 > "Kuota trade" sesi di bawah angka ini (kecuali `stance=risk_off` = stop eksplisit). Naikkan
 > bila planner terlalu sering memberi kuota kecil; tetap di-clamp ≤ `daily_max_trades`.
 
+**Alarm drift kalibrasi — Phase 6** (`_check_calib_drift`, tiap 20 trade Gemini tutup, per
+mode) — bandingkan Brier 50-trade terakhir vs **baseline 14-hari**. Bila memburuk melewati
+`calib_drift_margin` (default 0.05) **dan** di atas koin (0.25) dengan sampel ≥
+`calib_drift_min_n` (default 20) → **ALARM Telegram + saran naikkan `conf_min` (dicatat
+`journal: calib_drift`)**, TAPI **threshold TAK diubah otomatis** — keputusan manusia (auto-tune
+diam-diam = bot meyakinkan diri sendiri ia masih benar). Anti-spam: alarm hanya saat MASUK
+kondisi drift, reset saat pulih. Kedua ambang hot-reload (RuntimeSettings, sama seperti tier
+Phase 2). Instrumentasi murni — tak pernah memblokir trade.
+
 > Jujur: ini menaikkan "level agentik", **bukan** jaminan profit. Buktikan dengan A/B di bawah.
 
 ## A/B harness — apakah ReAct benar-benar menambah nilai? (`bot/ab.py`)
