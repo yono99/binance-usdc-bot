@@ -399,3 +399,20 @@ Sisa (polyglot/live, belum prioritas):
 Status: **stack riset + paper + dashboard lengkap & ter-deploy (Proxmox/Docker/systemd).**
 Strategi **impas** (belum ada edge tradeable) — paper-only. **JANGAN `live`** sampai
 forward-test/riset menunjukkan edge positif yang stabil. Lihat [METHODOLOGY.md](METHODOLOGY.md).
+
+## Mesin H28 — STATUS: PREVIEW (menunggu bukti forward)
+
+Satu-satunya kandidat alpha yang selamat dari 25 hipotesis (riset 2026-07;
+lihat `RESEARCH_HYPOTHESES_PHASE4.md`). Berjalan sebagai **paper-test parameter-
+beku** — TERLIHAT di semua mode, TIDAK men-trade uang sampai lolos Tahap 1.
+
+- Status & progres : `python h28_eval.py`  atau  `GET /api/h28`
+- Sinyal           : gap DVOL(BTC) − RV30 > 0.10 → basket long-ivol-rendah /
+                     short-ivol-tinggi (q0.3, 103 pair beku), hold 10 hari
+- Vonis (t-test)   : otomatis muncul di perintah yang sama begitu ≥15 siklus
+                     tercatat di `data/h28_forward/trades.jsonl` (perkiraan
+                     akhir 2026–pertengahan 2027 — tergantung seberapa sering
+                     regime vol-premium muncul; tak bisa dipercepat)
+- Jalur promosi    : PREVIEW → (lolos t-test) → mikro-live ≤$50 + kill-switch →
+                     skala bertahap. Gagal di titik mana pun = terminal.
+                     Detail dikunci di penutup `RESEARCH_HYPOTHESES_PHASE4.md`.

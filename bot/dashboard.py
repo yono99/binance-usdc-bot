@@ -280,6 +280,17 @@ def api_ohlcv(symbol: str, tf: str = "15m", limit: int = 120) -> JSONResponse:
         return JSONResponse({"symbol": symbol, "error": str(e)[:140], "bars": []})
 
 
+@app.get("/api/h28")
+def api_h28() -> JSONResponse:
+    """MESIN H28 — STATUS PREVIEW (paper-only). Terlihat di semua mode; TIDAK
+    men-trade uang sampai LOLOS_TAHAP_1 (pra-registrasi). Progres + t-test."""
+    try:
+        from . import h28eval
+        return JSONResponse(h28eval.preview_status())
+    except Exception as e:  # boundary
+        return JSONResponse({"error": str(e)[:140]})
+
+
 @app.get("/api/candles")
 def api_candles(symbol: str, tf: str = "15m", limit: int = 500) -> JSONResponse:
     """Candle dari SQLITE STORE (data/market.db) — sumber chart persisten, tanpa
