@@ -56,3 +56,49 @@ def test_dashboard_filters_trades_by_active_mode():
     assert len(dry_only) == 1 and dry_only[0]["symbol"] == "A"
     assert len(live_only) == 1 and live_only[0]["symbol"] == "B"
     assert len(build_trades(events, mode=None)) == 2          # tanpa filter = semua (back-compat)
+
+
+def test_switch_mode_moves_isolation_and_does_not_leak_state(cfg, tmp_path, monkeypatch):
+    """Regresi: sebelum diperbaiki, _switch_mode() mengganti self.settings.mode
+    TAPI meninggalkan _state_key/journal/decision_log di mode LAMA -> saldo &
+    riwayat mode baru bisa bocor ke bucket mode lama saat _persist_state()."""
+    from bot import forward as fwd
+    from bot import store
+    from bot.config import Settings
+    from bot.forward import ForwardTester, default_params
+    from bot.settings_store import load_settings
+
+    class _StubEx:
+        def __init__(self, settings):
+            self.settings = settings
+
+        def usdc_symbols(self):
+            return ["BTC/USDC:USDC"]
+
+    monkeypatch.setattr(fwd, "Exchange", _StubEx)
+    monkeypatch.setattr(store, "DB_PATH", tmp_path / "bot.db")
+
+    s = Settings(mode="dry", raw=cfg, gemini_keys=[], gemini_enabled=False)
+    ft = ForwardTester(s, ["BTC/USDC:USDC"], default_params())
+    # Meniru inisialisasi nyata (use_store=True di __post_init__ men-set ini dari
+    # rs.balance_usd SEBELUM persist pertama) — tanpa ini, guard cfg_balance di
+    # _restore_state() salah baca "konfigurasi berubah" krn dibanding 0.0 palsu.
+    ft._last_cfg_balance = load_settings("dry").balance_usd
+
+    ft.balance_usd = 47.89                       # saldo PAPER "dry"
+    ft._persist_state()
+    assert store.get_kv("botstate_dry")["balance"] == 47.89
+
+    ft._switch_mode("test")                      # pindah ke mode paper LAIN
+    assert ft.settings.mode == "test"
+    assert ft._state_key == "botstate_test"       # <-- kunci state IKUT pindah
+    assert ft.balance_usd != 47.89                # <-- TIDAK mewarisi saldo 'dry'
+
+    ft.balance_usd = 999.0
+    ft._persist_state()
+    assert store.get_kv("botstate_test")["balance"] == 999.0
+    assert store.get_kv("botstate_dry")["balance"] == 47.89   # bucket 'dry' tak tersentuh
+
+    ft._switch_mode("dry")                        # kembali ke 'dry'
+    assert ft._state_key == "botstate_dry"
+    assert ft.balance_usd == 47.89                # <-- saldo 'dry' PULIH utuh, tak tercampur

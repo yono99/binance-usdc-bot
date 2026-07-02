@@ -614,9 +614,25 @@ class ForwardTester:
             self.settings = new
             self.live = (eff == "live")
             self.open = {}                      # posisi lama (paper/mode lain) tak valid
+            # Isolasi per-mode HARUS ikut pindah di sini — tanpa ini, _persist_state()
+            # & journal terus menulis ke bucket mode LAMA setelah switch runtime,
+            # mencampur saldo/riwayat lintas mode (insiden 2026-07-02).
+            from .logger import set_journal_mode
+            set_journal_mode(eff)
+            decision_log.set_mode(eff)
+            self._state_key = f"botstate_{eff}"
             if self.live:
                 self.balance_usd = self.ex.equity_usdc(self.balance_usd)
                 self._sync_live_positions()     # ambil posisi nyata yang sudah ada
+            else:
+                # paper: mulai dari saldo KONFIGURASI mode tujuan (bukan carry-over
+                # dari mode sebelumnya), lalu pulihkan bucket SQLite milik mode itu.
+                try:
+                    self.balance_usd = load_settings(eff).balance_usd
+                    self._last_cfg_balance = self.balance_usd
+                except Exception as e:  # boundary
+                    log.warning(f"load balance mode {eff} gagal: {e}")
+                self._restore_state()
             self._day = pd.Timestamp.utcnow().date()
             self._day_pnl = 0.0
             self._day_trades = 0
