@@ -431,3 +431,31 @@ kesimpulan matang = edge tidak tersedia; JANGAN live-kan apa pun. Bot tetap
 paper (gratis, teruji, berguna sebagai infrastruktur bila suatu saat muncul
 edge dari sumber data yang belum ada). Seluruh nilai kerja ini ada pada
 25 keputusan "tidak" yang terdokumentasi — masing-masing menyelamatkan uang nyata.
+
+---
+
+## Studi kalibrasi lantai SL — 1 tahun × 15 pair (2026-07-02)
+
+Keluhan pemilik tervalidasi data: "SL terlalu mepet saat candle besar".
+Akar mekanis: (1) ATR(14) Wilder telat bereaksi thd candle raksasa padahal
+sinyal momentum menyala tepat sesudahnya; (2) SL usulan Gemini tak punya cek
+jarak minimum sama sekali (hanya sisi-benar + dalam-likuidasi).
+
+**Metode** (`bot/slcalib.py` + `sl_calibrate.py`): entry-agnostik, 35.040 bar
+15m/pair (1 thn, via chartstore→SQLite), tiap bar = kandidat entry dua arah;
+'pemenang' = MFE ≥ 2.5×ATR (TP bot) dalam horizon 16 bar; ukur MAE (gerak
+melawan) para pemenang dlm ×ATR. Kuantil-80 = lantai SL yang menyelamatkan
+~80% calon pemenang. ±325rb pemenang dianalisis.
+
+**Hasil:** SANGAT konsisten antar 15 pair — q80 1.70–1.98, median **1.78×ATR**;
+subset setelah-candle-besar **1.86**; BTC justru paling butuh ruang (1.98).
+SL lama 1.5×ATR ≈ q75 → **~25% calon pemenang mati kena SL duluan**.
+
+**Tindakan:** `_sl_floor` default k_atr **1.75×ATR** + k_range 0.5×range candle
+tertutup (menangkap kasus candle besar), berlaku utk SL rule-based & Gemini,
+tetap dijaga dalam likuidasi. Trade-off jujur: breakeven winrate 37.5%→41%.
+Bukti: `data/sl_calibration.json` + kv `sl_calibration` (SQLite).
+
+**Pelengkap (Fix B):** MFE/MAE + exit_reason kini mengalir ke jurnal, decision
+log, dan tabel keputusan Gemini; `setup_stats` menghitung sl_hit_rate & avg
+MFE-sebelum-SL → refleksi Gemini bisa mendiagnosis "SL kepencet" dgn angka.

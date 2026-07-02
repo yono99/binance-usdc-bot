@@ -65,7 +65,10 @@ python run.py               # loop penuh (simulasi)
 | `python forwardtest.py --poll 30 --use-store` | Forward-test paper di data live (diatur dari UI) |
 | `python dashboard.py` | Dashboard web (React/Vite + SQLite): status per-pair, chart, kontrol, riwayat, token Gemini → `:8000` ([DASHBOARD.md](DASHBOARD.md)) |
 | `cd web && npm run build` | Build frontend React/Vite (dashboard menyajikan `web/dist`) |
-| `python l2collect.py` | Collector orderbook L2 (data forward microstructure) |
+| `python chart_ingest.py --all-usdc` | Isi/refresh chart OHLCV → SQLite `data/market.db` (backfill otomatis) |
+| `python sl_calibrate.py` | Kalibrasi lantai SL dari 1 thn data (MAE pemenang, ×ATR) |
+| `python h28_eval.py` | Progres/vonis t-test paper-test H28 (PREVIEW s/d 15 siklus) |
+| `python ab_report.py` | A/B: apakah layer agen (ReAct/rem) menambah nilai — diukur |
 | `pytest -q` | 113 unit test Python (termasuk anti-leakage, signifikansi, gerbang verdict) |
 | `cd core && cargo test` | 8 unit test Rust (hot-path) |
 | `docker compose up -d --build` | Deploy bot + collector + dashboard 24/7 |
@@ -76,6 +79,20 @@ python run.py               # loop penuh (simulasi)
 [GEMINI_TRADER.md](GEMINI_TRADER.md) (**Gemini praktisi trader** ber-memori & refleksi) ·
 [DASHBOARD.md](DASHBOARD.md) (dashboard web + SQLite + setting UI) ·
 [DEPLOY.md](DEPLOY.md) (Proxmox/Debian) · `core/README.md` (Rust core).
+
+### Update 2026-07-02 — pengerasan utk tujuan "aset terus naik" (live-mikro)
+
+| Fitur | Detail | Kontrol |
+|---|---|---|
+| Isolasi per-mode | saldo/posisi/jurnal/decision-log dry-test-live TERPISAH (anti kontaminasi; termasuk saat switch mode runtime) | otomatis |
+| Mode switch | `mode` tak bisa diubah form biasa; form basi tak bisa menimpa | `GET/POST /api/mode` |
+| Screener Layer 2 di jalur forward | volume ≥$5jt + spread ≤0.03% + ATR 0.25–6%, cache 15 mnt, fail-open | `config.yaml: screener` |
+| Drawdown lock TOTAL | entry terkunci bila saldo turun ≥20% dari puncak (persisten, tahan restart); CB harian tetap ada | lepas: `POST /api/dd-reset`; ambang: `max_drawdown_pct` |
+| Lantai jarak SL (kalibrasi data) | min = max(**1.75×ATR**, 0.5×range candle terakhir) — dari studi 1 thn ×15 pair (~325rb pemenang, q80); berlaku utk SL rule & Gemini | `data/sl_calibration.json` + kv `sl_calibration` |
+| Data exit utk Gemini | MFE/MAE + alasan exit per trade → jurnal, decision log, tabel Gemini; `setup_stats` punya sl_hit_rate & MFE-sebelum-SL | otomatis |
+| Funding sim di paper | posisi menginap (00/08/16 UTC) diakru & dipotong dari PnL → expectancy jujur | otomatis (live: exchange yg motong) |
+| Aturan compounding | `bet_pct` hanya boleh >0 stlh ≥30 trade live + expectancy_r>0 + tanpa dd-lock (addendum #2 registri) | `curl /api/stats` |
+| API baru | `/api/candles` (chart dari SQLite), `/api/h28` + `/api/h28/toggle`, `/api/mode`, `/api/dd-reset`; NaN/inf disanitasi | — |
 
 **Gemini (opsional):** isi `GEMINI_API_KEYS` + `GEMINI_ENABLED=true` di `.env` →
 mengaktifkan regime veto & news veto (`config.yaml: gemini.news_veto`) **dan
