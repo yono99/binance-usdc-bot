@@ -552,12 +552,19 @@ class ForwardTester:
 
     @staticmethod
     def _sl_floor(entry: float, is_long: bool, sl: float, atr_val: float,
-                  last_range: float, k_atr: float = 1.0, k_range: float = 0.5) -> float:
+                  last_range: float, k_atr: float = 1.75, k_range: float = 0.5) -> float:
         """PURE — Fix A: jarak SL MINIMUM = max(k_atr×ATR, k_range×range candle
         tertutup terakhir). ATR(14) Wilder telat bereaksi thd candle raksasa,
         padahal sinyal momentum menyala TEPAT sesudahnya → SL 1.5×ATR-lama lebih
         sempit dari retrace wajar candle itu → tersambar lalu harga lanjut tanpa
-        kita. SL yang sudah lebih lebar dari lantai TIDAK disentuh."""
+        kita. SL yang sudah lebih lebar dari lantai TIDAK disentuh.
+
+        k_atr=1.75 DIKALIBRASI DATA (sl_calibrate.py, 1 thn 15m × 11 pair,
+        ~21rb pemenang/pair, hasil konsisten q80 1.70–1.81): pemenang (MFE≥
+        2.5×ATR) perlu ruang ~1.76×ATR agar ~80% selamat; SL 1.5×ATR lama
+        hanya menyelamatkan ~75%. Konsekuensi R:R 2.5/1.75 → breakeven
+        winrate 41% (sebelumnya 37.5%) — dibayar oleh lebih banyak pemenang
+        yang hidup. data/sl_calibration.json = bukti; ubah HANYA dgn data."""
         dist = max(k_atr * atr_val, k_range * last_range)
         if dist <= 0:
             return sl

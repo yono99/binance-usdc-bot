@@ -14,11 +14,14 @@ from bot.forward import ForwardTester, default_params
 
 def test_sl_floor_widens_tight_sl_keeps_wide():
     f = ForwardTester._sl_floor
-    # long entry 100, ATR 2, candle terakhir range 6 → lantai = max(2, 3) = 3
-    assert f(100.0, True, 99.5, 2.0, 6.0) == 97.0        # mepet → dilebarkan
+    # default k_atr=1.75 (kalibrasi data): entry 100, ATR 2 → lantai ATR = 3.5;
+    # candle range 6 → lantai range = 3.0 → lantai efektif 3.5
+    assert f(100.0, True, 99.5, 2.0, 6.0) == 96.5        # mepet → dilebarkan
     assert f(100.0, True, 95.0, 2.0, 6.0) == 95.0        # sudah lebar → utuh
-    assert f(100.0, False, 100.5, 2.0, 6.0) == 103.0     # short simetris
+    assert f(100.0, False, 100.5, 2.0, 6.0) == 103.5     # short simetris
     assert f(100.0, True, 99.5, 0.0, 0.0) == 99.5        # tanpa info → tak diubah
+    # k eksplisit tetap bisa dioverride (dipakai kalibrasi/eksperimen)
+    assert f(100.0, True, 99.5, 2.0, 6.0, k_atr=1.0) == 97.0
 
 
 # ---------- Fix B: MFE/MAE tracking + settle flow ----------
