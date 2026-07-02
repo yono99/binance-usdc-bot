@@ -6,12 +6,12 @@ import bot.store as store
 from bot.forward import ForwardTester
 
 
-def _fake(report):
+def _fake(report, monkeypatch):
     """Objek mirip-ForwardTester secukupnya untuk memanggil _check_calib_drift."""
     sent = []
     logged = []
-    store.calibration_report = lambda mode, last_n=50, days=14: report      # stub (impor lokal di method)
-    fwd.journal = lambda ev, data: logged.append((ev, data))               # stub
+    monkeypatch.setattr(store, "calibration_report", lambda mode, last_n=50, days=14: report)
+    monkeypatch.setattr(fwd, "journal", lambda ev, data: logged.append((ev, data)))
     self = SimpleNamespace(
         settings=SimpleNamespace(mode="dry"),
         rs=SimpleNamespace(calib_drift_margin=0.05, calib_drift_min_n=20, conf_min=0.55),
@@ -21,10 +21,10 @@ def _fake(report):
     return self, sent, logged
 
 
-def test_drift_alerts_once_and_suggests_no_autochange():
+def test_drift_alerts_once_and_suggests_no_autochange(monkeypatch):
     # recent Brier 0.34 vs baseline 0.20 → +0.14 > margin, di atas koin (0.25) → DRIFT
     rep = {"last_50_trades": {"n": 40, "brier": 0.34}, "last_14_days": {"brier": 0.20}}
-    self, sent, logged = _fake(rep)
+    self, sent, logged = _fake(rep, monkeypatch)
     ForwardTester._check_calib_drift(self)
     assert self._calib_drifting is True
     assert len(sent) == 1 and "DRIFT KALIBRASI" in sent[0]
@@ -36,26 +36,26 @@ def test_drift_alerts_once_and_suggests_no_autochange():
     assert len(sent) == 1
 
 
-def test_no_drift_when_within_margin():
+def test_no_drift_when_within_margin(monkeypatch):
     rep = {"last_50_trades": {"n": 40, "brier": 0.23}, "last_14_days": {"brier": 0.20}}
-    self, sent, _ = _fake(rep)
+    self, sent, _ = _fake(rep, monkeypatch)
     ForwardTester._check_calib_drift(self)
     assert self._calib_drifting is False and sent == []
 
 
-def test_insufficient_sample_stays_silent():
+def test_insufficient_sample_stays_silent(monkeypatch):
     rep = {"last_50_trades": {"n": 5, "brier": 0.40}, "last_14_days": {"brier": 0.20}}
-    self, sent, _ = _fake(rep)
+    self, sent, _ = _fake(rep, monkeypatch)
     ForwardTester._check_calib_drift(self)
     assert sent == []                                         # n < min_n → diam
 
 
-def test_recovery_resets_flag_and_can_realert():
+def test_recovery_resets_flag_and_can_realert(monkeypatch):
     self, sent, _ = _fake({"last_50_trades": {"n": 40, "brier": 0.34},
-                           "last_14_days": {"brier": 0.20}})
+                           "last_14_days": {"brier": 0.20}}, monkeypatch)
     ForwardTester._check_calib_drift(self)                    # drift
     assert self._calib_drifting is True
-    store.calibration_report = lambda *a, **k: {              # pulih
-        "last_50_trades": {"n": 40, "brier": 0.21}, "last_14_days": {"brier": 0.20}}
+    monkeypatch.setattr(store, "calibration_report", lambda *a, **k: {   # pulih
+        "last_50_trades": {"n": 40, "brier": 0.21}, "last_14_days": {"brier": 0.20}})
     ForwardTester._check_calib_drift(self)
     assert self._calib_drifting is False                      # reset → boleh alarm lagi nanti

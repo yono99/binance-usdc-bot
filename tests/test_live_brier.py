@@ -6,10 +6,11 @@ import bot.store as store
 from bot.forward import ForwardTester
 
 
-def _self(equity_after, *, open_pos):
+def _self(equity_after, *, open_pos, monkeypatch):
     calls, settled = [], []
-    store.log_calibration = lambda tid, sym, prob, out, mode: calls.append((tid, sym, prob, out, mode))
-    fwd.journal = lambda ev, data: None
+    monkeypatch.setattr(store, "log_calibration",
+                        lambda tid, sym, prob, out, mode: calls.append((tid, sym, prob, out, mode)))
+    monkeypatch.setattr(fwd, "journal", lambda ev, data: None)
     ex = types.SimpleNamespace(
         positions=lambda: [],                                  # semua posisi sudah tutup di bursa
         equity_usdc=lambda bal: equity_after,                  # equity nyata pasca-tutup
@@ -32,31 +33,31 @@ def _pos():
     return {"gdecision": 7, "conviction": 0.62, "bet": 10.0, "side": "long", "entry": 100.0}
 
 
-def test_profit_scores_outcome_1():
-    self, calls, settled = _self(105.0, open_pos={"BTC/USDC:USDC": _pos()})
+def test_profit_scores_outcome_1(monkeypatch):
+    self, calls, settled = _self(105.0, open_pos={"BTC/USDC:USDC": _pos()}, monkeypatch=monkeypatch)
     ForwardTester._live_reconcile(self)
     assert calls == [(7, "BTC/USDC:USDC", 0.62, 1, "live")]    # Brier tercatat per-mode, outcome=profit
     assert settled == [(7, 0.5)]                               # r = (105-100)/10
 
 
-def test_loss_scores_outcome_0():
-    self, calls, _ = _self(96.0, open_pos={"BTC/USDC:USDC": _pos()})
+def test_loss_scores_outcome_0(monkeypatch):
+    self, calls, _ = _self(96.0, open_pos={"BTC/USDC:USDC": _pos()}, monkeypatch=monkeypatch)
     ForwardTester._live_reconcile(self)
     assert calls == [(7, "BTC/USDC:USDC", 0.62, 0, "live")]
 
 
-def test_multi_close_ambiguous_no_brier():
+def test_multi_close_ambiguous_no_brier(monkeypatch):
     # dua posisi Gemini tutup bersamaan → Δequity ambigu → JANGAN skor (data kotor)
-    self, calls, settled = _self(105.0, open_pos={
+    self, calls, settled = _self(105.0, monkeypatch=monkeypatch, open_pos={
         "BTC/USDC:USDC": _pos(), "ETH/USDC:USDC": {**_pos(), "gdecision": 8}})
     ForwardTester._live_reconcile(self)
     assert calls == []                                         # tak ada Brier saat ambigu
     assert settled == []
 
 
-def test_no_conviction_no_brier():
+def test_no_conviction_no_brier(monkeypatch):
     p = _pos(); p.pop("conviction")
-    self, calls, settled = _self(105.0, open_pos={"BTC/USDC:USDC": p})
+    self, calls, settled = _self(105.0, open_pos={"BTC/USDC:USDC": p}, monkeypatch=monkeypatch)
     ForwardTester._live_reconcile(self)
     assert calls == []                                         # tanpa angka confidence → tak diskor
     assert settled == [(7, 0.5)]                               # tapi tetap di-settle (belajar R)
