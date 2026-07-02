@@ -516,6 +516,37 @@ class ForwardTester:
         self._screen_cache = (key, _time.time(), passed, ttl)
         return passed
 
+    def _apply_funding_sim(self) -> None:
+        """P3: simulasi biaya FUNDING di PAPER (di live, exchange memotongnya
+        sendiri dari saldo — jangan dobel). Posisi yang menginap melewati jam
+        settlement (tiap 8 jam: 00/08/16 UTC) membayar/menerima funding; tanpa
+        simulasi ini expectancy paper menggelembung, padahal dialah gerbang
+        compounding (addendum #2 registri). Biaya diakru per-posisi
+        (pos['funding_paid'], >0 = kita membayar) dan dipotong saat _close_usd
+        → masuk ke R/expectancy, bukan sekadar mengurangi saldo diam-diam."""
+        if self.live or not self.open:
+            return
+        epoch = int(time.time() // 28800)            # jendela 8 jam sejak epoch UTC
+        last = getattr(self, "_fund_epoch", None)
+        self._fund_epoch = epoch
+        if last is None or epoch <= last:            # start: jangan tagih mundur
+            return
+        crossings = epoch - last
+        for sym, pos in self.open.items():
+            try:
+                fr = self.ex.client.fetch_funding_rate(sym)
+                rate = float(fr.get("fundingRate") or 0.0)
+                price = float(self.ex.ticker(sym)["last"])
+            except Exception as e:  # boundary — gagal fetch ≠ ganggu siklus
+                log.warning(f"funding sim {sym} gagal: {e}")
+                continue
+            sign = 1.0 if pos["side"] == "long" else -1.0
+            cost = sign * rate * pos["qty"] * price * crossings
+            if abs(cost) > 1e-12:
+                pos["funding_paid"] = pos.get("funding_paid", 0.0) + cost
+                log.info(f"funding sim {sym}: {'bayar' if cost > 0 else 'terima'} "
+                         f"${abs(cost):.4f} (rate {rate:+.5%} × {crossings}×)")
+
     @staticmethod
     def _dd_check(peak: float, balance: float, max_dd_pct: float) -> tuple[bool, float]:
         """PURE. (tembus_ambang, drawdown_pct dari puncak). max_dd_pct<=0 = nonaktif."""
@@ -936,7 +967,8 @@ class ForwardTester:
         else:
             move = (exit_fill - pos["entry"]) if is_long else (pos["entry"] - exit_fill)
             fee = self.fee / 100 * (pos["entry"] + exit_fill) * pos["qty"]
-            pnl = max(pos["qty"] * move - fee, -pos["bet"])  # rugi maksimum = margin
+            funding = pos.get("funding_paid", 0.0)  # akrual simulasi funding (paper, P3)
+            pnl = max(pos["qty"] * move - fee - funding, -pos["bet"])  # rugi maks = margin
         self.balance_usd += pnl
         self._day_pnl += pnl                        # untuk circuit breaker harian
         r = pnl / pos["bet"] if pos["bet"] else 0.0
@@ -1091,6 +1123,7 @@ class ForwardTester:
         if vrp_block:
             log.info("VRP brake ENFORCE aktif — tidak buka posisi baru siklus ini")
         ddlock = self._update_drawdown(rs)     # kill-switch drawdown TOTAL (tahan restart)
+        self._apply_funding_sim()              # P3: akru funding posisi menginap (paper)
         self._refresh_plan(rs)                 # tujuan sesi (planner) → enforce di gerbang entry
         expo = self._exposure_frac()
         label = {1: "LONG", -1: "SHORT", 0: "skip"}
