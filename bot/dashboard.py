@@ -280,6 +280,31 @@ def api_ohlcv(symbol: str, tf: str = "15m", limit: int = 120) -> JSONResponse:
         return JSONResponse({"symbol": symbol, "error": str(e)[:140], "bars": []})
 
 
+@app.get("/api/candles")
+def api_candles(symbol: str, tf: str = "15m", limit: int = 500) -> JSONResponse:
+    """Candle dari SQLITE STORE (data/market.db) — sumber chart persisten, tanpa
+    memukul exchange. Isi/refresh via `python chart_ingest.py`."""
+    try:
+        from . import chartstore
+        df = chartstore.load(symbol, tf, limit=min(int(limit), 5000))
+        candles = [[int(i.timestamp() * 1000), float(o), float(h), float(lo), float(c), float(v)]
+                   for i, o, h, lo, c, v in zip(df.index, df["open"], df["high"],
+                                                df["low"], df["close"], df["volume"])]
+        return JSONResponse({"symbol": symbol, "tf": tf, "n": len(candles), "candles": candles})
+    except Exception as e:  # boundary
+        return JSONResponse({"symbol": symbol, "error": str(e)[:140], "candles": []})
+
+
+@app.get("/api/candles/coverage")
+def api_candles_coverage() -> JSONResponse:
+    """Ringkasan isi chart store per (symbol, tf)."""
+    try:
+        from . import chartstore
+        return JSONResponse({"coverage": chartstore.coverage()})
+    except Exception as e:  # boundary
+        return JSONResponse({"error": str(e)[:140], "coverage": []})
+
+
 @app.post("/api/validate-key")
 def api_validate_key(payload: dict) -> JSONResponse:
     """Validasi key/secret (transien — TIDAK disimpan/di-log). Kosong = pakai .env live."""
