@@ -488,6 +488,18 @@ def api_set_settings(payload: dict) -> JSONResponse:
     return JSONResponse(d)
 
 
+@app.post("/api/dd-reset")
+def api_dd_reset(payload: dict = None) -> JSONResponse:
+    """Lepas DRAWDOWN LOCK secara SENGAJA (two-factor: bot mengunci otomatis,
+    manusia yang memutuskan lanjut). Bot memproses permintaan ini di siklus
+    berikutnya: kunci lepas + puncak saldo di-set ulang ke saldo sekarang."""
+    from datetime import datetime, timezone
+    mode = (payload or {}).get("mode") or _ui_mode() or "dry"
+    store.set_kv(f"dd_reset_{mode}", {"ts": datetime.now(timezone.utc).isoformat()})
+    return JSONResponse({"ok": True, "mode": mode,
+                         "note": "diproses bot di siklus berikutnya (≤ poll_seconds)"})
+
+
 @app.get("/api/mode")
 def api_get_mode() -> JSONResponse:
     """Mode trading AKTIF (dry/test/live) — satu sumber kebenaran dibaca bot &

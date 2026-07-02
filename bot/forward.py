@@ -120,6 +120,11 @@ class ForwardTester:
         self._day_start_balance = 0.0
         self._eff_mode = self.settings.mode          # mode efektif berjalan
         self.live = (self.settings.mode == "live")   # True = order UANG NYATA
+        # Kill-switch drawdown TOTAL (P1 tujuan compounding): puncak saldo per mode,
+        # kunci permanen sampai reset manual — CB harian saja tak menangkap bleed pelan.
+        self._peak_balance = 0.0
+        self._dd_lock = False
+        self._dd_reason = ""
         if self.use_store:
             self.rs = load_settings()
             self.symbols = self.rs.symbols or self.ex.usdc_symbols()   # kosong = semua USDC
@@ -511,6 +516,42 @@ class ForwardTester:
         self._screen_cache = (key, _time.time(), passed, ttl)
         return passed
 
+    @staticmethod
+    def _dd_check(peak: float, balance: float, max_dd_pct: float) -> tuple[bool, float]:
+        """PURE. (tembus_ambang, drawdown_pct dari puncak). max_dd_pct<=0 = nonaktif."""
+        if peak <= 0 or max_dd_pct <= 0:
+            return False, 0.0
+        dd = (peak - balance) / peak * 100.0
+        return dd >= max_dd_pct, dd
+
+    def _update_drawdown(self, rs) -> str | None:
+        """Kill-switch drawdown TOTAL per siklus: proses permintaan reset manual,
+        update puncak saldo, kunci bila tembus ambang. Return alasan blokir/None.
+        Kunci PERMANEN (persisten, tahan restart) — lepas HANYA via /api/dd-reset:
+        setelah rugi besar, keputusan lanjut harus dibuat manusia dgn kepala
+        dingin, bukan oleh reset kalender otomatis (beda dgn CB harian)."""
+        from . import store as _store
+        try:
+            if _store.get_kv(f"dd_reset_{self.settings.mode}"):
+                _store.set_kv(f"dd_reset_{self.settings.mode}", {})   # habis pakai
+                self._dd_lock, self._dd_reason = False, ""
+                self._peak_balance = self.balance_usd                  # puncak mulai ulang
+                log.warning("DRAWDOWN LOCK direset MANUAL — puncak saldo di-set ulang "
+                            f"ke ${self.balance_usd:.2f}.")
+        except Exception as e:  # boundary — kegagalan store tak boleh ganggu siklus
+            log.warning(f"cek dd_reset gagal: {e}")
+        self._peak_balance = max(self._peak_balance, self.balance_usd)
+        hit, dd = self._dd_check(self._peak_balance, self.balance_usd, rs.max_drawdown_pct)
+        if hit and not self._dd_lock:
+            self._dd_lock = True
+            self._dd_reason = (f"drawdown total {dd:.1f}% ≥ {rs.max_drawdown_pct:.0f}% "
+                               f"dari puncak ${self._peak_balance:.2f}")
+            log.error(f"DRAWDOWN LOCK: {self._dd_reason} — entry DIBLOKIR sampai "
+                      "reset manual (POST /api/dd-reset).")
+            self.notify.send(f"🛑 <b>DRAWDOWN LOCK</b>\n{self._dd_reason}\n"
+                             "Entry diblokir sampai reset manual dari dashboard.")
+        return self._dd_reason if self._dd_lock else None
+
     def _apply_settings(self) -> RuntimeSettings:
         rs = load_settings()
         eff = rs.mode or self.settings.mode               # mode diminta dari UI (atau .env)
@@ -587,6 +628,10 @@ class ForwardTester:
             self._day_pnl = float(st.get("day_pnl", 0.0))
             self._day_trades = int(st.get("day_trades", 0))
             self._day_start_balance = float(st.get("day_start_balance", self.balance_usd))
+        # drawdown-total: puncak & kunci BERTAHAN melewati restart (beda dgn state harian)
+        self._peak_balance = max(float(st.get("peak_balance", 0.0)), self.balance_usd)
+        self._dd_lock = bool(st.get("dd_lock", False))
+        self._dd_reason = str(st.get("dd_reason", ""))
         if self.open:
             log.info(f"State dipulihkan dari SQLite: saldo ${self.balance_usd:.2f}, "
                      f"{len(self.open)} posisi terbuka")
@@ -620,6 +665,8 @@ class ForwardTester:
                                 "day": str(self._day), "day_pnl": round(self._day_pnl, 4),
                                 "day_trades": self._day_trades,
                                 "day_start_balance": round(self._day_start_balance, 6),
+                                "peak_balance": round(self._peak_balance, 6),
+                                "dd_lock": self._dd_lock, "dd_reason": self._dd_reason,
                                 "agent_memory": self.agent_memory.snapshot()})   # memori lintas-tick
         except Exception as e:  # boundary
             log.warning(f"persist state gagal: {e}")
@@ -1043,6 +1090,7 @@ class ForwardTester:
         vrp_block = self.vrp.mode == "enforce" and vrp_on   # shadow: TIDAK blokir
         if vrp_block:
             log.info("VRP brake ENFORCE aktif — tidak buka posisi baru siklus ini")
+        ddlock = self._update_drawdown(rs)     # kill-switch drawdown TOTAL (tahan restart)
         self._refresh_plan(rs)                 # tujuan sesi (planner) → enforce di gerbang entry
         expo = self._exposure_frac()
         label = {1: "LONG", -1: "SHORT", 0: "skip"}
@@ -1079,6 +1127,7 @@ class ForwardTester:
                     pre = (None if rs.enabled else "bot OFF")
                     pre = pre or ("news veto" if news_veto else None)
                     pre = pre or ("vrp brake" if vrp_block else None)
+                    pre = pre or ("drawdown lock" if ddlock else None)
                     pre = pre or (cb or None)
                     pre = pre or ("sudah ada posisi" if sym in self.open else None)
                     pre = pre or ("slot penuh" if len(self.open) >= self.max_open else None)
@@ -1107,6 +1156,8 @@ class ForwardTester:
                     #                          catatan detail ada di panel Riwayat News Veto
                 elif vrp_block:
                     blocked = "vrp brake"
+                elif ddlock:
+                    blocked = "drawdown lock"   # detail alasan di status.drawdown
                 elif cb:
                     blocked = cb
                 elif sym in self.open:
@@ -1177,6 +1228,10 @@ class ForwardTester:
             "day_pnl": round(self._day_pnl, 2),
             "day_trades": self._day_trades,
             "circuit_breaker": self._circuit_breaker(),
+            "drawdown": {"locked": self._dd_lock, "reason": self._dd_reason or None,
+                         "peak_balance": round(self._peak_balance, 2),
+                         "dd_pct": round(self._dd_check(self._peak_balance, self.balance_usd,
+                                                        100.0)[1], 2)},
             "corr_threshold": self.corr_threshold,
             "news_veto": {"active": news_active, "note": news_note},
             "symbols": syms,
