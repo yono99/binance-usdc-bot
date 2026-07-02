@@ -336,3 +336,45 @@ Seluruh antrian direksional habis: H24–H28, H31, H32 semua DITOLAK. Bersama
 Fase 1–3: **22 hipotesis, 0 lolos empat palang.** Yang tersisa dan masih hidup:
 perekam L2 (H30 spread capture — struktural) & perekam OI (H19/H29) — keduanya
 menunggu data matang, bukan menunggu ide baru.
+
+---
+
+## Fase 5 — TEROBOSAN DATA: arsip Binance Vision membuka H30 & H19 hari ini (2026-07-02)
+
+Penemuan: `data.binance.vision` menyimpan historis yang tak ada di REST API —
+`aggTrades` (setiap eksekusi + flag maker side, tersedia utk pair USDC) dan
+`metrics` (OI 5-menit sejak ~2021; batas 30 hari hanya di REST). Kedua gerbang
+"tunggu data" terbuka LEBIH AWAL dengan data yang LEBIH BAIK (fill nyata, bukan
+proxy snapshot). Infrastruktur: `bot/vision.py` (downloader+parser, cache),
+`bot/aggresearch.py` (effective spread + adverse selection dari fill nyata),
+`h30_hist.py`, `h19_hist.py`. Kolektor L2/OI forward tetap jalan (bahan langkah 3).
+
+### H30 langkah 1-2 pada 91 HARI fill maker NYATA (Apr–Jun 2026, 7.4 jt trade)
+
+| pair | eff-spread med | adverse | EDGE kotor |
+|---|--:|--:|--:|
+| **FIL** | 5.59 bps | **−0.50** | **+3.30 bps** ✅ |
+| NEAR | 3.68 | +0.27 | +1.58 |
+| CRV | 3.09 | +0.80 | +0.75 |
+| NEO | 3.10 | +0.90 | +0.65 |
+| BOME | 3.12 | +1.82 | −0.26 |
+| PNUT | 3.66 | +3.14 | −1.32 |
+
+**Verdict gerbang: PROCEED_TO_SIM** — pertama kalinya dalam 22+ hipotesis sebuah
+gerbang pra-registrasi LOLOS di data yang cukup (91 hari ≥ 28).
+
+Kejujuran yang melekat:
+1. Ini BATAS ATAS: fill orang lain, posisi antrian kita tak terukur.
+2. Lolos TIPIS (3.30 vs ambang 3.0) dan hanya 1 pair dari 6.
+3. Effective spread (3–5.6 bps) << quoted spread live (9–15 bps): trade nyata
+   terjadi jauh di dalam spread — quoted spread menipu, effective yang jujur.
+4. FIL adverse NEGATIF (harga rata-rata bergerak MENGUNTUNGKAN maker pasca-fill)
+   — sinyal mean-reversion mikro; menarik tapi butuh konfirmasi langkah 3.
+
+**Langkah 3 (berikutnya, pra-registrasi):** simulasi replay KONSERVATIF — quote
+dianggap terisi hanya bila harga MENEMBUS level (bukan menyentuh), inventori
+dibatasi, biaya taker utk unwind darurat. Sumber: aggTrades (fill-through nyata)
++ snapshot L2 forward yang terus terkumpul. Lolos → langkah 4 paper-quote mikro.
+
+### H19 — uji historis penuh BERJALAN (450 hari × 30 small-cap, grid 4 pra-reg)
+Hasil menyusul di entri berikut.
