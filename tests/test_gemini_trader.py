@@ -132,6 +132,32 @@ def test_build_context_includes_portfolio(db, trader):
     assert ctx["portfolio"]["count"] == 1
 
 
+def test_sl_feedback_adapts_after_stopout(db, trader):
+    """Adaptasi pasca SL: streak rugi + MFE-sebelum-SL membedakan 'SL mepet' vs 'arah salah'."""
+    assert trader._sl_feedback("BTC/USDC:USDC") is None          # belum ada riwayat → tak ada
+
+    # 2 entry beruntun kena SL; MFE besar (sempat searah) = SL terlalu mepet
+    for _ in range(2):
+        i = db.record_decision("BTC/USDC:USDC", "trend_pullback", "long", 0.7, "", {})
+        db.settle_decision(i, -1.0, mae_pct=0.4, mfe_pct=1.8, exit_reason="sl")
+    fb = trader._sl_feedback("BTC/USDC:USDC")
+    assert fb["loss_streak"] == 2 and fb["recent_sl_or_liq"] == 2
+    assert fb["avg_mfe_before_sl_pct"] == 1.8                     # besar → sinyal 'SL mepet'
+    assert fb["last_reasons"][0] == "sl"
+
+    # trade menang menyusul → streak putus (tak ada lagi yang perlu diadaptasi buta)
+    w = db.record_decision("BTC/USDC:USDC", "trend_pullback", "long", 0.7, "", {})
+    db.settle_decision(w, 2.0, exit_reason="tp")
+    assert trader._sl_feedback("BTC/USDC:USDC")["loss_streak"] == 0
+
+
+def test_sl_feedback_isolated_per_symbol(db, trader):
+    i = db.record_decision("ETH/USDC:USDC", "range_fade", "short", 0.6, "", {})
+    db.settle_decision(i, -1.0, exit_reason="liq")
+    assert trader._sl_feedback("ETH/USDC:USDC")["recent_sl_or_liq"] == 1
+    assert trader._sl_feedback("BTC/USDC:USDC") is None           # simbol lain tak terpengaruh
+
+
 def test_build_context_grounds_gemini_on_sqlite(db, trader):
     """Grounding tambahan: rekam jejak per-setup (dihitung kode) + kalibrasi Brier,
     supaya Gemini PAHAM performa nyatanya — bukan sekadar konteks pasar sesaat."""

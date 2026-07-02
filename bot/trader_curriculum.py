@@ -209,6 +209,12 @@ def curriculum_prompt(modules: list[str] | None = None) -> str:
         "  tersambar (sl_hit_rate) & MFE sebelum SL. Setup dgn exp_r negatif = KURANGI conviction\n"
         "  atau hindari; sl_hit tinggi dgn mfe besar = SL-mu terlalu mepet, longgarkan sedikit.\n"
         "- 'calibration': Brier confidence-mu (0.25=koin; makin kecil=makin jujur). Bila Brier\n"
-        "  buruk = kamu terlalu percaya diri → turunkan conviction sampai kalibrasi membaik."
+        "  buruk = kamu terlalu percaya diri → turunkan conviction sampai kalibrasi membaik.\n"
+        "- 'sl_feedback' (ADAPTASI WAJIB bila ada): entry terakhirmu di simbol INI kena SL/\n"
+        "  likuidasi. JANGAN ulang entry yang sama buta. loss_streak≥2 → NAIKKAN ambang\n"
+        "  (cenderung flat kecuali konfluensi jelas lebih kuat). avg_mfe_before_sl_pct KECIL =\n"
+        "  arah/timing salah (harga langsung lawan) → pertimbangkan bias berlawanan atau tunggu\n"
+        "  lokasi lebih baik. avg_mfe_before_sl_pct BESAR = SL-mu terlalu mepet (harga sempat\n"
+        "  searah lalu balik menyapu) → letakkan sl lebih jauh di BALIK struktur, bukan lebih dekat."
     )
     return (CORE + "\n" + body + "\nDAFTAR SETUPS (pilih tepat satu):\n" + setups + contract)

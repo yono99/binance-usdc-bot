@@ -127,8 +127,38 @@ class GeminiTrader:
             # Grounding tambahan dari SQLite (agar Gemini PAHAM performa nyatanya):
             "setup_track_record": self._track_record(),         # stats per-setup (dihitung kode)
             "calibration": self._calibration(),                 # kejujuran confidence-nya (Brier)
+            "sl_feedback": self._sl_feedback(symbol),           # ADAPTASI pasca SL/cut-loss
         }
         return ctx
+
+    def _sl_feedback(self, symbol: str, lookback: int = 8) -> dict | None:
+        """Umpan balik ADAPTASI SL/cut-loss untuk simbol INI (dari SQLite). Bila entry
+        terakhir tersapu SL/likuidasi, Gemini harus MENYESUAIKAN — bukan mengulang entry
+        yang sama. MFE sebelum SL membedakan 'SL kemepetan' vs 'arah/timing salah'."""
+        try:
+            decs = [d for d in store.recent_decisions(symbol, limit=lookback)
+                    if d.get("status") == "settled" and d.get("outcome_r") is not None]
+        except Exception:  # boundary — konteks opsional
+            return None
+        if not decs:
+            return None
+        streak = 0                                   # beruntun rugi TERBARU (paling atas)
+        for d in decs:
+            if float(d["outcome_r"]) < 0:
+                streak += 1
+            else:
+                break
+        sl_hits = [d for d in decs if d.get("exit_reason") in ("sl", "liq")]
+        if streak == 0 and not sl_hits:
+            return None                              # tak ada yang perlu diadaptasi
+        def _avg(key):
+            vals = [float(d[key]) for d in sl_hits if d.get(key) is not None]
+            return round(sum(vals) / len(vals), 3) if vals else None
+        return {"loss_streak": streak, "recent_sl_or_liq": len(sl_hits),
+                "avg_mfe_before_sl_pct": _avg("mfe_pct"),   # besar = SL terlalu mepet
+                "avg_mae_pct": _avg("mae_pct"),
+                "last_reasons": [d.get("exit_reason") for d in decs[:4]],
+                "last_sides": [d.get("side") for d in decs[:4]]}
 
     def _calibration(self) -> dict:
         """Kalibrasi confidence Gemini di mode ini (Brier rolling) dari SQLite. Memberi
