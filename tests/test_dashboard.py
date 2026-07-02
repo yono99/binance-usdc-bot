@@ -66,9 +66,11 @@ def test_json_safe_sanitizes_nan_inf():
     meledakkan endpoint JSON (insiden /api/gemini-trader 2026-07-02)."""
     from bot.dashboard import _json_safe
     dirty = {"pf": float("inf"), "x": float("nan"),
-             "nested": [{"y": float("-inf"), "ok": 1.5}], "s": "a"}
+             "nested": [{"y": float("-inf"), "ok": 1.5}], "s": "a",
+             "tup": (float("inf"), 2.0)}   # tuple → list oleh json; inf di dlmnya hrs bersih
     clean = _json_safe(dirty)
     import json
     json.dumps(clean)                                   # tak boleh raise
     assert clean["pf"] is None and clean["x"] is None
     assert clean["nested"][0]["y"] is None and clean["nested"][0]["ok"] == 1.5
+    assert clean["tup"] == [None, 2.0]

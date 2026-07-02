@@ -424,8 +424,8 @@ def _json_safe(o):
     import math
     if isinstance(o, dict):
         return {k: _json_safe(v) for k, v in o.items()}
-    if isinstance(o, list):
-        return [_json_safe(v) for v in o]
+    if isinstance(o, (list, tuple)):          # tuple ikut: json.dumps menserialisasinya
+        return [_json_safe(v) for v in o]     # sbg list, inf di dalamnya tetap meledak
     if isinstance(o, float) and not math.isfinite(o):
         return None
     return o
