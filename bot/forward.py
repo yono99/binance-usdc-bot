@@ -153,6 +153,9 @@ class ForwardTester:
         self._last_news_note = ""
         self._last_manage: dict = {}              # throttle kelola-posisi per simbol
         self._manage_interval = 60                # detik minimum antar review posisi (~1 menit)
+        _gcfg = self.cfg.get("gemini", {})        # pemicu give-back menuju TP (knob kalibrasi)
+        self._giveback_tp_frac = float(_gcfg.get("giveback_tp_frac", 0.5))
+        self._giveback_margin = float(_gcfg.get("giveback_margin", 0.2))
         self._last_decide: dict = {}              # throttle keputusan-entry Gemini per simbol
         self._decide_interval = 180               # detik min antar keputusan entry (~3 mnt) — hemat token
         # KESELAMATAN: Gemini-trader boleh order LIVE hanya bila di-set eksplisit di config.
@@ -425,16 +428,32 @@ class ForwardTester:
         is_long = pos["side"] == "long"
         risk = abs(pos["entry"] - pos["sl"]) or 1e-9
         unreal_r = ((price - pos["entry"]) if is_long else (pos["entry"] - price)) / risk
+        prog = self._tp_progress(pos, price)            # fraksi perjalanan ke TP (bisa <0)
+        if prog is not None:                            # jaga puncak juga di jalur live (monitor exit lebih dulu di paper)
+            pos["peak_tp_prog"] = max(pos.get("peak_tp_prog", prog), prog)
         ctx = {
             "position": {"symbol": sym, "side": pos["side"], "entry": round(pos["entry"], 6),
                          "sl": round(pos["sl"], 6), "tp": round(pos["tp"], 6),
                          "mark": round(price, 6), "unrealized_r": round(unreal_r, 2),
-                         "setup": pos.get("setup")},
+                         "setup": pos.get("setup"),
+                         "tp_progress_pct": round(prog * 100, 1) if prog is not None else None,
+                         "peak_tp_progress_pct": round(pos.get("peak_tp_prog", 0.0) * 100, 1),
+                         "alert": pos.pop("giveback_note", None)},   # sinyal give-back (sekali tampil)
             "market": _market_summary(df_closed, self.cfg),
             "portfolio": self._portfolio_view(),
         }
         act = self.gtrader.manage(ctx)
         self._apply_manage(sym, act, price)
+
+    @staticmethod
+    def _tp_progress(pos: dict, price: float) -> float | None:
+        """Fraksi perjalanan harga menuju TP: 0=entry, 1=TP, <0 bila underwater. None bila tak ada TP."""
+        tp, e = pos.get("tp"), pos.get("entry")
+        if not tp or not e:
+            return None
+        dist = abs(tp - e) or 1e-9
+        fav = (price - e) if pos["side"] == "long" else (e - price)
+        return fav / dist
 
     def _apply_manage(self, sym: str, act: dict, price: float) -> None:
         from .gemini_trader import valid_tighten
@@ -1159,6 +1178,21 @@ class ForwardTester:
         else:
             pos["mfe_pct"] = max(pos.get("mfe_pct", 0.0), (e - lo) / e * 100)
             pos["mae_pct"] = max(pos.get("mae_pct", 0.0), (hi - e) / e * 100)
+        # GIVE-BACK menuju TP (permintaan pemilik): posisi sempat >= giveback_tp_frac perjalanan
+        # ke TP lalu berbalik >= giveback_margin → PAKSA review Gemini agar kunci profit / exit,
+        # jangan tunggu jadwal ~1 menit. Fire sekali per puncak baru (anti-spam).
+        prog = self._tp_progress(pos, last_price)
+        if prog is not None:
+            peak = max(pos.get("peak_tp_prog", prog), prog)
+            pos["peak_tp_prog"] = peak
+            fired_at = pos.get("giveback_fired_at", 0.0)
+            if (peak >= self._giveback_tp_frac and (peak - prog) >= self._giveback_margin
+                    and peak > fired_at + 1e-9):
+                pos["giveback_fired_at"] = peak
+                pos["giveback_note"] = (f"sempat {peak * 100:.0f}% menuju TP lalu balik ke "
+                                        f"{prog * 100:.0f}% — pertimbangkan kunci profit / exit")
+                self._last_manage[sym] = 0.0      # buka throttle → _gemini_manage jalan siklus ini
+                log.info(f"GIVE-BACK {sym}: puncak {peak * 100:.0f}%→{prog * 100:.0f}% TP — panggil Gemini")
         # Urutan konservatif: likuidasi → SL → TP (bila satu bar menyentuh dua sisi, ambil yg merugikan).
         if (lo <= pos["liq"]) if long else (hi >= pos["liq"]):
             self._close_usd(sym, pos["liq"], "liq")

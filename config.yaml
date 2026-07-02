@@ -12,12 +12,8 @@ market:
   # butuh saldo USDT utk margin pair USDT (atau aktifkan Multi-Asset Mode di
   # Binance); (3) kembaran (BTC/USDT vs BTC/USDC) otomatis di-dedup, prefer USDC.
   settles: [USDC, USDT]
-  # whitelist; kosongkan [] untuk auto-pilih dari screener
-  whitelist:
-    - BTC/USDC:USDC
-    - ETH/USDC:USDC
-    - BNB/USDC:USDC
-    - SOL/USDC:USDC
+  # whitelist; kosongkan [] untuk auto-pilih dari screener (default: screening SEMUA pair)
+  whitelist: []
 
 screener:
   min_quote_volume_24h: 5_000_000   # likuiditas minimum (USDC)
@@ -55,7 +51,7 @@ btc:
   size_floor: 0.4           # (mode diskon) faktor size minimum saat lawan-arah BTC
 
 rotate:
-  max_open_positions: 2     # slot aktif maksimum
+  max_open_positions: 6     # slot aktif maksimum
   cooldown_minutes: 30      # jeda re-entry pair yang baru ditutup
   blacklist_after_sl: 2     # SL beruntun -> blacklist sementara
 
@@ -105,6 +101,8 @@ gemini:
   min_regime_score: 0.4     # bila Gemini nilai regime < ini -> skip entry
   news_veto: true           # veto entry saat ada berita high-impact (real-time, butuh GEMINI_ENABLED)
   planner_min_trades: 3     # lantai kuota trade sesi: planner tak boleh cekik di bawah ini (kecuali risk_off).
+  giveback_tp_frac: 0.5     # posisi sempat >= ini (fraksi jarak entry→TP) menuju TP ...
+  giveback_margin: 0.2      # ... lalu balik >= ini → PAKSA Gemini review (kunci profit / exit)
   pregate_atr_pct: 0.25     # lantai pre-gate: tanya Gemini hanya bila ATR% >= ini (pasar hidup).
   #                           Naikkan bila token boros; turunkan bila sinyal langka. ARAH tetap milik Gemini.
   # Devil's Advocate (adaptasi debat Bull/Bear TradingAgents): pass LLM kedua yang HANYA

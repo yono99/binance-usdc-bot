@@ -15,6 +15,9 @@ def _ft(last, pos):
     ft.ex = types.SimpleNamespace(ticker=lambda s: {"last": last})
     ft._closed = []
     ft._close_usd = lambda sym, price, reason: ft._closed.append((reason, round(price, 4)))
+    ft._last_manage = {}                       # state give-back (biasanya di __init__)
+    ft._giveback_tp_frac = 0.5
+    ft._giveback_margin = 0.2
     return ft
 
 
