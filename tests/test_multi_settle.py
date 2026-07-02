@@ -7,10 +7,15 @@ def test_perp_symbols_filters_by_settle():
     ex = object.__new__(Exchange)                  # tanpa __init__ (tanpa jaringan)
     ex.markets = {
         "BTC/USDC:USDC": {"swap": True, "settle": "USDC", "active": True},
-        "BTC/USDT:USDT": {"swap": True, "settle": "USDT", "active": True},
+        "BTC/USDT:USDT": {"swap": True, "settle": "USDT", "active": True,
+                          "info": {"underlyingType": "COIN"}},
         "DOGE/USDT:USDT": {"swap": True, "settle": "USDT", "active": False},  # delisted
         "ETH/BUSD:BUSD": {"swap": True, "settle": "BUSD", "active": True},
         "BTC/USDT": {"swap": False, "settle": "USDT", "active": True},        # spot
+        "MSTR/USDT:USDT": {"swap": True, "settle": "USDT", "active": True,
+                           "info": {"underlyingType": "EQUITY"}},             # saham
+        "XAU/USDT:USDT": {"swap": True, "settle": "USDT", "active": True,
+                          "info": {"underlyingType": "COMMODITY"}},           # emas
     }
     assert ex.perp_symbols(("USDC",)) == ["BTC/USDC:USDC"]
     assert ex.perp_symbols(("USDC", "USDT")) == ["BTC/USDC:USDC", "BTC/USDT:USDT"]

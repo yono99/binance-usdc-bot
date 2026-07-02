@@ -37,10 +37,14 @@ class Exchange:
 
     def perp_symbols(self, settles: tuple[str, ...] = ("USDC",)) -> list[str]:
         """Perp aktif utk beberapa settle sekaligus (USDC + USDT satu platform
-        USDS-M, satu client). Catatan: USDT TIDAK ikut promo fee 0% USDC."""
+        USDS-M, satu client). KRIPTO MURNI saja: perp saham/komoditas ter-
+        tokenisasi (MSTR/XAU/SOXL... underlyingType EQUITY/COMMODITY) dibuang —
+        jam perdagangan & perilaku aset TradFi beda kelas, di luar mandat bot.
+        Catatan: USDT tidak ikut promo fee 0% USDC."""
         return sorted(s for s, v in self.markets.items()
                       if v.get("swap") and v.get("settle") in settles
-                      and v.get("active", True))
+                      and v.get("active", True)
+                      and (v.get("info", {}) or {}).get("underlyingType", "COIN") == "COIN")
 
     # ---------- data publik (tidak butuh key) ----------
     def ohlcv(self, symbol: str, timeframe: str, limit: int = 200) -> pd.DataFrame:
