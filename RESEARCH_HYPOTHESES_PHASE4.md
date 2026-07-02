@@ -13,7 +13,7 @@
 | H27 | Dislokasi basis lintas-venue cross-sectional | SEDANG | **DITOLAK** (2026-07-02: 76 pair dua-venue, OOS −0.18% n=220) |
 | H28 | VRP timing via Deribit DVOL | SEDANG | **DITOLAK di validasi** (lolos awal p_adj=0.036 n=38 → replikasi 1800d: mean −50%, p_adj=0.336; satu-satunya kandidat forward paper-test) |
 | H19/H29 | OI crowding-freshness | STRATEGIS | **DITOLAK** (2026-07-02: uji historis 450 hari via arsip metrics; OOS −0.82% n=15; perekam OI dihentikan — arsip Vision permanen) |
-| H30 | Spread capture maker (pair spread-lebar) | TINGGI (struktural) | **LANGKAH 1-2 LOLOS** (2026-07-02: 91 hari fill nyata via arsip aggTrades; FIL edge kotor +3.30 bps; PROCEED_TO_SIM — langkah 3 simulasi konservatif) |
+| H30 | Spread capture maker (pair spread-lebar) | TINGGI (struktural) | **DITOLAK di langkah 3** (2026-07-02: replay konservatif −7..−11 bps/rt semua pair/offset; edge milik yang punya posisi antrian = MM profesional) |
 | H31 | Asimetri downside-beta | RENDAH | **DITOLAK** (2026-07-02: OOS −1.14% n=112 — sesuai ekspektasi) |
 | H32 | TSMOM harian per-simbol | RENDAH | **DITOLAK** (2026-07-02: +0.45% p_adj=0.59 — positif-lemah tak signifikan, pola H18) |
 

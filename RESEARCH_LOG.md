@@ -400,3 +400,34 @@ disimpan. H29 (strategi "rekam dulu") selesai tugasnya lebih cepat dari rencana.
 ## Skor akhir program direksional + struktural per 2026-07-02
 24 hipotesis diuji jujur. 23 DITOLAK. 1 (H30 spread capture) LOLOS langkah 1-2
 di 91 hari fill nyata → antre langkah 3 (simulasi replay konservatif).
+
+### H30 langkah 3 — replay konservatif: REJECTED (2026-07-02)
+
+Simulator `bot/mmsim.py` (kontrol +/− teruji: osilasi menang, gap-staircase
+rugi, sentuh≠fill, biaya unwind terverifikasi presisi). Aturan verdict dikunci
+SEBELUM run: positif di stress penuh (unwind = half-spread + taker 2bps) pada
+KEDUA offset {1.0x, 1.5x} + ≥20 rt/hari.
+
+Hasil di 91 hari × 7.4jt trade: SEMUA pair, SEMUA offset, bahkan TANPA stress
+taker: mean **−7.3 s/d −11.4 bps**/round-trip, win 32–41%, ~1000–1900 rt/hari.
+REJECTED — bukan marginal.
+
+**Diagnosis ekonomi (pelajaran kunci program):** langkah 2 (+3.30 bps, batas
+atas) mengukur adverse atas SEMUA fill maker — mayoritas fill "at-touch" dalam
+flow jinak. Langkah 3 hanya mengizinkan fill "tembus" — subset fill dengan
+adverse selection TERBURUK by construction. Realitas ada di antara +3.3 dan
+−10 bps, dan posisinya ditentukan oleh SATU variabel: posisi antrian. Posisi
+antrian = kecepatan + infrastruktur = persis yang tidak dimiliki retail.
+Spread capture di pair ini adalah bisnis MM profesional; angka kami
+membuktikannya dari dua arah.
+
+## KESIMPULAN PROGRAM (matang, 2026-07-02)
+**25 hipotesis diuji jujur lintas Fase 1–5. 24 DITOLAK. 1 (H28) tersisa di
+paper-test forward berbiaya nol.** Ruang edge yang bisa diakses retail kecil di
+Binance USDC perp — direksional (TA, cross-sectional, carry, stat-arb, event,
+lifecycle, sektor, vol-premium, OI) DAN struktural (spread capture) — telah
+dieksplorasi sampai habis dengan disiplin penuh. Sesuai handoff opsi #4:
+kesimpulan matang = edge tidak tersedia; JANGAN live-kan apa pun. Bot tetap
+paper (gratis, teruji, berguna sebagai infrastruktur bila suatu saat muncul
+edge dari sumber data yang belum ada). Seluruh nilai kerja ini ada pada
+25 keputusan "tidak" yang terdokumentasi — masing-masing menyelamatkan uang nyata.
