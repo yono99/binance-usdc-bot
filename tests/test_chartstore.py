@@ -45,7 +45,31 @@ def test_ingest_incremental_from_last_ts(tmp_path):
     class _Ex:
         client = _Client()
 
-    assert cs.ingest(_Ex(), "X", "15m", db=db) == 3
+    assert cs.ingest(_Ex(), "X", "15m", bars=4, db=db) == 3   # bars<=have -> inkremental
     assert len(cs.load("X", "15m", db=db)) == 7
     cov = cs.coverage(db=db)
     assert cov[0]["n"] == 7 and cov[0]["symbol"] == "X"
+
+
+def test_ingest_backfills_when_store_much_shorter(tmp_path, monkeypatch):
+    """Diminta 1 tahun tapi store cuma punya sedikit -> fetch penuh (idempotent).
+    Regresi kalibrasi 2026-07-02: majors punya 3rb bar, diminta 35rb, ingest
+    lama hanya maju ke depan -> majors terlewat dari kalibrasi."""
+    from bot import backtest as bt_mod
+    db = tmp_path / "m.db"
+    cs.upsert("X", "15m", _df("2026-01-01", 4), db=db)
+
+    class _Client:
+        def parse_timeframe(self, tf):
+            return 900
+
+        def fetch_ohlcv(self, *a, **k):
+            raise AssertionError("harus lewat fetch_history, bukan inkremental")
+
+    class _Ex:
+        client = _Client()
+
+    monkeypatch.setattr(bt_mod, "fetch_history",
+                        lambda ex, sym, tf, bars: _df("2025-12-25", 20))
+    assert cs.ingest(_Ex(), "X", "15m", bars=100, db=db) == 20
+    assert len(cs.load("X", "15m", limit=100, db=db)) >= 20   # gabungan, tanpa duplikat

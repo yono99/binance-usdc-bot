@@ -86,6 +86,16 @@ def ingest(ex, symbol: str, tf: str, bars: int = 1500, db: Path | None = None) -
         from .backtest import fetch_history            # backfill penuh (paginated)
         df = fetch_history(ex, symbol, tf, bars)
         return upsert(symbol, tf, df, db)
+    # BACKFILL MUNDUR: bila isi store jauh lebih pendek dari yang diminta
+    # (mis. tersimpan 3rb bar, diminta 35rb utk kalibrasi 1 tahun) — fetch penuh;
+    # PK (symbol,tf,ts) membuat upsert idempotent, tak ada duplikat.
+    with _conn(db) as c:
+        n_have = c.execute("SELECT COUNT(*) FROM candles WHERE symbol=? AND tf=?",
+                           (symbol, tf)).fetchone()[0]
+    if n_have < bars * 0.9:
+        from .backtest import fetch_history
+        df = fetch_history(ex, symbol, tf, bars)
+        return upsert(symbol, tf, df, db)
     tf_ms = ex.client.parse_timeframe(tf) * 1000
     out: list = []
     cursor = since + 1                                  # setelah bar terakhir tersimpan
