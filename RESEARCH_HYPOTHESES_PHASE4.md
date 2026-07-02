@@ -227,3 +227,25 @@ H28 mati permanen. Tidak ada "coba threshold lain". Berlaku rencana terminal ↓
 4. Nilai program = 25+ keputusan TIDAK yang terdokumentasi. Itu bukan
    kegagalan; itu temuan — dan dia menyelamatkan uang nyata setiap hari
    dengan terus berkata tidak.
+
+---
+
+# ADDENDUM PEMILIK (2026-07-02) — LIVE-MIKRO ATAS KEPUTUSAN SADAR PEMILIK
+
+Pemilik memutuskan trading uang nyata SEBELUM ada strategi yang lolos 4 palang,
+dengan pernyataan risiko eksplisit ("dengan catatan resiko kesadaran itu semua").
+Dicatat transparan — ini KEPUTUSAN PEMILIK, bukan rekomendasi riset. Ekspektasi
+matematis yang didokumentasikan program: ≈ nol dikurangi biaya; tujuan nyata =
+pengalaman live + data slippage riil.
+
+**A. Bot teknikal LIVE-MIKRO (aktif 2026-07-02).** MODE=live; guardrail dikunci:
+bet $2/posisi, leverage 3, max 3 posisi, circuit breaker rugi harian 10%,
+max 10 trade/hari, semua rem aktif (news veto, BTC-gate, DA, VRP-shadow).
+Eksposur maks ≈ $18 notional. Aturan: guardrail hanya boleh DIKETATKAN.
+
+**B. H28 mikro-live paralel (dibangun; MENUNGGU kill-switch & sizing teruji).**
+Override sadar atas urutan Tahap 1→2: basket diciutkan 5+5 kaki × ~$5-10/kaki
+(min-notional exchange), total ≤$50. Kill-switch pra-registrasi TETAP berlaku:
+DD kumulatif >15% notional ATAU 6 siklus negatif beruntun = mati permanen.
+Paper-test Tahap 1 TETAP berjalan paralel (tak tersentuh) — vonis ilmiah tetap
+dari 15 siklus paper; jalur live-mikro hanya mengukur slippage lebih awal.
