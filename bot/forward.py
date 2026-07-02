@@ -77,6 +77,10 @@ class ForwardTester:
         self.daily_max_trades = int(_r.get("daily_max_trades", 0) or 0)
         self.corr_threshold = float(_r.get("corr_threshold", 0) or 0)
         self.corr_lookback = int(_r.get("corr_lookback", 0) or 0)
+        from .logger import set_journal_mode
+        set_journal_mode(self.settings.mode)             # jurnal per-mode
+        decision_log.set_mode(self.settings.mode)        # decision log per-mode
+        self._state_key = f"botstate_{self.settings.mode}"  # state per-mode
         self.news = NewsVeto(self.settings, self.cfg)
         self._news_base = self.news.enabled     # kemampuan dasar (Gemini+config); UI bisa mematikan
         self.vrp = vrp.VRPBrake(self.ex, self.cfg)   # rem-VRP (shadow: catat, tak blokir)
@@ -419,7 +423,7 @@ class ForwardTester:
         pos = self.open.pop(sym)
         tr = self.bt._close(pos, price, pd.Timestamp.utcnow(), 0, reason)
         self.trades.append(tr)
-        vrp.log_close(sym, pos, tr.r)           # outcome ber-stempel VRP → shadow log
+        vrp.log_close(sym, pos, tr.r, mode=self.settings.mode)  # shadow log ber-mode
         self.equity *= (1 + self.risk_frac * tr.r)
         journal("forward_close", {"symbol": sym, "exit": price, "r": round(tr.r, 4),
                                   "reason": reason, "equity": round(self.equity, 2)})
@@ -542,7 +546,7 @@ class ForwardTester:
     def _restore_state(self) -> None:
         try:
             from .store import get_kv
-            st = get_kv("botstate")
+            st = get_kv(self._state_key)
         except Exception as e:  # boundary
             log.warning(f"restore state gagal: {e}")
             return
@@ -585,7 +589,7 @@ class ForwardTester:
     def _persist_state(self) -> None:
         try:
             from .store import set_kv
-            set_kv("botstate", {"balance": round(self.balance_usd, 6),
+            set_kv(self._state_key, {"balance": round(self.balance_usd, 6),
                                 "open": self.open,
                                 "cfg_balance": self._last_cfg_balance,
                                 "day": str(self._day), "day_pnl": round(self._day_pnl, 4),
@@ -849,7 +853,7 @@ class ForwardTester:
         self._day_pnl += pnl                        # untuk circuit breaker harian
         r = pnl / pos["bet"] if pos["bet"] else 0.0
         self.trades.append(namedtuple("T", ["r"])(r))
-        vrp.log_close(sym, pos, r)              # outcome ber-stempel VRP → shadow log
+        vrp.log_close(sym, pos, r, mode=self.settings.mode)   # shadow log ber-mode
         if pos.get("gdecision") and self.gtrader is not None:   # umpan balik ke Gemini
             try:
                 self.gtrader.settle(pos["gdecision"], r)

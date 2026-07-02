@@ -92,7 +92,8 @@ class VRPBrake:
         return {"vrp_brake": self._cache[1], "vrp_gap": self._cache[2]}
 
 
-def log_close(symbol: str, pos: dict, r: float, path: Path = SHADOW_LOG) -> None:
+def log_close(symbol: str, pos: dict, r: float, path: Path = SHADOW_LOG,
+              mode: str | None = None) -> None:
     """Catat outcome trade yang punya stempel VRP (dipanggil saat close; boundary)."""
     if "vrp_brake" not in pos:
         return

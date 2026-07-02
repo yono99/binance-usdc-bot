@@ -42,11 +42,14 @@ def read_events(path: Path) -> list[dict]:
     return out
 
 
-def compute_stats(path: Path | None = None, start_equity: float = 1000.0) -> dict:
+def compute_stats(path: Path | None = None, start_equity: float = 1000.0,
+                  mode: str | None = None) -> dict:
     events = read_events(path) if path else store.all_events()
     opens = {}
     closes = []
     for e in events:
+        if path is None and mode and e.get("mode", "dry") != mode:  # store gabung semua mode
+            continue
         ev = e.get("event")
         if ev == "forward_open":
             opens[e["symbol"]] = e
@@ -104,11 +107,18 @@ def compute_stats(path: Path | None = None, start_equity: float = 1000.0) -> dic
     }
 
 
-def build_trades(events: list[dict]) -> list[dict]:
+def _ui_mode() -> str | None:
+    st = store.get_kv("status") or {}
+    return st.get("mode")
+
+
+def build_trades(events: list[dict], mode: str | None = None) -> list[dict]:
     """Rekonstruksi trade lengkap: pasangkan forward_open dengan forward_close (per simbol)."""
     open_map: dict = {}
     trades = []
     for e in events:
+        if mode and e.get("mode", "dry") != mode:        # legacy tanpa mode = paper (dry)
+            continue
         ev = e.get("event")
         if ev == "forward_open":
             open_map[e["symbol"]] = e
@@ -153,14 +163,14 @@ app = FastAPI(title="Bot Monitor")
 def api_trades(symbol: str = None, reason: str = None, dfrom: str = None,
                dto: str = None, limit: int = 100) -> JSONResponse:
     limit = min(max(1, limit), 100)        # data dari SQLite maksimal 100
-    trades = filter_trades(build_trades(store.all_events()), symbol, reason, dfrom, dto)
+    trades = filter_trades(build_trades(store.all_events(), _ui_mode()), symbol, reason, dfrom, dto)
     return JSONResponse({"count": len(trades), "trades": trades[-limit:][::-1]})
 
 
 @app.get("/api/trades.csv")
 def api_trades_csv(symbol: str = None, reason: str = None, dfrom: str = None,
                    dto: str = None) -> PlainTextResponse:
-    trades = filter_trades(build_trades(store.all_events()), symbol, reason, dfrom, dto)
+    trades = filter_trades(build_trades(store.all_events(), _ui_mode()), symbol, reason, dfrom, dto)
     buf = io.StringIO()
     w = csvmod.writer(buf)
     w.writerow(_TRADE_COLS)
@@ -172,7 +182,7 @@ def api_trades_csv(symbol: str = None, reason: str = None, dfrom: str = None,
 
 @app.get("/api/stats")
 def api_stats() -> JSONResponse:
-    return JSONResponse(compute_stats())
+    return JSONResponse(compute_stats(mode=_ui_mode()))
 
 
 @app.get("/api/settings")

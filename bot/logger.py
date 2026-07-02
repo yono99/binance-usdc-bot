@@ -32,12 +32,25 @@ logging.basicConfig(
 log = logging.getLogger("bot")
 
 
+_JOURNAL_MODE: str | None = None
+
+
+def set_journal_mode(mode: str) -> None:
+    """Pisahkan jurnal per mode (dry/test/live): file & stempel payload.
+    Dipanggil sekali oleh bot saat init — mencegah riwayat lintas-mode bercampur."""
+    global _JOURNAL_MODE
+    _JOURNAL_MODE = mode
+
+
 def journal(event: str, payload: dict) -> None:
     """Catat satu event trade. Dual-write: JSONL (audit/post-mortem, append-only) +
     SQLite (sumber query/hapus untuk dashboard). Kegagalan SQLite tak boleh menjatuhkan
     bot — JSONL tetap jadi cadangan."""
+    if _JOURNAL_MODE:
+        payload = {**payload, "mode": _JOURNAL_MODE}
     rec = {"ts": datetime.now(timezone.utc).isoformat(), "event": event, **payload}
-    with open(LOG_DIR / "trades.jsonl", "a", encoding="utf-8") as f:
+    fname = f"trades_{_JOURNAL_MODE}.jsonl" if _JOURNAL_MODE else "trades.jsonl"
+    with open(LOG_DIR / fname, "a", encoding="utf-8") as f:
         f.write(json.dumps(rec, default=str) + "\n")
     try:
         from .store import insert_event

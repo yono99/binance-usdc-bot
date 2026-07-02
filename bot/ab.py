@@ -19,7 +19,8 @@ from . import decision_log
 from .evolve import permutation_pvalue
 
 
-def collect(path=decision_log.DECISION_LOG) -> list[dict]:
+def collect(path=None) -> list[dict]:
+    path = path or decision_log.current_path()
     """Trade tertutup (ENTER, sudah ber-outcome) yang punya verdict shadow ReAct."""
     out = []
     for r in decision_log.read_all(path):
@@ -83,5 +84,6 @@ def analyze(rows: list[dict], *, alpha: float = 0.05) -> dict:
                        else "ReAct tak terbukti memperbaiki exp_R")}
 
 
-def report(path=decision_log.DECISION_LOG) -> dict:
+def report(path=None) -> dict:
+    path = path or decision_log.current_path()
     return analyze(collect(path))

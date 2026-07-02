@@ -1,12 +1,24 @@
 import pandas as pd
 import pytest
 
+from bot import decision_log, logger
 from bot.config import load_settings
 
 
 @pytest.fixture(scope="session")
 def cfg():
     return load_settings().raw
+
+
+@pytest.fixture(autouse=True)
+def _reset_mode_globals():
+    """ForwardTester men-set journal/decision-log mode secara global saat init
+    (isolasi riwayat dry/test/live). Tanpa reset ini, satu test yang membuat
+    ForwardTester membocorkan mode ke test lain yang tak terkait (mis.
+    test_logger menulis ke trades_dry.jsonl, bukan trades.jsonl)."""
+    yield
+    logger.set_journal_mode(None)
+    decision_log.set_mode(None)
 
 
 @pytest.fixture
