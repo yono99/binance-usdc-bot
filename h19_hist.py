@@ -34,7 +34,19 @@ def main() -> None:
     p.add_argument("--fee", type=float, default=0.02)
     p.add_argument("--slippage", type=float, default=0.05)
     p.add_argument("--stress-mult", type=float, default=1.0)
+    p.add_argument("--funding-min", type=float, default=0.0003,
+                   help="gerbang aktivasi |funding|/8h (dipilih dari coverage, bukan return)")
+    p.add_argument("--fresh", action="store_true", help="abaikan cache panel")
     args = p.parse_args()
+
+    import pickle
+    from pathlib import Path as _P
+    cache_p = _P("data/vision/h19_panel.pkl")
+    if cache_p.exists() and not args.fresh:
+        cols, index, close, oi, level = pickle.load(open(cache_p, "rb"))
+        console.print(f"[cyan]Panel dari cache: {len(cols)} simbol × {len(index)} bar[/cyan]")
+        _run(args, cols, close, oi, level)
+        return
 
     if args.symbols_file:
         symbols = open(args.symbols_file).read().split()[:args.top]
@@ -82,9 +94,23 @@ def main() -> None:
                        for s in cols})[cols].to_numpy()
     level, _ = carry.align_funding(fundings, panel.index, cols)
     log.info(f"Panel: {len(cols)} simbol × {len(panel)} bar 1h.")
+    pickle.dump((cols, panel.index, close, oi, level), open(cache_p, "wb"))
+    _run(args, cols, close, oi, level)
+
+
+def _run(args, cols, close, oi, level) -> None:
+    import numpy as np
+    from bot import xs_signals as xss, xsectional as xs
+    # Diagnostik AKTIVASI (dipilih dari coverage, BUKAN dari return):
+    for x in (0.0001, 0.0002, 0.0003, 0.0005):
+        frac = float(np.mean(np.abs(level) > x))
+        active_rows = float(np.mean((np.abs(level) > x).sum(axis=1) >= 8))
+        console.print(f"  |funding|>{x*100:.2f}%/8h: {frac:.1%} sel aktif; "
+                      f"{active_rows:.1%} bar punya ≥8 simbol aktif")
 
     cost = 4 * (args.fee + args.slippage) / 100 * args.stress_mult
-    panels = {f"oi{w}": xss.score_oi_crowding(level, oi, w) for w in (24, 72)}
+    panels = {f"oi{w}": xss.score_oi_crowding(level, oi, w, funding_min=args.funding_min)
+              for w in (24, 72)}
     holds = [24, 72]
     n_trials = len(panels) * len(holds)
     windows, oos = xs.walk_forward_scores(close, panels, holds, 0.3, cost,
