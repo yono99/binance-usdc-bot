@@ -1,24 +1,41 @@
 """Regresi insiden 2026-07-02: tab dashboard basi menimpa mode aktif + leverage.
 
-Fix: POST /api/settings tak lagi bisa mengubah 'mode' (jalur resmi: POST /api/mode),
-dan bersifat PATCH (field yang tak dikirim payload dipertahankan dari nilai
-tersimpan, bukan direset ke default RuntimeSettings())."""
+Fix: POST /api/settings TIDAK PERNAH mengubah mode aktif (jalur resmi: POST
+/api/mode), bersifat PATCH (field yang tak dikirim dipertahankan), dan menulis
+ke BUCKET mode yang dikirim form — bukan bucket mode aktif. Regresi kedua
+(2026-07-02): user ON-kan bot di form dry saat mode aktif live -> enabled
+tertulis ke bucket LIVE."""
 import json
 
 from bot import dashboard, store
 from bot.settings_store import RuntimeSettings, get_active_mode, load_settings, save_settings
 
 
-def test_settings_save_cannot_change_mode(tmp_path, monkeypatch):
+def test_settings_save_cannot_change_active_mode(tmp_path, monkeypatch):
     monkeypatch.setattr(store, "DB_PATH", tmp_path / "bot.db")
     save_settings(RuntimeSettings(mode="live", leverage=3, bet_usd=2.0))
     assert get_active_mode() == "live"
 
-    # payload BASI membawa mode="test" (simulasi tab lama) -> HARUS diabaikan
+    # form menampilkan mode "test" -> tersimpan ke BUCKET test, mode aktif TETAP live
     resp = dashboard.api_set_settings({"mode": "test", "leverage": 3, "bet_usd": 2.0})
     body = json.loads(resp.body)
-    assert body["mode"] == "live"                  # tak berubah walau diminta
-    assert get_active_mode() == "live"              # active_mode juga tak tersentuh
+    assert body["mode"] == "test"                   # bucket target = mode form
+    assert get_active_mode() == "live"              # active_mode tak tersentuh
+    assert load_settings("test").leverage == 3      # tertulis di bucket test
+    assert load_settings("live").bet_usd == 2.0     # bucket live utuh
+
+
+def test_settings_save_targets_form_bucket_not_active(tmp_path, monkeypatch):
+    """Bug nyata: ON di form dry saat mode aktif live -> dulu enabled bocor ke live."""
+    monkeypatch.setattr(store, "DB_PATH", tmp_path / "bot.db")
+    save_settings(RuntimeSettings(mode="live", enabled=False))
+    save_settings(RuntimeSettings(mode="dry", enabled=False), set_active=False)
+    assert get_active_mode() == "live"
+
+    dashboard.api_set_settings({"mode": "dry", "enabled": True})
+    assert load_settings("dry").enabled is True     # dry menyala
+    assert load_settings("live").enabled is False   # live TIDAK ikut menyala
+    assert get_active_mode() == "live"
 
 
 def test_settings_save_is_non_destructive_for_omitted_fields(tmp_path, monkeypatch):

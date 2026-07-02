@@ -109,8 +109,8 @@ def compute_stats(path: Path | None = None, start_equity: float = 1000.0,
 
 
 def _ui_mode() -> str | None:
-    st = store.get_kv("status") or {}
-    return st.get("mode")
+    # mode yang sedang DILIHAT UI (pilihan /api/mode), fallback status bot lama
+    return get_active_mode() or (store.get_kv("status") or {}).get("mode")
 
 
 def build_trades(events: list[dict], mode: str | None = None) -> list[dict]:
@@ -199,8 +199,12 @@ def api_get_settings(mode: str = None) -> JSONResponse:
 
 
 @app.get("/api/status")
-def api_bot_status() -> JSONResponse:
-    return JSONResponse(store.get_kv("status") or {})
+def api_bot_status(mode: str = None) -> JSONResponse:
+    """Status bot per-mode ('status:<mode>'). Tanpa ?mode= → mode aktif UI.
+    Fallback ke kv 'status' lama (bot lama/single-process)."""
+    from .settings_store import _env_mode
+    m = mode if mode in ("dry", "test", "live") else (get_active_mode() or _env_mode())
+    return JSONResponse(store.get_kv(f"status:{m}") or store.get_kv("status") or {})
 
 
 _acct = {"ts": 0.0, "data": None}
@@ -482,21 +486,23 @@ def api_clear_trades() -> JSONResponse:
 
 @app.post("/api/settings")
 def api_set_settings(payload: dict) -> JSONResponse:
-    """Simpan pengaturan mode AKTIF. NON-DESTRUKTIF: field yang tak dikirim
-    dipertahankan dari nilai TERSIMPAN (patch di atas, bukan reset ke default
-    RuntimeSettings()). 'mode' SENGAJA diabaikan di sini — ganti mode HANYA
-    via POST /api/mode. Insiden nyata 2026-07-02: tab dashboard basi menyimpan
-    ulang form lama, leverage & mode ikut kembali ke nilai lama — form basi
-    kini tak bisa lagi menimpa mode aktif, dan field yang ia tak sebut aman."""
+    """Simpan pengaturan ke BUCKET MODE yang dikirim form (payload['mode']);
+    tanpa 'mode' → bucket mode aktif. NON-DESTRUKTIF: field yang tak dikirim
+    dipertahankan dari nilai TERSIMPAN (patch, bukan reset ke default).
+    Mode AKTIF tak pernah berubah di sini — ganti mode HANYA via POST /api/mode.
+    Insiden 2026-07-02 (tab basi menimpa mode) + bug ON-di-dry-tersimpan-ke-live:
+    form kini menulis ke bucket mode yang SEDANG DILIHAT, bukan mode aktif."""
     known = set(RuntimeSettings().__dict__) - {"mode"}
     if isinstance(payload.get("symbols"), str):
         payload["symbols"] = [x.strip() for x in payload["symbols"].split(",") if x.strip()]
-    s = load_settings()                       # basis: nilai TERSIMPAN mode aktif
+    req = payload.get("mode")
+    target = req if req in ("", "dry", "test", "live") else None   # None = mode aktif
+    s = load_settings(target)                 # basis: nilai TERSIMPAN bucket target
     for k, v in payload.items():
         if k in known:
             setattr(s, k, v)
     s = s.clamp()
-    save_settings(s)
+    save_settings(s, set_active=False)
     d = asdict(s)
     d["techniques"] = list(PRESETS)
     d["timeframe"] = s.timeframe()

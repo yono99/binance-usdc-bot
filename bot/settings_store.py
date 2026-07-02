@@ -38,7 +38,7 @@ MAINT_MARGIN = 0.005  # asumsi maintenance margin ~0.5%
 
 @dataclass
 class RuntimeSettings:
-    enabled: bool = True                        # bot aktif buka posisi? (default ON)
+    enabled: bool = False                       # bot aktif buka posisi? (default OFF — user yang menyalakan per mode)
     technique: str = "auto"                     # scalping | swing | auto
     symbols: list[str] = field(default_factory=lambda: ["BTC/USDC:USDC"])
     leverage: int = 100                         # default 100x (paper) — likuidasi pada gerakan ~0.5%
@@ -172,8 +172,10 @@ def load_settings(mode: str | None = None) -> RuntimeSettings:
         return _from_dict({}, mode=requested)
 
 
-def save_settings(s: RuntimeSettings) -> None:
-    """Simpan ke bucket mode-nya sendiri + set mode aktif."""
+def save_settings(s: RuntimeSettings, set_active: bool = True) -> None:
+    """Simpan ke bucket mode-nya sendiri. set_active=False → JANGAN sentuh mode
+    aktif (dipakai POST /api/settings agar form tak bisa memindah mode)."""
     s = s.clamp()
     store.set_kv("runtime:" + _eff_mode(s.mode), asdict(s))
-    set_active_mode(s.mode)
+    if set_active:
+        set_active_mode(s.mode)

@@ -32,6 +32,9 @@ def parse_args():
     p.add_argument("--no-of", action="store_true")
     p.add_argument("--use-store", action="store_true",
                    help="baca pengaturan dari UI (runtime.json) tiap siklus")
+    p.add_argument("--mode", choices=["dry", "test", "live"],
+                   help="KUNCI proses ke satu mode (abaikan mode aktif UI). "
+                        "Jalankan satu proses per mode untuk multi-mode paralel.")
     p.add_argument("--once", action="store_true")
     return p.parse_args()
 
@@ -39,6 +42,13 @@ def parse_args():
 def main() -> None:
     args = parse_args()
     settings = load_settings()
+    if args.mode:
+        import os
+        from dataclasses import replace
+        if args.mode == "live" and not (os.getenv("BINANCE_LIVE_KEY") and os.getenv("BINANCE_LIVE_SECRET")):
+            log.error("--mode live butuh BINANCE_LIVE_KEY/SECRET di .env — berhenti.")
+            return
+        settings = replace(settings, mode=args.mode)
     symbols = args.symbols or settings.raw["market"].get("whitelist") or ["BTC/USDC:USDC"]
 
     params = default_params()
@@ -54,7 +64,8 @@ def main() -> None:
     params["use_oi"] = args.oi
     params["use_of"] = not args.no_of
 
-    ft = ForwardTester(settings, symbols, params, equity=args.equity, use_store=args.use_store)
+    ft = ForwardTester(settings, symbols, params, equity=args.equity,
+                       use_store=args.use_store, pin_mode=bool(args.mode))
 
     if args.once:
         ft.seed()

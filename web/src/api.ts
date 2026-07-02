@@ -54,6 +54,7 @@ export const api = {
   agentAB: () => getJSON<AgentAB>("/api/ab"),
 
   saveSettings: (body: Record<string, unknown>) => postJSON<Settings>("/api/settings", body),
+  setMode: (mode: string) => postJSON<{ ok: boolean; mode: string }>("/api/mode", { mode }),
   validateKey: (key: string, secret: string) =>
     postJSON<{ valid: boolean; balance_usdc?: number; error?: string }>("/api/validate-key", { key, secret }),
   notifyTest: () => postJSON<{ ok: boolean; error?: string }>("/api/notify-test"),

@@ -113,8 +113,10 @@ export function ControlPanel({
         return;
       if (!confirm("Konfirmasi sekali lagi — ini UANG NYATA. Yakin mengaktifkan LIVE?")) return;
     }
-    // muat setting milik mode itu (tiap mode punya setting sendiri)
+    // persist pilihan mode ke backend (tanpa ini, refresh kembali ke mode aktif lama
+    // dan Simpan menulis ke bucket mode yang salah), lalu muat setting milik mode itu
     try {
+      await api.setMode(m);
       const d = await api.settings(m);
       setS(d);
       setForm(toForm(d));

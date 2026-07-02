@@ -57,6 +57,9 @@ class ForwardTester:
     slippage: float = 0.02
     alt_refresh_s: int = 600
     use_store: bool = False        # baca pengaturan UI (runtime.json) tiap siklus
+    pin_mode: bool = False         # KUNCI ke settings.mode: baca bucket sendiri, tak ikut
+                                   # mode aktif UI & tak pernah switch — untuk menjalankan
+                                   # beberapa proses bot paralel (satu per mode)
 
     buffers: dict = field(default_factory=dict)
     last_closed: dict = field(default_factory=dict)
@@ -126,7 +129,7 @@ class ForwardTester:
         self._dd_lock = False
         self._dd_reason = ""
         if self.use_store:
-            self.rs = load_settings()
+            self.rs = load_settings(self.settings.mode if self.pin_mode else None)
             self.symbols = self.rs.symbols or self.ex.perp_symbols(
                 tuple(self.cfg["market"].get("settles", ["USDC"])))   # kosong = semua settle config
             self.params = self.rs.params()
@@ -615,9 +618,9 @@ class ForwardTester:
         return self._dd_reason if self._dd_lock else None
 
     def _apply_settings(self) -> RuntimeSettings:
-        rs = load_settings()
+        rs = load_settings(self.settings.mode if self.pin_mode else None)
         eff = rs.mode or self.settings.mode               # mode diminta dari UI (atau .env)
-        if eff != self._eff_mode:
+        if eff != self._eff_mode and not self.pin_mode:   # pinned: tak pernah switch
             self._switch_mode(eff)
         resolved = rs.symbols or self.ex.perp_symbols(
             tuple(self.cfg["market"].get("settles", ["USDC"])))   # kosong = semua settle config
@@ -1326,7 +1329,9 @@ class ForwardTester:
         }
         try:
             from .store import set_kv
-            set_kv("status", status)
+            set_kv(f"status:{self.settings.mode}", status)   # per-mode (multi-proses paralel)
+            if not self.pin_mode:
+                set_kv("status", status)                     # kompat: proses tunggal lama
         except Exception as e:  # boundary
             log.warning(f"tulis status gagal: {e}")
 
