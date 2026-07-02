@@ -117,6 +117,9 @@ mode) — bandingkan Brier 50-trade terakhir vs **baseline 14-hari**. Bila membu
 diam-diam = bot meyakinkan diri sendiri ia masih benar). Anti-spam: alarm hanya saat MASUK
 kondisi drift, reset saat pulih. Kedua ambang hot-reload (RuntimeSettings, sama seperti tier
 Phase 2). Instrumentasi murni — tak pernah memblokir trade.
+> **Cakupan skor Brier**: jalur paper (`_close_usd`) selalu skor; jalur LIVE (`_live_reconcile`)
+> skor HANYA saat TEPAT SATU posisi Gemini tutup per siklus (Δequity = PnL posisi itu, tak
+> ambigu). Multi-close bersamaan dilewati (jangan skor dari PnL agregat yang kotor).
 
 > Jujur: ini menaikkan "level agentik", **bukan** jaminan profit. Buktikan dengan A/B di bawah.
 

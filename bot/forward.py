@@ -883,6 +883,10 @@ class ForwardTester:
             sym, pos = gem_closed[0]
             try:
                 r = (self.balance_usd - prev_balance) / pos["bet"] if pos.get("bet") else 0.0
+                if pos.get("conviction") is not None:   # skor Brier LIVE (Phase 1): PnL TAK
+                    from .store import log_calibration   # ambigu di sini (tepat 1 posisi tutup)
+                    log_calibration(pos.get("gdecision"), sym, float(pos["conviction"]),
+                                    1 if r > 0 else 0, self.settings.mode)
                 self.gtrader.settle(pos["gdecision"], r)
                 self._gem_closes += 1
                 if self._gem_closes % 20 == 0:

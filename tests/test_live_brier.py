@@ -1,0 +1,62 @@
+"""Skor Brier untuk close LIVE via reconcile — hanya saat PnL tak ambigu (tepat 1 tutup)."""
+import types
+
+import bot.forward as fwd
+import bot.store as store
+from bot.forward import ForwardTester
+
+
+def _self(equity_after, *, open_pos):
+    calls, settled = [], []
+    store.log_calibration = lambda tid, sym, prob, out, mode: calls.append((tid, sym, prob, out, mode))
+    fwd.journal = lambda ev, data: None
+    ex = types.SimpleNamespace(
+        positions=lambda: [],                                  # semua posisi sudah tutup di bursa
+        equity_usdc=lambda bal: equity_after,                  # equity nyata pasca-tutup
+        client=types.SimpleNamespace(cancel_all_orders=lambda s: None),
+    )
+    self = types.SimpleNamespace(
+        ex=ex, open=open_pos, balance_usd=100.0,
+        _day_pnl=0.0, _day_start_balance=100.0,
+        gtrader=types.SimpleNamespace(settle=lambda did, r: settled.append((did, r)),
+                                      reflect=lambda: {"active_lessons": 0}),
+        settings=types.SimpleNamespace(mode="live"),
+        _gem_closes=0, _calib_drifting=False,
+        notify=types.SimpleNamespace(send=lambda m: None),
+        _react_link=lambda *a: None,
+    )
+    return self, calls, settled
+
+
+def _pos():
+    return {"gdecision": 7, "conviction": 0.62, "bet": 10.0, "side": "long", "entry": 100.0}
+
+
+def test_profit_scores_outcome_1():
+    self, calls, settled = _self(105.0, open_pos={"BTC/USDC:USDC": _pos()})
+    ForwardTester._live_reconcile(self)
+    assert calls == [(7, "BTC/USDC:USDC", 0.62, 1, "live")]    # Brier tercatat per-mode, outcome=profit
+    assert settled == [(7, 0.5)]                               # r = (105-100)/10
+
+
+def test_loss_scores_outcome_0():
+    self, calls, _ = _self(96.0, open_pos={"BTC/USDC:USDC": _pos()})
+    ForwardTester._live_reconcile(self)
+    assert calls == [(7, "BTC/USDC:USDC", 0.62, 0, "live")]
+
+
+def test_multi_close_ambiguous_no_brier():
+    # dua posisi Gemini tutup bersamaan → Δequity ambigu → JANGAN skor (data kotor)
+    self, calls, settled = _self(105.0, open_pos={
+        "BTC/USDC:USDC": _pos(), "ETH/USDC:USDC": {**_pos(), "gdecision": 8}})
+    ForwardTester._live_reconcile(self)
+    assert calls == []                                         # tak ada Brier saat ambigu
+    assert settled == []
+
+
+def test_no_conviction_no_brier():
+    p = _pos(); p.pop("conviction")
+    self, calls, settled = _self(105.0, open_pos={"BTC/USDC:USDC": p})
+    ForwardTester._live_reconcile(self)
+    assert calls == []                                         # tanpa angka confidence → tak diskor
+    assert settled == [(7, 0.5)]                               # tapi tetap di-settle (belajar R)
