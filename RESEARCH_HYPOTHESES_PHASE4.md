@@ -178,3 +178,52 @@ maks 4 trial; palang 4 standar. Sebelum 6 bulan: JANGAN diintip untuk "preview".
 5. Prinsip tak berubah: OOS adalah hakim; n kecil = belum ada bukti; positif
    tak signifikan = artefak sampai terbukti sebaliknya; LLM = rem, bukan gas;
    dan TIDAK ADA yang di-live-kan tanpa lolos 4 palang.
+
+---
+
+# PENUTUP PRA-REGISTRASI — JALUR PROMOSI H28 & KONDISI TERMINAL PROGRAM
+(dikunci 2026-07-02, SEBELUM satu pun siklus paper H28 tercatat)
+
+Status program saat dikunci: 25 hipotesis diuji, 24 DITOLAK (termasuk H30 di
+langkah 3 — replay konservatif −7..−11 bps/rt; edge milik posisi antrian = MM
+profesional; JANGAN dibuka kembali dengan infrastruktur retail). Satu-satunya
+kandidat hidup: H28, di paper-test parameter-beku.
+
+## Jalur promosi H28 → mesin (setiap naik kelas DIBAYAR BUKTI)
+
+**Tahap 1 — PAPER (berjalan).** `h28_forward.py`, parameter beku (gate 0.10,
+hold 10d, q0.3, biaya 0.28%/siklus), universe `h28_universe.txt`.
+- Evaluasi HANYA setelah ≥15 siklus tertutup di `data/h28_forward/trades.jsonl`.
+- LOLOS bila mean pnl_net > 0 DAN t-test satu-sisi p < 0.05 (satu trial).
+- Dilarang: mengubah parameter, berhenti lebih awal (hasil buruk ATAU baik),
+  menilai sebelum 15 siklus.
+
+**Tahap 2 — MIKRO-LIVE (hanya bila Tahap 1 LOLOS).**
+- Basket dipangkas: 10 kaki teratas + 10 terbawah; total notional ≤ $50;
+  leverage ≤ 2; eksekusi limit/maker bila mungkin.
+- KILL-SWITCH pra-registrasi: mati PERMANEN bila drawdown kumulatif > 15%
+  notional ATAU 6 siklus berturut-turut negatif. Tanpa negosiasi.
+- Tujuan tahap ini BUKAN profit — mengukur slippage nyata vs asumsi 0.28%.
+- Evaluasi setelah ≥10 siklus mikro: mean net > 0 dgn slippage TERUKUR.
+
+**Tahap 3 — UKURAN NYATA (hanya bila Tahap 2 LOLOS).**
+- Naikkan bertahap (2× per 10 siklus positif), plafon sesuai toleransi pemilik.
+- Kill-switch tetap; parameter tetap beku; review bulanan mean vs backtest —
+  degradasi >50% dari ekspektasi = turun kelas ke Tahap 2.
+
+**Tahap 4 — GAGAL DI TITIK MANA PUN = TERMINAL.**
+H28 mati permanen. Tidak ada "coba threshold lain". Berlaku rencana terminal ↓.
+
+## Kondisi terminal program (bila H28 gagal di tahap mana pun)
+
+1. **Tidak ada trading live.** Uang untuk crypto → pasif (DCA BTC/ETH) —
+   secara konstruksi mengalahkan bot tanpa-edge (nol minus biaya).
+2. **Sistem di-repurpose, bukan dibuang**: bot paper + dashboard + chart store
+   = alat monitoring/belajar; repo = portofolio engineering & metodologi riset.
+3. **Riset baru HANYA untuk sumber data yang belum pernah disentuh** (on-chain,
+   sentimen real-time), dengan format registri ini, dan hanya bila risetnya
+   sendiri dinikmati. Dilarang: varian dari 25 yang mati, pelonggaran palang
+   (p<0.10 dsb.), "live kecil-kecilan biar tahu rasanya".
+4. Nilai program = 25+ keputusan TIDAK yang terdokumentasi. Itu bukan
+   kegagalan; itu temuan — dan dia menyelamatkan uang nyata setiap hari
+   dengan terus berkata tidak.
