@@ -203,6 +203,12 @@ def curriculum_prompt(modules: list[str] | None = None) -> str:
         "- Pastikan imbalan:risiko = |tp−harga| : |harga−sl| MASUK AKAL (idealnya ≥ 1.5).\n"
         "- 'price' ada di KONTEKS PASAR (market.price) — pakai itu sebagai acuan harga sekarang.\n"
         "Jika ragu / sinyal bertabrakan / tak ada setup → side=\"flat\", setup=\"no_trade\" (sl/tp diabaikan).\n"
-        "Bila ada PELAJARAN TERUJI di konteks (sudah lolos bukti), patuhi — itu hasil belajarmu."
+        "Bila ada PELAJARAN TERUJI di konteks (sudah lolos bukti), patuhi — itu hasil belajarmu.\n"
+        "GROUNDING (dihitung sistem dari rekam jejak NYATA — bukan klaim):\n"
+        "- 'setup_track_record': win-rate & expectancy R tiap setup-mu + seberapa sering SL\n"
+        "  tersambar (sl_hit_rate) & MFE sebelum SL. Setup dgn exp_r negatif = KURANGI conviction\n"
+        "  atau hindari; sl_hit tinggi dgn mfe besar = SL-mu terlalu mepet, longgarkan sedikit.\n"
+        "- 'calibration': Brier confidence-mu (0.25=koin; makin kecil=makin jujur). Bila Brier\n"
+        "  buruk = kamu terlalu percaya diri → turunkan conviction sampai kalibrasi membaik."
     )
     return (CORE + "\n" + body + "\nDAFTAR SETUPS (pilih tepat satu):\n" + setups + contract)

@@ -96,8 +96,19 @@ class GeminiTrader:
     def __init__(self, settings: Settings, cfg: dict):
         gcfg = cfg.get("gemini", {})
         self.cfg = cfg
+        self.mode = settings.mode                    # untuk kalibrasi per-mode di konteks
         self.client = GeminiClient(settings.gemini_keys, gcfg.get("model", "gemini-2.5-flash"))
         self.enabled = settings.gemini_enabled and self.client.available
+
+    def _track_record(self) -> list[dict]:
+        """Rekam jejak per-setup DIHITUNG KODE dari SQLite (deterministik, anti-halusinasi):
+        win rate, expectancy R, seberapa sering SL tersambar & MAE/MFE-nya. Memberi Gemini
+        BUKTI performa tiap setup-nya sendiri — bukan klaim, bukan ramalan."""
+        try:
+            setups = sorted({d["setup"] for d in store.settled_decisions() if d.get("setup")})
+            return [store.setup_stats(s) for s in setups]
+        except Exception:  # boundary — konteks opsional
+            return []
 
     # ---------- konteks ----------
     def build_context(self, symbol: str, df: pd.DataFrame, *, alt: dict | None = None,
@@ -113,8 +124,20 @@ class GeminiTrader:
             "news": news_note,
             "recent_decisions": store.recent_decisions(symbol, limit=5),
             "tested_lessons": store.active_lessons(limit=10),   # HANYA yang lolos bukti
+            # Grounding tambahan dari SQLite (agar Gemini PAHAM performa nyatanya):
+            "setup_track_record": self._track_record(),         # stats per-setup (dihitung kode)
+            "calibration": self._calibration(),                 # kejujuran confidence-nya (Brier)
         }
         return ctx
+
+    def _calibration(self) -> dict:
+        """Kalibrasi confidence Gemini di mode ini (Brier rolling) dari SQLite. Memberi
+        Gemini umpan balik apakah angka conviction-nya SELAMA INI jujur (0.25 = koin)."""
+        try:
+            rep = store.calibration_report(self.mode, last_n=50, days=14)
+            return rep.get("last_50_trades", {})
+        except Exception:  # boundary — konteks opsional
+            return {}
 
     # ---------- keputusan ----------
     def decide(self, context: dict) -> dict:

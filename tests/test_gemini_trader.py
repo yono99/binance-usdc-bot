@@ -132,6 +132,19 @@ def test_build_context_includes_portfolio(db, trader):
     assert ctx["portfolio"]["count"] == 1
 
 
+def test_build_context_grounds_gemini_on_sqlite(db, trader):
+    """Grounding tambahan: rekam jejak per-setup (dihitung kode) + kalibrasi Brier,
+    supaya Gemini PAHAM performa nyatanya — bukan sekadar konteks pasar sesaat."""
+    for r in (1.0, -1.0, 2.0):                       # 3 trade settled setup range_fade
+        i = db.record_decision("BTC/USDC:USDC", "range_fade", "short", 0.6, "", {})
+        db.settle_decision(i, r)
+    db.log_calibration(i, "BTC/USDC:USDC", 0.6, 1, "dry")   # satu titik kalibrasi mode dry
+    ctx = trader.build_context("BTC/USDC:USDC", _df())
+    tr = {row["setup"]: row for row in ctx["setup_track_record"]}
+    assert "range_fade" in tr and tr["range_fade"]["n"] == 3      # stats dari SQLite
+    assert ctx["calibration"]["n"] == 1 and ctx["calibration"]["brier"] is not None
+
+
 # ---------- kelola posisi: GUARDRAIL exit-only / tighten tak boleh longgar ----------
 
 def test_valid_tighten_never_loosens():
