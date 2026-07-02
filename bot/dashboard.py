@@ -295,10 +295,29 @@ def api_h28() -> JSONResponse:
     """MESIN H28 — STATUS PREVIEW (paper-only). Terlihat di semua mode; TIDAK
     men-trade uang sampai LOLOS_TAHAP_1 (pra-registrasi). Progres + t-test."""
     try:
-        from . import h28eval
-        return JSONResponse(h28eval.preview_status())
+        from . import h28eval, h28live
+        status = h28eval.preview_status()
+        status["mikro_live_toggle"] = {
+            "enabled": h28live.is_enabled(),
+            "note": ("Toggle ini HANYA start/stop evaluasi basket mikro-live. "
+                     "Uang nyata vs simulasi ditentukan flag CLI --live saat daemon "
+                     "h28_live.py dinyalakan, BUKAN oleh toggle ini."),
+        }
+        return JSONResponse(status)
     except Exception as e:  # boundary
         return JSONResponse({"error": str(e)[:140]})
+
+
+@app.post("/api/h28/toggle")
+def api_h28_toggle(payload: dict) -> JSONResponse:
+    """Nyalakan/matikan EVALUASI basket mikro-live H28 (Opsi B). Tidak pernah
+    menyalakan uang nyata sendirian — itu tetap butuh --live di CLI daemon."""
+    try:
+        from . import h28live
+        h28live.set_enabled(bool(payload.get("enabled", False)))
+        return JSONResponse({"ok": True, "enabled": h28live.is_enabled()})
+    except Exception as e:  # boundary
+        return JSONResponse({"ok": False, "error": str(e)[:140]})
 
 
 @app.get("/api/candles")

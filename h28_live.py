@@ -158,13 +158,16 @@ def main() -> None:
         log.info("=== H28 mikro DRY (tanpa order) ===")
 
     while True:
-        today = pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d")
-        yesterday = str((pd.Timestamp(today) - pd.Timedelta(days=1)).date())
-        if args.once or state.get("last_eval", "") < yesterday:
-            state = evaluate(ex, state, args.live)
-            STATE.write_text(json.dumps(state, indent=1))
-            if state.get("dead"):
-                return
+        if args.once or hl.is_enabled():
+            today = pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d")
+            yesterday = str((pd.Timestamp(today) - pd.Timedelta(days=1)).date())
+            if args.once or state.get("last_eval", "") < yesterday:
+                state = evaluate(ex, state, args.live)
+                STATE.write_text(json.dumps(state, indent=1))
+                if state.get("dead"):
+                    return
+        else:
+            log.info("H28-LIVE nonaktif (toggle OFF) — menunggu, tidak evaluasi.")
         if args.once:
             break
         time.sleep(args.interval)

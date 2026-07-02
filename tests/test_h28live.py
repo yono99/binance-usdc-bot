@@ -44,3 +44,13 @@ def test_basket_pnl():
     exit_ = {"A": 110.0, "B": 190.0, "C": 50.0}
     pnl = hl.basket_pnl_usd(entry, exit_, longs=["A"], shorts=["B", "C"], per_leg=5.0)
     assert abs(pnl - (0.10 * 5 + 0.05 * 5 + 0.0)) < 1e-9  # long A +10%, short B +5%
+
+
+def test_toggle_default_off_and_roundtrip(tmp_path, monkeypatch):
+    from bot import store
+    monkeypatch.setattr(store, "DB_PATH", tmp_path / "bot.db")
+    assert hl.is_enabled() is False               # default aman: OFF
+    hl.set_enabled(True)
+    assert hl.is_enabled() is True
+    hl.set_enabled(False)
+    assert hl.is_enabled() is False

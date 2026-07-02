@@ -19,6 +19,20 @@ KILL_CONSEC_NEG = 6          # 6 siklus negatif beruntun → mati permanen
 LEGS = 5                     # 5 long + 5 short
 TOTAL_NOTIONAL = 50.0        # plafon total ($)
 MIN_NOTIONAL = 5.0           # minimum order Binance futures per kaki ($)
+_ENABLED_KEY = "h28_live_enabled"
+
+
+def is_enabled() -> bool:
+    """Toggle jalan/tidak (default OFF). TIDAK mengontrol uang-nyata vs simulasi
+    — itu tetap flag CLI --live (sengaja dipisah: satu klik UI tak boleh cukup
+    utk menyalakan uang sungguhan; klik ini hanya start/stop evaluasi basket)."""
+    from . import store
+    return bool((store.get_kv(_ENABLED_KEY) or {}).get("enabled", False))
+
+
+def set_enabled(value: bool) -> None:
+    from . import store
+    store.set_kv(_ENABLED_KEY, {"enabled": bool(value)})
 
 
 def kill_switch(trades: list[dict], total_notional: float = TOTAL_NOTIONAL) -> tuple[bool, str]:
