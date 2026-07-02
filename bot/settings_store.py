@@ -74,6 +74,10 @@ class RuntimeSettings:
     agent_manager_mode: bool = False             # JALAN A: agent = manajer disiplin (rules arah,
     #                                              planner+autonomous ON, tool_loop OFF, no gemini-arah)
     news_veto: bool = True                       # veto entry saat berita high-impact (toggle UI)
+    # --- Gerbang SIZE berbasis confidence (kalibrasi, Phase 2): tier hot-reload ---
+    conf_full: float = 0.75                      # ≥ ini → ukuran penuh
+    conf_min: float = 0.55                       # < ini → ABSTAIN (tak buka posisi)
+    conf_reduced_mult: float = 0.5               # di antaranya → pengali ukuran
 
     def clamp(self) -> "RuntimeSettings":
         self.technique = self.technique if self.technique in PRESETS else "auto"
@@ -100,6 +104,9 @@ class RuntimeSettings:
         for f in ("agent_full_auto", "agent_tool_loop", "agent_autonomous", "agent_planner",
                   "agent_ab_shadow", "agent_manager_mode", "news_veto"):
             setattr(self, f, bool(getattr(self, f)))
+        self.conf_full = max(0.0, min(1.0, float(self.conf_full)))
+        self.conf_min = max(0.0, min(self.conf_full, float(self.conf_min)))  # min ≤ full
+        self.conf_reduced_mult = max(0.0, min(1.0, float(self.conf_reduced_mult)))
         # symbols kosong = "screening SEMUA pair USDC" (di-resolve oleh bot)
         return self
 
@@ -117,6 +124,16 @@ class RuntimeSettings:
         p = self.preset()
         return {k: p[k] for k in ("entry_confidence", "sl_atr_mult", "tp_atr_mult",
                                   "use_htf", "regime", "use_funding", "use_oi", "use_of")}
+
+    def conf_size_mult(self, confidence: float | None) -> float | None:
+        """Tier gerbang SIZE (Phase 2 kalibrasi). None (jalur rule-based, tanpa angka
+        confidence) → 1.0 penuh, TIDAK digerbang — terdokumentasi sebagai pilihan sadar.
+        Return None = ABSTAIN (jangan buka posisi)."""
+        if confidence is None:
+            return 1.0
+        if confidence < self.conf_min:
+            return None
+        return 1.0 if confidence >= self.conf_full else self.conf_reduced_mult
 
     def liquidation_frac(self) -> float:
         """Fraksi gerakan harga melawan sampai likuidasi (isolated, perkiraan)."""

@@ -104,6 +104,19 @@ CREATE TABLE IF NOT EXISTS gemini_reflections (
     summary TEXT,
     metrics TEXT
 );
+
+-- ===== Kalibrasi confidence: Brier score per trade (per mode, diisi saat close) =====
+CREATE TABLE IF NOT EXISTS calibration_log (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts               TEXT NOT NULL,
+    trade_id         INTEGER,           -- id keputusan gemini (gdecision) bila ada
+    symbol           TEXT,
+    predicted_prob   REAL NOT NULL,     -- probabilitas yang diberikan pada arah yang di-bet
+    realized_outcome INTEGER NOT NULL,  -- 1 = profit, 0 = rugi
+    brier            REAL NOT NULL,     -- (predicted_prob - realized_outcome)^2
+    mode             TEXT NOT NULL      -- dry | test | live (isolasi per-mode)
+);
+CREATE INDEX IF NOT EXISTS idx_cal_mode_ts ON calibration_log(mode, ts);
 """
 
 
@@ -422,6 +435,46 @@ def add_reflection(period: str, summary: str, metrics: dict) -> int:
                         (datetime.now(timezone.utc).isoformat(), period, summary,
                          json.dumps(metrics, default=str)))
         return cur.lastrowid
+
+
+# ---------- kalibrasi confidence (Brier) ----------
+
+def log_calibration(trade_id: int | None, symbol: str, predicted_prob: float,
+                    realized_outcome: int, mode: str) -> None:
+    """Skor satu trade yang tutup: brier = (p - outcome)^2. Instrumentasi murni."""
+    init_db()
+    p = max(0.0, min(1.0, float(predicted_prob)))
+    o = 1 if realized_outcome else 0
+    with _conn() as c:
+        c.execute("INSERT INTO calibration_log (ts, trade_id, symbol, predicted_prob, "
+                  "realized_outcome, brier, mode) VALUES (?,?,?,?,?,?,?)",
+                  (datetime.now(timezone.utc).isoformat(), trade_id, symbol, p, o,
+                   (p - o) ** 2, mode))
+
+
+def calibration_report(mode: str, last_n: int = 50, days: int = 14) -> dict:
+    """Rolling Brier per mode: N trade terakhir + X hari terakhir.
+    Brier 0.25 = tak lebih baik dari koin; makin kecil makin terkalibrasi."""
+    init_db()
+    from datetime import timedelta
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+    def _agg(rows) -> dict:
+        n = len(rows)
+        if not n:
+            return {"n": 0, "brier": None, "hit_rate": None, "avg_prob": None}
+        return {"n": n,
+                "brier": round(sum(r["brier"] for r in rows) / n, 4),
+                "hit_rate": round(sum(r["realized_outcome"] for r in rows) / n * 100, 1),
+                "avg_prob": round(sum(r["predicted_prob"] for r in rows) / n, 3)}
+
+    with _conn() as c:
+        recent = c.execute("SELECT predicted_prob, realized_outcome, brier FROM calibration_log "
+                           "WHERE mode=? ORDER BY id DESC LIMIT ?", (mode, last_n)).fetchall()
+        window = c.execute("SELECT predicted_prob, realized_outcome, brier FROM calibration_log "
+                           "WHERE mode=? AND ts>=?", (mode, since)).fetchall()
+    return {"mode": mode, f"last_{last_n}_trades": _agg(recent),
+            f"last_{days}_days": _agg(window)}
 
 
 def migrate_jsonl(path: Path) -> int:

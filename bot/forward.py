@@ -927,7 +927,19 @@ class ForwardTester:
             c["blocked"] = "gemini-live dimatikan (config)"
             return
         gem_conv = float(gem["dec"].get("conviction", 0.0) or 0.0) if gem else None
-        bet = self._adaptive_bet(self.balance_usd, rs.bet_usd, rs.bet_pct, self.open, gem_conv)
+        # Gerbang SIZE berbasis confidence (Phase 2 kalibrasi): tier menggantikan skala
+        # conviction kontinu lama. Jalur rule-based (gem_conv=None) TIDAK digerbang —
+        # tak punya angka confidence; selalu ukuran penuh (pilihan terdokumentasi).
+        size_mult = rs.conf_size_mult(gem_conv)
+        if size_mult is None:                       # ABSTAIN: confidence < conf_min
+            c = self.sig_cache.setdefault(sym, {})
+            c["blocked"] = f"SKIPPED: low_confidence ({gem_conv:.2f} < {rs.conf_min:.2f})"
+            journal("forward_skip", {"symbol": sym, "reason": "low_confidence",
+                                     "conviction": round(gem_conv, 3),
+                                     "conf_min": rs.conf_min})
+            log.info(f"SKIP {sym}: confidence {gem_conv:.2f} < {rs.conf_min:.2f} (abstain)")
+            return
+        bet = self._adaptive_bet(self.balance_usd, rs.bet_usd, rs.bet_pct, self.open, size_mult)
         if bet <= 0:
             c = self.sig_cache.setdefault(sym, {})
             c["blocked"] = "margin bebas habis"
@@ -980,6 +992,7 @@ class ForwardTester:
                           "sl": sl, "tp": tp, "liq": liq, "bet": bet,
                           **self.vrp.stamp()}   # stempel regime VRP saat open (A/B shadow)
         if gem:                                     # catat keputusan Gemini → settle saat tutup
+            self.open[sym]["conviction"] = gem_conv   # untuk skor Brier saat close
             try:
                 did = self.gtrader.commit(sym, gem["dec"], gem["ctx"])
                 self.open[sym]["gdecision"] = did
@@ -988,7 +1001,8 @@ class ForwardTester:
                 log.warning(f"commit keputusan gemini {sym} gagal: {e}")
         self._day_trades += 1                       # untuk circuit breaker harian
         journal("forward_open", {"symbol": sym, "side": self.open[sym]["side"], "entry": entry,
-                                 "sl": sl, "tp": tp, "liq": liq, "lev": rs.leverage, "bet": bet})
+                                 "sl": sl, "tp": tp, "liq": liq, "lev": rs.leverage, "bet": bet,
+                                 "conviction": gem_conv, "size_mult": size_mult})
         log.info(f"OPEN {self.open[sym]['side'].upper()} {sym} x{rs.leverage} bet=${bet:.2f} "
                  f"@ {entry:.4f} SL={sl:.4f} TP={tp:.4f} LIQ={liq:.4f}")
         self.notify.send(
@@ -1017,6 +1031,13 @@ class ForwardTester:
         r = pnl / pos["bet"] if pos["bet"] else 0.0
         self.trades.append(namedtuple("T", ["r"])(r))
         vrp.log_close(sym, pos, r, mode=self.settings.mode)   # shadow log ber-mode
+        if pos.get("conviction") is not None:       # skor Brier (Phase 1 kalibrasi)
+            try:
+                from .store import log_calibration
+                log_calibration(pos.get("gdecision"), sym, float(pos["conviction"]),
+                                1 if pnl > 0 else 0, self.settings.mode)
+            except Exception as e:  # boundary
+                log.warning(f"log kalibrasi {sym} gagal: {e}")
         if pos.get("gdecision") and self.gtrader is not None:   # umpan balik ke Gemini
             try:
                 self.gtrader.settle(pos["gdecision"], r,

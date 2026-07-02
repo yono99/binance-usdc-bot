@@ -522,6 +522,16 @@ def api_dd_reset(payload: dict = None) -> JSONResponse:
                          "note": "diproses bot di siklus berikutnya (≤ poll_seconds)"})
 
 
+@app.get("/api/calibration")
+def api_calibration(mode: str = None, n: int = 50, days: int = 14) -> JSONResponse:
+    """Rolling Brier score per mode (default: 50 trade terakhir + 14 hari).
+    Brier 0.25 = setara koin; makin kecil = confidence makin jujur."""
+    from .settings_store import _env_mode
+    m = mode if mode in ("dry", "test", "live") else (get_active_mode() or _env_mode())
+    return JSONResponse(store.calibration_report(m, last_n=max(1, int(n)),
+                                                 days=max(1, int(days))))
+
+
 @app.get("/api/mode")
 def api_get_mode() -> JSONResponse:
     """Mode trading AKTIF (dry/test/live) — satu sumber kebenaran dibaca bot &
