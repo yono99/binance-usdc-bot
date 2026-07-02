@@ -35,6 +35,17 @@ signals:
     momentum: 0.30
     structure: 0.30
 
+btc:
+  # Dominansi BTC (mother coin) — gerbang direction-aware dipakai SEMUA teknik.
+  # BTC turun kuat → entri LONG alt diblok; BTC naik kuat → entri SHORT alt diblok.
+  # Entri SEARAH BTC atau saat gerak BTC kecil = lolos penuh (peluang short saat
+  # BTC dump TIDAK dibuang). Live: signals.evaluate. Backtest: strategy_lab decide_v*.
+  enabled: true
+  symbol: "BTC/USDC:USDC"   # simbol pemimpin pasar
+  dump_pct: 0.5             # |gerak %| bar-tertutup BTC ≥ ini = "kuat" (di bawah ini lolos)
+  block_counter: true       # true = blok entri lawan-arah; false = diskon size saja
+  size_floor: 0.4           # (mode diskon) faktor size minimum saat lawan-arah BTC
+
 rotate:
   max_open_positions: 2     # slot aktif maksimum
   cooldown_minutes: 30      # jeda re-entry pair yang baru ditutup
@@ -85,6 +96,13 @@ gemini:
   model: "gemini-2.5-flash"
   min_regime_score: 0.4     # bila Gemini nilai regime < ini -> skip entry
   news_veto: true           # veto entry saat ada berita high-impact (real-time, butuh GEMINI_ENABLED)
+  # Devil's Advocate (adaptasi debat Bull/Bear TradingAgents): pass LLM kedua yang HANYA
+  # mencari alasan MENOLAK entry yang diajukan → mengurangi percaya-diri sepihak/halusinasi.
+  # Hanya menantang aksi ENTER; gagal/timeout = fail-open (proceed). Rem, bukan penentu.
+  devil_advocate:
+    enabled: true
+    veto_threshold: 0.7     # strength keberatan ≥ ini → batalkan entry jadi SKIP
+    model: ""               # kosong = pakai model utama; isi mis. "gemini-2.5-pro" untuk kritik lebih tajam
   # KESELAMATAN: teknik "gemini" (LLM ambil keputusan) di MODE LIVE = UANG NYATA dikendalikan AI.
   # Default false → di live, Gemini-trader TIDAK membuka posisi (demo/paper tetap jalan).
   # Set true HANYA bila kamu sadar penuh & menerima risiko AI-driven live trading.

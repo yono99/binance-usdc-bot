@@ -84,6 +84,16 @@ class Engine:
         if slots <= 0:
             return
 
+        # Dominansi BTC (mother coin): gerak pemimpin pasar sekali per tick, dipakai
+        # gerbang direction-aware di setiap teknik (blok entri lawan arah BTC kuat).
+        btc_ret = None
+        try:
+            from . import altdata
+            btc_sym = self.cfg.get("btc", {}).get("symbol", "BTC/USDC:USDC")
+            btc_ret = altdata.btc_ret_pct(self.ex.ohlcv(btc_sym, self.tf, limit=6))
+        except Exception as e:  # boundary — gagal ambil BTC → gerbang non-aktif (None)
+            log.warning(f"BTC context gagal: {e}")
+
         # Layer 2-4: screen -> sinyal -> rank
         signals = []
         for sym in self.universe():
@@ -91,7 +101,7 @@ class Engine:
                 continue
             try:
                 df = self.ex.ohlcv(sym, self.tf, limit=200)
-                signals.append(evaluate(sym, df, self.cfg))
+                signals.append(evaluate(sym, df, self.cfg, btc_ret_pct=btc_ret))
             except Exception as e:  # boundary
                 log.warning(f"sinyal {sym} gagal: {e}")
 

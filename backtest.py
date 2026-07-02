@@ -61,6 +61,15 @@ def main() -> None:
     ex = Exchange(settings)
     bt = Backtester(cfg, fee_pct=args.fee, slippage_pct=args.slippage)
 
+    # Dominansi BTC (mother coin): muat close BTC sekali untuk gerbang direction-aware.
+    btc_close = None
+    bcfg = cfg.get("btc", {})
+    if bcfg.get("enabled", True):
+        try:
+            btc_close = fetch_history(ex, bcfg.get("symbol", "BTC/USDC:USDC"), tf, args.bars)["close"]
+        except Exception as e:  # boundary — gagal muat BTC → gerbang nonaktif
+            log.warning(f"BTC-gate nonaktif (muat BTC gagal): {e}")
+
     log.info(f"Backtest tf={tf} bars={args.bars} fee={args.fee}% slip={args.slippage}% symbols={symbols}")
 
     all_trades = []
@@ -74,7 +83,7 @@ def main() -> None:
         except Exception as e:  # boundary
             log.error(f"fetch {sym} gagal: {e}")
             continue
-        trades = bt.run_symbol(sym, df)
+        trades = bt.run_symbol(sym, df, btc_close=btc_close)
         all_trades += trades
         m = compute_metrics(trades, cfg, args.equity)
         if m["trades"] == 0:

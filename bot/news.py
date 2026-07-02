@@ -73,7 +73,8 @@ class NewsVeto:
             "Kamu analis risiko kripto. Dari headline berikut, apakah ADA berita "
             "high-impact yang berisiko memicu volatilitas tajam dalam beberapa jam ke depan "
             "(mis. FOMC/CPI, regulasi/SEC, hack besar, delisting, kebangkrutan exchange)? "
-            'Balas HANYA JSON: {"veto": true|false, "score": <0..1>, "note": "<singkat>"}.\n'
+            'Balas HANYA JSON: {"veto": true|false, "score": <0..1>, "note": "<singkat>"}. '
+            "note WAJIB menjelaskan alasan keputusan veto-mu (konsisten dengan nilai veto).\n"
             + "\n".join(f"- {h}" for h in headlines)
         )
         text = self.client.generate(prompt, purpose="news_veto")
@@ -82,9 +83,11 @@ class NewsVeto:
         try:
             data = json.loads(text[text.find("{"):text.rfind("}") + 1])
             veto = bool(data.get("veto", False))
-            note = str(data.get("note", ""))[:80]
+            score = data.get("score", None)
+            note = str(data.get("note", ""))[:200]
             self._cache = (time(), veto, note)
-            log.info(f"News veto={veto} ({note})")
+            log.info(f"News veto={veto} score={score} ({note})")
+            log.debug(f"news veto raw: {text[:500]}")   # audit: JSON mentah Gemini
             return veto, note
         except Exception as e:  # boundary — jangan blokir trading karena AI error
             log.warning(f"news veto parse gagal, allow: {e}")

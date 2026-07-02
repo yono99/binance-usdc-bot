@@ -181,3 +181,73 @@ def basis_zscore(binance_close: pd.Series, bybit_close: pd.Series, window: int) 
     std = basis.rolling(window, min_periods=max(5, window // 3)).std().replace(0, np.nan)
     z = ((basis - mean) / std)
     return np.nan_to_num(z.to_numpy(), nan=0.0)
+
+
+# --------------------------------------------------------------------------
+# Dominansi BTC (mother coin) — gerbang direction-aware yang dipakai SEMUA teknik.
+# Prinsip: BTC pemimpin pasar; alt ber-beta ikut. Saat BTC bergerak KUAT, entri
+# LAWAN arah BTC berbahaya (long saat BTC dump, short saat BTC pump) → blok/diskon.
+# Entri SEARAH BTC atau saat gerak BTC kecil → lolos penuh. Satu sumber kebenaran
+# untuk signals.evaluate (live) maupun strategy_lab decide_v* (backtest vektor).
+# --------------------------------------------------------------------------
+
+def btc_gate(side: int, btc_ret_pct: float | None, cfg: dict) -> dict:
+    """Gerbang dominansi BTC untuk SATU keputusan (skalar, jalur live).
+
+    side: +1 long, -1 short, 0 skip. btc_ret_pct: gerak % BTC pada bar tertutup
+    (mis. -1.5). Kembalikan {allow, size_factor, reason}. Hanya entri lawan-arah
+    BTC saat |gerak| ≥ ambang yang terpengaruh."""
+    b = cfg.get("btc", {})
+    if not b.get("enabled", True) or side == 0 or btc_ret_pct is None:
+        return {"allow": True, "size_factor": 1.0, "reason": ""}
+    thr = float(b.get("dump_pct", 0.5))
+    if abs(btc_ret_pct) < thr:
+        return {"allow": True, "size_factor": 1.0, "reason": ""}
+    btc_dir = 1 if btc_ret_pct > 0 else -1
+    if side == btc_dir:                       # searah pemimpin → aman
+        return {"allow": True, "size_factor": 1.0, "reason": ""}
+    side_str = "long" if side == 1 else "short"
+    if b.get("block_counter", True):          # mode blok (default)
+        return {"allow": False, "size_factor": 0.0,
+                "reason": f"btc_counter({btc_ret_pct:+.2f}% vs {side_str})"}
+    floor = float(b.get("size_floor", 0.4))   # mode diskon size
+    over = min(abs(btc_ret_pct) / (thr * 3), 1.0)
+    factor = max(round(1.0 - over, 3), floor)
+    return {"allow": True, "size_factor": factor,
+            "reason": f"btc_counter_discount({factor:.2f} @ {btc_ret_pct:+.2f}%)"}
+
+
+def btc_gate_side(side_arr: np.ndarray, btc_ret_arr: np.ndarray, cfg: dict) -> np.ndarray:
+    """Versi VEKTOR untuk teknik backtest: nol-kan entri lawan-arah BTC saat BTC
+    bergerak kuat. side_arr ∈ {-1,0,1}, btc_ret_arr = gerak % BTC selaras per bar.
+    Mode blok saja (backtest); size-discount tak relevan di sinyal biner."""
+    b = cfg.get("btc", {})
+    if not b.get("enabled", True):
+        return side_arr
+    thr = float(b.get("dump_pct", 0.5))
+    strong = np.abs(btc_ret_arr) >= thr
+    btc_dir = np.sign(btc_ret_arr).astype(int)
+    counter = strong & (side_arr != 0) & (side_arr != btc_dir)  # lawan arah BTC kuat
+    return np.where(counter, 0, side_arr).astype(int)
+
+
+def btc_ret_arr(btc_close: pd.Series | None, index: pd.DatetimeIndex,
+                bars: int = 1) -> np.ndarray:
+    """Deret gerak % BTC per bar, selaras causal ke `index` (untuk backtest vektor).
+    ret di bar t = (close_t/close_{t-bars}-1)*100, sudah diketahui saat close t →
+    entry bar t+1 tanpa lookahead. BTC kosong → nol (gerbang non-aktif)."""
+    if btc_close is None or btc_close.empty:
+        return np.zeros(len(index), dtype=float)
+    bc = btc_close.reindex(index, method="ffill")
+    ret = bc.pct_change(bars) * 100
+    return np.nan_to_num(ret.to_numpy(), nan=0.0)
+
+
+def btc_ret_pct(btc_df: pd.DataFrame | None, bars: int = 1) -> float | None:
+    """Gerak % BTC pada bar TERTUTUP (default 1 bar). btc_df = OHLCV BTC hingga bar
+    berjalan; pakai iloc[-2] sebagai bar tertutup terakhir (tanpa lookahead)."""
+    if btc_df is None or len(btc_df) < bars + 2:
+        return None
+    c = btc_df["close"]
+    last, base = float(c.iloc[-2]), float(c.iloc[-2 - bars])
+    return round((last / base - 1) * 100, 3) if base else None

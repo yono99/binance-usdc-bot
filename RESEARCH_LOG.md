@@ -172,3 +172,167 @@ breakeven baseline; two are materially worse.** Consistent with the program thes
 directional edge is unlikely to live at 15m bar resolution on liquid majors. Cascade results
 add a positive-knowledge byproduct: at this resolution, large-volatility events **continue**
 (momentum) rather than revert.
+
+---
+
+## Fase 3 — H13 sector lead-lag & H14 listing-age (2026-07-02)
+
+New infrastructure on `feat/alpha-research-phase3`: `bot/sector.py` (rolling-correlation
+greedy clustering, per-cluster leader by dollar-volume, follower score = leader trailing
+return, plugged into the generic score engine) and `bot/lifecycle.py` + `lifecycle.py` CLI
+(cohort walk-forward over the *listing-date* axis: age-window + direction selected on the
+earliest-listed cohort, tested once on the latest-listed cohort; guards for listing-date
+dispersion and left-censored history). 10 new tests with positive/negative controls; 353 green.
+
+### H13 sector lead-lag — majors-only run
+`xs_alpha.py --hypothesis sector --tf 1d`, 27 USDT majors × 1984 bars, fee 0.02 + slip 0.05:
+OOS mean **+0.2366%**/rebalance over 114 rebalances, win 50.9%, Sharpe 0.043, **p_adj=1.000**
+over 4 trials → **REJECTED** on this universe. Caveat: 27 BTC-correlated majors barely form
+distinct narrative clusters; a definitive test needs a wide small-cap universe (meme/AI/L1).
+
+### H14 listing-age lifecycle — full-universe definitive run
+`lifecycle.py --settle USDT --bars 3000`, **760 symbols**, listing span 2338 days (dispersion
+guard: feasible), cost/trade 0.14%. Train cohort (n=456) picked **SHORT ages 1–8 days**
+(train mean −1.91%/trade — new listings historically dropped in week one). Latest-listed
+test cohort (n=299): **−0.5529%**/trade after direction and costs → the raw effect *flipped
+sign* in recent cohorts. Verdict: **REJECTED** — the week-one fade is regime-dependent, not
+a durable structural mispricing.
+
+### Verdict summary
+Both remaining orthogonal directional angles from the handoff are now tested. H14 is
+definitively dead (760 symbols, honest cohort OOS). H13 is dead on majors; the only open
+directional question is H13 on a wide small-cap universe. After that, the honest remaining
+options are execution/liquidity edges or stopping.
+
+### H13 sector lead-lag — small-cap definitive run (2026-07-02)
+
+Universe: **208 small-caps** (from 760 cached; ≥800 daily bars, top-20 dollar-volume
+majors removed, median dvol floor 100k USDT/day, BTC kept for panel requirement),
+panel 208×800 daily, fee 0.02 + slip 0.05, train 300 / test 120, grid 4.
+
+- **Forward (follower follows leader):** OOS **−1.0058%**/rebalance over 45 rebalances,
+  win 40.0%, Sharpe −0.272. IS Sharpe negative in *all three* windows — no in-sample
+  signal to begin with. **REJECTED.**
+- **Reverse (follower fades leader), post-hoc check** (effective trials 8, not 4):
+  OOS **−0.2211%**, win 45.5%. **REJECTED.**
+
+### Phase 3 closing verdict
+H13 and H14 — the last two untested orthogonal directional angles from the handoff —
+are both dead on definitive universes. The directional-prediction hypothesis space
+(per-symbol TA, cross-sectional, stat-arb, lifecycle, sector rotation) is now
+**exhausted**: 15+ hypotheses honestly tested, 0 edges. Remaining honest options:
+(1) execution/liquidity structural edges (maker rebate, spread capture, TWAP in
+illiquid pairs), which require a different research program (forward L2 collection
+is already scaffolded in `l2collect.py`); or (2) stop. Do not go live with anything
+that failed the four bars.
+
+---
+
+## Fase 4 — H24 funding-settlement seasonality (2026-07-02)
+
+New engine `bot/settlement.py` (rebalances exactly at pre-settlement bars, PnL =
+price + actually-charged funding via cumf) + `settlement_alpha.py` CLI. 4 tests
+incl. funding-income sign control; 357 green.
+
+Definitive run: 60 most-liquid USDT perps × 17520 hourly bars (2y) + full funding
+history, fee 0.02 + slip 0.03, grid 6 (offset {0,1} × hold {1,4,8}), 5 windows.
+
+Result: OOS mean **−0.1917%**/rebalance over **1250** rebalances (very well-powered),
+win 33.6%, Sharpe −0.303. IS Sharpe negative in *all* windows. Decomposition: cost
+is 0.20%/rebalance → gross PnL ≈ **+0.008% ≈ zero**. There is no settlement-timed
+flow effect at 1h granularity in either direction — the raw effect is nil, so the
+reverse trade is equally dead (flipping zero gross still loses the cost).
+
+### Verdict: **REJECTED**
+**Falsifier (was):** "funding-payers' position-closing creates predictable pre/post
+settlement drift, direction given by funding sign." Falsified cleanly: gross effect
+is zero, not merely cost-eaten. Mechanical-schedule rationale was sound; the market
+prices it. Next in queue per RESEARCH_HYPOTHESES_PHASE4.md: H26 illiquidity-shock
+reversal, then H25 carry×momentum double-sort.
+
+---
+
+## Fase 4 — H26 illiquidity-shock reversal (2026-07-02)
+
+Builder `xs_signals.score_illiq_shock` (dynamic Amihud: ratio short/long-window
+illiquidity, structural threshold 1.5 declared upfront, fade sign of last-3d move;
+non-shocked = NaN). 3 new tests incl. shock-market positive/negative controls.
+
+- **Pilot** (208 small-caps × 800d): OOS **+0.5443%**/rebalance, positive in all
+  3 windows, but n=76 → p_adj=0.737. Underpowered, not tuned further.
+- **Definitive** (103 small-caps × 1400d, same grid, trials counted 8 cumulative):
+  OOS **−0.3542%** over 175 rebalances, win 49.7%, windows split 4+/4−.
+
+The pilot's +0.54% was a small-sample artifact — textbook trap #2 (skew/carry died
+the same way in Phase 2). With 2.3× the OOS sample the effect flips sign.
+
+### Verdict: **REJECTED**
+**Falsifier (was):** "sudden liquidity withdrawal causes overshoot that reverts
+within days, net of stressed costs." Falsified on the larger sample; the apparent
+edge does not survive more data, let alone cost-stress ×2.
+
+---
+
+## Fase 4 — H25 carry × momentum double-sort (2026-07-02)
+
+`carry.carry_returns` extended with an optional momentum gate (symbol eligible
+only when residual momentum opposes funding sign — targeting the documented
+carry failure mode: shorting a pump still in progress) + `walk_forward_carry_mom`
++ `carry_mom.py` CLI. Key control: in a synthetic market built to mimic the
+failure mode, plain carry LOSES while gated carry WINS — so a real-data failure
+is a fact about the market, not the engine. 6 carry tests green.
+
+Definitive run: 103 small-caps × 1400d daily, full funding history (income
+realized via cumf), grid 4 (mom {5,10} × hold {3,7}, smooth fixed 3), 9 windows,
+fee 0.02 + slip 0.05:
+
+OOS mean **−0.5375%**/rebalance over 263 rebalances, win 44.1%, Sharpe −0.127.
+Windows split 3+/6−; IS Sharpe mostly negative too.
+
+### Verdict: **REJECTED**
+**Falsifier (was):** "conditioning carry on opposed momentum removes the
+run-over-by-pump failure and leaves positive net carry." Falsified: even with
+the gate AND realized funding income counted, the strategy loses after costs.
+The funding premium in small-caps is simply not large enough to survive the
+price risk left after gating. Carry angle is now fully exhausted (majors,
+small-cap, gated).
+
+---
+
+## Fase 4 — sisa antrian: H31, H32, H27, H28 (2026-07-02)
+
+Engines: `xs_signals.score_downside_beta` (H31), `bot/tsmom.py` + `tsmom_alpha.py`
+(H32), `xs_signals.score_venue_basis` + `basis_alpha.py` (H27, Bybit closes via
+altdata.fetch_bybit_close, cached `data/snap_bybit`), `vrp_alpha.py` (H28, Deribit
+DVOL public API cached `data/snap_dvol_btc_1d.pkl`). All with +/− controls
+(downside-beta control needed drift compensation: asymmetric conditional beta
+mechanically drags −a·E|rb| unconditional drift). 361 tests green.
+
+| H | Setup | OOS | Verdict |
+|---|---|---|---|
+| H31 downside-beta | 103×1400d | −1.14%/rebal, n=112, win 42.9% | ❌ (cousin of dead BAB/coskew, as expected) |
+| H32 TSMOM 1d | 103×1400d, lb {30,60,90} | +0.45%, n=184, p_adj=0.59 | ❌ weak-positive-insignificant (H18 pattern) |
+| H27 venue basis | 76 dual-venue ×1400d | −0.18%, n=220, win 43.6%, IS negatif | ❌ |
+| H28 VRP (DVOL gate on −ivol) | 103×1400d | **+2.06%, n=38, win 71%, p_adj=0.036 → LOLOS awal** | lihat bawah |
+
+### H28 — kandidat pertama yang lolos p_adj, lalu gugur di validasi lanjutan
+- Run awal (103×1400d): +2.0620%/rebal, semua 8 window positif, p_adj=0.0365. 
+- Cost-stress ×2: mean bertahan (+1.78% — efek >> biaya) tapi p_adj=0.083.
+- **Replikasi 78×1800d: mean menyusut separuh (+1.0869%), p_adj=0.336; stress ×2:
+  p_adj=0.456.** Pola shrinkage klasik artefak (H18/H26 signature), meski tanda
+  tetap positif di kedua sampel (win 65–71%).
+- Konteks program-level yang jujur: setelah ~20 hipotesis diuji, SATU p_adj=0.036
+  pada n=38 kira-kira yang diharapkan dari kebetulan (expected false positive
+  @α=0.05 × 20 ≈ 1).
+
+### Verdict H28: **REJECTED** (palang #4 pada replikasi & stress)
+Catatan positif satu-satunya di seluruh program: H28 adalah satu-satunya sinyal
+dengan OOS positif konsisten di dua universe + tahan biaya secara ekonomis. Bila
+suatu saat ingin satu forward paper-test tanpa risiko, ini kandidatnya — tapi
+TIDAK memenuhi syarat live berdasarkan aturan program.
+
+## Fase 4 — PENUTUP
+Seluruh antrian direksional habis: H24–H28, H31, H32 semua DITOLAK. Bersama
+Fase 1–3: **22 hipotesis, 0 lolos empat palang.** Yang tersisa dan masih hidup:
+perekam L2 (H30 spread capture — struktural) & perekam OI (H19/H29) — keduanya
+menunggu data matang, bukan menunggu ide baru.

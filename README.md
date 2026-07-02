@@ -233,6 +233,68 @@ Yang paling penting untuk keselamatan:
 
 ## Arsitektur (peta ke modul)
 
+### Alur kerja bot per siklus (forward-test / live)
+
+Prinsip desain: **LLM = rem, bukan gas** — sinyal datang dari kode; lapisan AI
+hanya bisa MENAHAN entry, dan setiap gerbang fail-open (error infra ≠ blokir).
+
+```mermaid
+flowchart TD
+    EX["Binance USDC-M<br/>OHLCV + funding + orderbook"] --> SCR["Screener + whitelist<br/>bot/screener.py"]
+    SCR --> LOOP["Loop per simbol, poll 30s<br/>bot/forward.py"]
+
+    LOOP --> SIG["Signal engine<br/>bot/signals.py :: evaluate<br/>EMA/ADX/RSI + HTF + regime + funding + CVD"]
+
+    subgraph GATES["Gerbang REM — semuanya bisa memblokir, tak ada yang membuka"]
+        NEWS["News veto<br/>bot/news.py — Gemini + RSS<br/>cache 15 mnt, fail-open"]
+        CB["Circuit breaker harian<br/>max loss / max trades"]
+        BTCG["BTC dominance gate<br/>bot/altdata.py :: btc_gate_side<br/>blok entri LAWAN arah BTC"]
+        DA["Devil's Advocate<br/>bot/react_agent.py<br/>debat adversarial tiap ENTER"]
+        PLAN["Session planner<br/>kuota & bias sesi"]
+    end
+
+    SIG --> GATES
+    GATES -->|semua lolos| DEC{"Teknik GEMINI aktif?"}
+    DEC -->|ya| GT["GeminiTrader<br/>arah + SL/TP dari LLM<br/>level DIVALIDASI kode"]
+    DEC -->|tidak| RULE["Sinyal rule-based<br/>SL/TP = ATR x mult"]
+    GT --> OPEN["Buka posisi paper/live<br/>sizing dari UI, leverage divalidasi"]
+    RULE --> OPEN
+
+    OPEN --> MGMT["Kelola posisi<br/>bot/position.py — SL/TP/trailing<br/>+ review agen berkala"]
+    MGMT --> STORE[("SQLite store<br/>saldo, posisi, riwayat veto,<br/>screening, decision log")]
+    STORE --> DASH["Dashboard :8000<br/>panel kontrol + riwayat"]
+    MGMT --> TG["Notifikasi Telegram"]
+```
+
+### Alur riset & program forward (terpisah dari jalur live)
+
+```mermaid
+flowchart TD
+    subgraph IDEA["Hipotesis baru (format registri, grid maks 6 trial)"]
+        H["1 fungsi builder skor<br/>bot/xs_signals.py<br/>atau engine khusus"]
+    end
+
+    H --> ENG["Engine walk-forward<br/>xsectional / carry / settlement /<br/>lifecycle / statarb / tsmom / combiner"]
+
+    ENG --> P1{"1. Walk-forward OOS?"}
+    P1 -->|gagal| DEAD["DITOLAK -> catat di<br/>RESEARCH_LOG.md<br/>(22 hipotesis mati di sini)"]
+    P1 --> P2{"2. Lintas-simbol?"}
+    P2 -->|gagal| DEAD
+    P2 --> P3{"3. Cost-stress x2?"}
+    P3 -->|gagal| DEAD
+    P3 --> P4{"4. Signifikan setelah<br/>koreksi Bonferroni?"}
+    P4 -->|gagal| DEAD
+    P4 -->|lolos| FWD["Forward paper-test<br/>parameter BEKU, kriteria<br/>pra-registrasi"]
+    FWD -->|lolos lagi| LIVE["Baru layak dipertimbangkan live"]
+
+    subgraph DAEMON["Daemon data forward (Scheduled Task, auto-start)"]
+        L2["l2collect.py<br/>L2 8 pair @2s -> H30 spread capture"]
+        OI["oicollect.py<br/>OI 800 perp/jam -> H19 crowding"]
+        H28["h28_forward.py<br/>paper-test H28 VRP-DVOL harian"]
+    end
+    DAEMON -.->|data matang<br/>minggu-bulan| IDEA
+```
+
 | Layer | Modul |
 |---|---|
 | 1 Data ingestion | `bot/exchange.py` |
