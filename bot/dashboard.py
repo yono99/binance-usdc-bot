@@ -183,7 +183,9 @@ def api_trades_csv(symbol: str = None, reason: str = None, dfrom: str = None,
 
 @app.get("/api/stats")
 def api_stats() -> JSONResponse:
-    return JSONResponse(compute_stats(mode=_ui_mode()))
+    # _json_safe: profit_factor bisa inf (ada win, belum ada loss — PASTI terjadi
+    # di awal riwayat live) → tanpa sanitasi endpoint ini 500 tepat saat dibutuhkan.
+    return JSONResponse(_json_safe(compute_stats(mode=_ui_mode())))
 
 
 @app.get("/api/settings")
@@ -415,11 +417,25 @@ def api_gemini_usage(recent: int = 100) -> JSONResponse:
     return JSONResponse(store.gemini_usage_stats(min(max(1, recent), 100)))
 
 
+def _json_safe(o):
+    """NaN/inf → None rekursif. Statistik (division) bisa menghasilkan float
+    non-JSON pada kombinasi data tertentu → 500 di endpoint (terjadi nyata di
+    /api/gemini-trader 2026-07-02). Sanitasi di boundary, sekali utk selamanya."""
+    import math
+    if isinstance(o, dict):
+        return {k: _json_safe(v) for k, v in o.items()}
+    if isinstance(o, list):
+        return [_json_safe(v) for v in o]
+    if isinstance(o, float) and not math.isfinite(o):
+        return None
+    return o
+
+
 @app.get("/api/gemini-trader")
 def api_gemini_trader() -> JSONResponse:
     """Track record Gemini trader: verdict signifikansi, per-setup, playbook aktif, keputusan."""
     from .gemini_trader import track_record
-    return JSONResponse(track_record())
+    return JSONResponse(_json_safe(track_record()))
 
 
 from .gemini_client import FALLBACK_MODELS as _STATIC_GEMINI_MODELS  # selaras elearning

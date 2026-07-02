@@ -59,3 +59,16 @@ def test_compute_stats_empty(tmp_path):
     assert s["trades"] == 0
     assert s["open_positions"] == []
     assert s["expectancy_r"] == 0.0
+
+
+def test_json_safe_sanitizes_nan_inf():
+    """NaN/inf dari statistik (profit_factor inf saat win tanpa loss) tak boleh
+    meledakkan endpoint JSON (insiden /api/gemini-trader 2026-07-02)."""
+    from bot.dashboard import _json_safe
+    dirty = {"pf": float("inf"), "x": float("nan"),
+             "nested": [{"y": float("-inf"), "ok": 1.5}], "s": "a"}
+    clean = _json_safe(dirty)
+    import json
+    json.dumps(clean)                                   # tak boleh raise
+    assert clean["pf"] is None and clean["x"] is None
+    assert clean["nested"][0]["y"] is None and clean["nested"][0]["ok"] == 1.5
