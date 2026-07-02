@@ -132,3 +132,14 @@ agent:
   # konservatif dari batasmu), tak pernah melonggarkan. Ikut menyala bila full_auto: true.
   planner: false
   plan_horizon_h: 6
+
+# REM-VRP (dari riset H28 yang DITOLAK sebagai alpha, dipakai ulang sebagai REM regime):
+# gap = DVOL Deribit − realized-vol 30d BTC. Gap lebar = pasar bayar mahal proteksi = stres.
+#   mode: off | shadow | enforce
+#   - shadow  (default): TIDAK blokir; tiap posisi distempel regime saat open, outcome
+#     dicatat ke logs/vrp_shadow.jsonl. Ukur: python -c "from bot import vrp; print(vrp.report())"
+#   - enforce : blokir entry saat gap > gap_threshold. NAIK KELAS HANYA bila shadow
+#     membuktikan nilai (trade brake-on signifikan lebih buruk, p<0.05).
+vrp:
+  mode: shadow
+  gap_threshold: 0.10

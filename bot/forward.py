@@ -27,6 +27,7 @@ from .lessons import LessonsEngine
 from .logger import LOG_DIR, journal, log
 from .memory import AgentMemory
 from .news import NewsVeto
+from . import vrp
 from .planner import SessionPlanner, default_plan
 from .react_agent import ReactAgent
 from .signals import Signal
@@ -78,6 +79,7 @@ class ForwardTester:
         self.corr_lookback = int(_r.get("corr_lookback", 0) or 0)
         self.news = NewsVeto(self.settings, self.cfg)
         self._news_base = self.news.enabled     # kemampuan dasar (Gemini+config); UI bisa mematikan
+        self.vrp = vrp.VRPBrake(self.ex, self.cfg)   # rem-VRP (shadow: catat, tak blokir)
         # ReAct agent: gerbang entry AKTIF utk teknik non-gemini (Gemini mati → fallback ikut sinyal).
         self.react = ReactAgent(self.settings, self.cfg)
         self.lessons = LessonsEngine(self.settings, self.cfg)
@@ -417,6 +419,7 @@ class ForwardTester:
         pos = self.open.pop(sym)
         tr = self.bt._close(pos, price, pd.Timestamp.utcnow(), 0, reason)
         self.trades.append(tr)
+        vrp.log_close(sym, pos, tr.r)           # outcome ber-stempel VRP → shadow log
         self.equity *= (1 + self.risk_frac * tr.r)
         journal("forward_close", {"symbol": sym, "exit": price, "r": round(tr.r, 4),
                                   "reason": reason, "equity": round(self.equity, 2)})
@@ -446,6 +449,7 @@ class ForwardTester:
         price = float(self.ex.ticker(sym)["last"])
         sig = _Sig("long" if side == 1 else "short", atr)
         pos = self.bt._open(sym, sig, {"open": price}, pd.Timestamp.utcnow(), 0)
+        pos.update(self.vrp.stamp())            # stempel regime VRP saat open (A/B shadow)
         self.open[sym] = pos
         journal("forward_open", {"symbol": sym, "side": sig.side, "entry": pos["entry"],
                                  "sl": pos["sl"], "tp": pos["tp"]})
@@ -807,7 +811,8 @@ class ForwardTester:
             if not ok:
                 return
         self.open[sym] = {"side": "long" if is_long else "short", "entry": entry, "qty": qty,
-                          "sl": sl, "tp": tp, "liq": liq, "bet": bet}
+                          "sl": sl, "tp": tp, "liq": liq, "bet": bet,
+                          **self.vrp.stamp()}   # stempel regime VRP saat open (A/B shadow)
         if gem:                                     # catat keputusan Gemini → settle saat tutup
             try:
                 did = self.gtrader.commit(sym, gem["dec"], gem["ctx"])
@@ -844,6 +849,7 @@ class ForwardTester:
         self._day_pnl += pnl                        # untuk circuit breaker harian
         r = pnl / pos["bet"] if pos["bet"] else 0.0
         self.trades.append(namedtuple("T", ["r"])(r))
+        vrp.log_close(sym, pos, r)              # outcome ber-stempel VRP → shadow log
         if pos.get("gdecision") and self.gtrader is not None:   # umpan balik ke Gemini
             try:
                 self.gtrader.settle(pos["gdecision"], r)
@@ -988,6 +994,10 @@ class ForwardTester:
         self._last_news_note = note if news_veto else ""
         if news_veto:
             log.info(f"News veto aktif ({note}) — tidak buka posisi baru siklus ini")
+        vrp_on, _vrp_gap = (self.vrp.check() if rs.enabled else (False, None))
+        vrp_block = self.vrp.mode == "enforce" and vrp_on   # shadow: TIDAK blokir
+        if vrp_block:
+            log.info("VRP brake ENFORCE aktif — tidak buka posisi baru siklus ini")
         self._refresh_plan(rs)                 # tujuan sesi (planner) → enforce di gerbang entry
         expo = self._exposure_frac()
         label = {1: "LONG", -1: "SHORT", 0: "skip"}
@@ -1023,6 +1033,7 @@ class ForwardTester:
                     # jelas tak akan buka posisi.
                     pre = (None if rs.enabled else "bot OFF")
                     pre = pre or ("news veto" if news_veto else None)
+                    pre = pre or ("vrp brake" if vrp_block else None)
                     pre = pre or (cb or None)
                     pre = pre or ("sudah ada posisi" if sym in self.open else None)
                     pre = pre or ("slot penuh" if len(self.open) >= self.max_open else None)
@@ -1049,6 +1060,8 @@ class ForwardTester:
                 elif news_veto:
                     blocked = "news veto"   # alasan STABIL → dedup screening jalan;
                     #                          catatan detail ada di panel Riwayat News Veto
+                elif vrp_block:
+                    blocked = "vrp brake"
                 elif cb:
                     blocked = cb
                 elif sym in self.open:
