@@ -378,3 +378,25 @@ dibatasi, biaya taker utk unwind darurat. Sumber: aggTrades (fill-through nyata)
 
 ### H19 — uji historis penuh BERJALAN (450 hari × 30 small-cap, grid 4 pra-reg)
 Hasil menyusul di entri berikut.
+
+### H19 OI crowding-freshness — uji historis penuh: REJECTED (2026-07-02)
+
+Run 1 (gate |funding|>0.05%/8h, pra-set): **n=0** — gagal mekanis, strategi tak
+pernah aktif (funding default 0.01%; diagnostik: hanya 0.1% bar punya ≥8 simbol
+aktif di gate itu). Gate diturunkan SEKALI ke 0.03%/8h berdasarkan DIAGNOSTIK
+COVERAGE (dipilih sebelum melihat return — bukan dari PnL; tercatat di output).
+
+Run 2 (450 hari × 30 mid/small-cap, OI 5-menit arsip, grid 4 pra-reg):
+OOS mean **−0.8155%**/rebalance, n=15, win 53.3%, Sharpe −0.192, p_adj=1.0.
+Point estimate NEGATIF → menambah power tak akan menyelamatkan (beda dgn kasus
+H26 yang pilot-positif). Konsep "crowding segar di funding ekstrem" juga
+inheren-jarang: bahkan di gate 0.01%/8h hanya 23% bar punya ≥8 simbol aktif.
+
+**Verdict: REJECTED.** Konsekuensi operasional: perekam OI forward (`oicollect.py`)
+REDUNDAN — arsip metrics Binance Vision menyediakan OI 5-menit permanen (terbit
+H+1). Daemon dihentikan & dikeluarkan dari launcher; data yang sudah terekam
+disimpan. H29 (strategi "rekam dulu") selesai tugasnya lebih cepat dari rencana.
+
+## Skor akhir program direksional + struktural per 2026-07-02
+24 hipotesis diuji jujur. 23 DITOLAK. 1 (H30 spread capture) LOLOS langkah 1-2
+di 91 hari fill nyata → antre langkah 3 (simulasi replay konservatif).

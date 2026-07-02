@@ -10,7 +10,8 @@ $daemons = @(
     @{ Name = "l2collect";   Args = @("l2collect.py", "--symbols", "CRV/USDC:USDC", "BOME/USDC:USDC",
                                       "FIL/USDC:USDC", "NEAR/USDC:USDC", "NEO/USDC:USDC", "PNUT/USDC:USDC",
                                       "BTC/USDC:USDC", "ETH/USDC:USDC", "--levels", "10", "--interval", "2") },
-    @{ Name = "oicollect";   Args = @("oicollect.py", "--interval", "3600") },
+    # oicollect DIHENTIKAN 2026-07-02: redundan — arsip metrics Binance Vision
+    # menyimpan OI 5-menit permanen (H19 sudah diuji & DITOLAK dari arsip itu).
     @{ Name = "h28_forward"; Args = @("h28_forward.py", "--interval", "3600") }
 )
 
