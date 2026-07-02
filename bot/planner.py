@@ -36,6 +36,7 @@ class SessionPlanner:
         gcfg = cfg.get("gemini", {})
         self.client = GeminiClient(settings.gemini_keys, gcfg.get("model", "gemini-2.5-flash"))
         self.enabled = bool(settings.gemini_enabled and self.client.available)
+        self.min_trades = int(gcfg.get("planner_min_trades", 1))   # lantai kuota sesi (knob)
 
     def make_plan(self, ctx: dict, *, hard_max_trades: int) -> dict:
         """Bentuk rencana sesi dari konteks. Gagal/off → default netral."""
@@ -67,10 +68,10 @@ class SessionPlanner:
         except Exception as e:  # boundary
             log.warning(f"planner parse gagal → default: {e}")
             return default_plan(hard_max_trades)
-        return self.sanitize(data, hard_max_trades)
+        return self.sanitize(data, hard_max_trades, self.min_trades)
 
     @staticmethod
-    def sanitize(data: dict, hard_max_trades: int) -> dict:
+    def sanitize(data: dict, hard_max_trades: int, min_trades: int = 1) -> dict:
         """Validasi & CLAMP ke batas aman — rencana tak pernah melebihi pagar manusia."""
         stance = str(data.get("stance", "")).lower()
         bias = str(data.get("bias", "")).lower()
@@ -86,9 +87,11 @@ class SessionPlanner:
         mnt = max(0, min(mnt, int(hard_max_trades)))
         mef = max(0.0, min(mef, 1.0))
         # LANTAI modal-minim: kecuali stance=risk_off (stop eksplisit), jangan cekik akun kecil —
-        # sisakan ≥1 trade & eksposur cukup agar minimal 1 posisi muat. risk_off = cara berhenti.
+        # sisakan ≥ lantai trade & eksposur cukup agar minimal 1 posisi muat. risk_off = cara berhenti.
+        # Lantai = knob (planner_min_trades): naikkan bila planner terlalu sering memberi kuota kecil.
         if stance != "risk_off":
-            mnt = max(1, mnt)
+            floor = max(1, min(int(min_trades), int(hard_max_trades)))
+            mnt = max(floor, mnt)
             mef = max(0.5, mef)
         return {
             "stance": stance, "bias": bias if bias in BIASES else "neutral",

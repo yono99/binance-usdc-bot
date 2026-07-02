@@ -105,6 +105,9 @@ risk_off), `bias` (long/short/neutral), kuota trade & eksposur. Keputusan per-ti
 pada rencana (`enforce()` deterministik di kode). **HANYA bisa mengetatkan** — di-clamp ≤
 batasmu, tak pernah melonggarkan. Gagal/Gemini off → rencana netral (tak ada batasan). Audit
 di `decision_log` (`symbol="*PLAN*"`) & endpoint `/api/plan`. Ikut menyala bila `full_auto`.
+> **Lantai kuota** (`gemini.planner_min_trades`, default 3): planner tak boleh mencekik
+> "Kuota trade" sesi di bawah angka ini (kecuali `stance=risk_off` = stop eksplisit). Naikkan
+> bila planner terlalu sering memberi kuota kecil; tetap di-clamp ≤ `daily_max_trades`.
 
 > Jujur: ini menaikkan "level agentik", **bukan** jaminan profit. Buktikan dengan A/B di bawah.
 

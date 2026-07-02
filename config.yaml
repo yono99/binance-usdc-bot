@@ -104,6 +104,7 @@ gemini:
   model: "gemini-2.5-flash"
   min_regime_score: 0.4     # bila Gemini nilai regime < ini -> skip entry
   news_veto: true           # veto entry saat ada berita high-impact (real-time, butuh GEMINI_ENABLED)
+  planner_min_trades: 3     # lantai kuota trade sesi: planner tak boleh cekik di bawah ini (kecuali risk_off).
   pregate_atr_pct: 0.25     # lantai pre-gate: tanya Gemini hanya bila ATR% >= ini (pasar hidup).
   #                           Naikkan bila token boros; turunkan bila sinyal langka. ARAH tetap milik Gemini.
   # Devil's Advocate (adaptasi debat Bull/Bear TradingAgents): pass LLM kedua yang HANYA

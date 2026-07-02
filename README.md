@@ -245,6 +245,11 @@ Yang paling penting untuk keselamatan:
 - `risk.leverage` — konservatif. Naikkan sangat hati-hati.
 - `risk.sl_atr_mult` / `tp_atr_mult` — jarak SL/TP berbasis ATR (RR > 1).
 - `rotate.max_open_positions` — slot posisi paralel.
+- `gemini.pregate_atr_pct` — lantai pre-gate teknik Gemini (default 0.25): Gemini hanya
+  ditanya bila ATR% ≥ ini (pasar cukup hidup). **ARAH diserahkan ke Gemini**, bukan disaring
+  rules lama. Turunkan bila sinyal terlalu langka; naikkan bila panggilan/token boros.
+- `gemini.planner_min_trades` — lantai "Kuota trade" sesi planner (default 3): planner tak
+  boleh mencekik di bawah ini kecuali `stance=risk_off`. Tetap di-clamp ≤ `risk.daily_max_trades`.
 
 ---
 
