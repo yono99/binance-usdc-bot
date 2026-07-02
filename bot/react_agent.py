@@ -281,6 +281,33 @@ class ReactAgent:
                                 f" | devil cleared ({verdict['strength']:.2f})").strip(" |")
         return out
 
+    def challenge_gemini(self, symbol: str, side: str, rationale: str,
+                         market: dict, alt: dict | None = None) -> dict | None:
+        """Devil's Advocate untuk jalur GeminiTrader (Phase 4). Tantang entry Gemini;
+        kembalikan verdict {strength, objections} atau None (devil off / gagal → fail-open,
+        pemanggil TIDAK menurunkan tier). Pakai-ulang _parse_devil + telemetri devil."""
+        if not self.devil_enabled or side not in ("long", "short"):
+            return None
+        prompt = (
+            "You are the DEVIL'S ADVOCATE on a crypto futures desk. Another agent PROPOSES "
+            f"to ENTER {side.upper()} on {symbol}. Argue AGAINST it — the STRONGEST reasons "
+            "this entry LOSES. Be skeptical, not agreeable; if the case against is weak, say so.\n\n"
+            f"Proposed reasoning: {rationale}\n"
+            f"Evidence (regime/funding/OI/order-flow/vol): {json.dumps({'market': market, 'alt': alt or {}}, default=str)}\n"
+            + _BTC_NOTE +
+            "\nWeigh especially: entering against a strong opposing regime, adverse funding, "
+            "CVD divergence, elevated realized vol/chaos, chasing an extended move.\n"
+            "Respond ONLY with valid JSON:\n"
+            '{"strength":0.0,"objections":["strongest reason against","second"],"recommend":"VETO"}\n'
+            "strength = how strong the case AGAINST is (0.0 = no real objection, 1.0 = clearly bad).")
+        self.devil_calls += 1
+        verdict = self._parse_devil(self.devil_client.generate(prompt, purpose="devil_advocate"))
+        if verdict is None:
+            return None                                  # fail-open
+        if verdict["strength"] >= self.devil_threshold:
+            self.devil_vetoes += 1
+        return verdict
+
     def decide_with_tools(self, sig: Signal, tools: dict, *, max_iters: int = 4,
                           regime: str | None = None, alt: dict | None = None,
                           n_positions: int = 0, max_positions: int = 0, daily_pnl_r: float = 0.0,

@@ -208,9 +208,14 @@ class ForwardTester:
         """Arah dari Gemini (teknik 'gemini'). Kembalikan (side, atr, decision, context)."""
         from .indicators import atr as _atr
         try:
-            fz, oid, imb, _div = self._alt_arrays(sym, df_closed)
+            fz, oid, imb, div = self._alt_arrays(sym, df_closed)
+            # Phase 4: evidence terkurasi (funding/OI/order-flow/CVD-divergensi/realized-vol),
+            # bukan OHLCV mentah. RV = stdev return 20-bar (%) — proxy volatilitas realized.
+            ret = df_closed["close"].pct_change().tail(20)
+            rv_pct = float(ret.std() * 100) if len(ret) > 2 else 0.0
             alt = {"funding_z": round(float(fz[-1]), 3), "oi_delta": round(float(oid[-1]), 4),
-                   "cvd_imb": round(float(imb[-1]), 3)}
+                   "cvd_imb": round(float(imb[-1]), 3), "cvd_divergence": bool(div[-1]),
+                   "realized_vol_pct": round(rv_pct, 3)}
         except Exception:  # boundary — konteks alt opsional
             alt = {}
         pos = self.open.get(sym)
@@ -219,6 +224,18 @@ class ForwardTester:
                                          balance=self.balance_usd, news_note=self._last_news_note,
                                          portfolio=self._portfolio_view())
         dec = self.gtrader.decide(ctx)
+        # Phase 4: silang-periksa Devil's Advocate. Bila kritik KUAT (≥ threshold) →
+        # turunkan conviction SATU tier (bukan diabaikan). Fail-open bila devil off/gagal.
+        if dec["side"] in ("long", "short") and self.rs is not None:
+            verdict = self.react.challenge_gemini(sym, dec["side"], dec.get("rationale", ""),
+                                                  ctx.get("market", {}), alt)
+            if verdict and verdict["strength"] >= self.react.devil_threshold:
+                old = dec["conviction"]
+                dec["conviction"] = round(self.rs.downgrade_conf(old), 3)
+                top = verdict["objections"][0] if verdict["objections"] else "objection kuat"
+                dec["rationale"] = (dec.get("rationale", "") +
+                                    f" | DEVIL {verdict['strength']:.2f} "
+                                    f"({old:.2f}→{dec['conviction']:.2f}): {top}")[:200]
         atr_val = float(_atr(df_closed, self.cfg["signals"]["atr_period"]).iloc[-1])
         side = 1 if dec["side"] == "long" else (-1 if dec["side"] == "short" else 0)
         return side, atr_val, dec, ctx

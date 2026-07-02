@@ -19,7 +19,7 @@ from .config import Settings
 from .gemini_client import GeminiClient
 from .indicators import adx, atr, ema, rsi
 from .logger import log
-from .trader_curriculum import SETUPS, curriculum_prompt, manage_prompt
+from .trader_curriculum import DECISION_MODULES, SETUPS, curriculum_prompt, manage_prompt
 
 _FLAT = {"setup": "no_trade", "side": "flat", "conviction": 0.0, "rationale": ""}
 
@@ -121,7 +121,8 @@ class GeminiTrader:
         """Kembalikan {setup, side, conviction, rationale}. Fail-safe = FLAT."""
         if not self.enabled:
             return {**_FLAT, "rationale": "gemini off → flat"}
-        prompt = (curriculum_prompt() + "\n\nKONTEKS PASAR (JSON):\n"
+        # Phase 4: modul evidence-based (buang hafalan pola harga OHLCV yang breakeven).
+        prompt = (curriculum_prompt(modules=DECISION_MODULES) + "\n\nKONTEKS PASAR (JSON):\n"
                   + json.dumps(context, default=str))
         text = self.client.generate(prompt, purpose="trader")
         if not text:
@@ -156,8 +157,10 @@ class GeminiTrader:
             tp = float(data.get("tp"))
         except (TypeError, ValueError):
             tp = None                                  # TP opsional → kode fallback ke ATR
+        regime = data.get("regime_classification")
+        regime = regime if regime in ("trend", "range", "chaos", "mixed") else None
         return {"setup": setup, "side": side, "conviction": round(conv, 3),
-                "sl": sl, "tp": tp,
+                "sl": sl, "tp": tp, "regime_classification": regime,
                 "rationale": str(data.get("rationale", ""))[:200]}
 
     # ---------- kelola posisi terbuka (exit-only, ~1 menit) ----------

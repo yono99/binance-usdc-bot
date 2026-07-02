@@ -125,6 +125,15 @@ class RuntimeSettings:
         return {k: p[k] for k in ("entry_confidence", "sl_atr_mult", "tp_atr_mult",
                                   "use_htf", "regime", "use_funding", "use_oi", "use_of")}
 
+    def downgrade_conf(self, confidence: float) -> float:
+        """Turunkan confidence SATU tier (dipakai saat Devil's Advocate kuat menentang,
+        Phase 4). full→reduced, reduced→abstain, abstain tetap. Deterministik."""
+        if confidence >= self.conf_full:
+            return self.conf_min                 # full → tepat di ambang reduced
+        if confidence >= self.conf_min:
+            return 0.0                           # reduced → di bawah conf_min = abstain
+        return confidence                        # sudah abstain
+
     def conf_size_mult(self, confidence: float | None) -> float | None:
         """Tier gerbang SIZE (Phase 2 kalibrasi). None (jalur rule-based, tanpa angka
         confidence) → 1.0 penuh, TIDAK digerbang — terdokumentasi sebagai pilihan sadar.

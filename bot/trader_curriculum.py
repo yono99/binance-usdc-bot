@@ -27,6 +27,12 @@ SETUPS = {
     "no_trade": "Tak ada setup berkualitas → FLAT. Keputusan sah & paling sering benar.",
 }
 
+# Modul untuk KEPUTUSAN ENTRY (Phase 4 kalibrasi): evidence-based, BUKAN hafalan pola
+# harga. chart_patterns/candlesticks/indicators SENGAJA dibuang dari prompt keputusan —
+# pola resolusi-bar dari OHLCV mentah sudah diarbitrase (breakeven di riset v1-v4).
+# Yang disisakan menekankan PROSES, RISIKO, STRUKTUR, META (klasifikasi regime > ramalan).
+DECISION_MODULES = ["decision_process", "risk", "psychology", "market_structure", "meta"]
+
 # ---------------------------------------------------------------------------
 # Inti: identitas & prinsip (paling menentukan).
 # ---------------------------------------------------------------------------
@@ -180,10 +186,15 @@ def curriculum_prompt(modules: list[str] | None = None) -> str:
     body = "\n".join(KNOWLEDGE[k] for k in keys)
     setups = "\n".join(f"  - {k}: {v}" for k, v in SETUPS.items())
     contract = (
-        "\nOUTPUT — balas HANYA JSON:\n"
-        '{"setup":"<salah satu SETUPS>","side":"long|short|flat","conviction":<0..1>,'
+        "\nKAMU MENGKLASIFIKASI situasi dari BUKTI (funding, OI, order-flow/CVD, volatilitas,\n"
+        "struktur), BUKAN meramal candle berikutnya. Mulai dari regime, lalu apakah ada setup\n"
+        "yang COCOK dengan regime + bukti. Bukti bertabrakan / regime tak jelas → flat.\n"
+        "OUTPUT — balas HANYA JSON:\n"
+        '{"regime_classification":"trend|range|chaos|mixed",'
+        '"setup":"<salah satu SETUPS>","side":"long|short|flat","conviction":<0..1>,'
         '"sl":<harga stop-loss>,"tp":<harga take-profit>,'
-        '"rationale":"<alasan singkat: sebut regime, lokasi, konfluensi>"}\n'
+        '"rationale":"<alasan singkat: sebut regime, lokasi, konfluensi bukti>"}\n'
+        "- 'regime_classification' = regime pasar saat ini (acuan: market.regime di konteks).\n"
         "ATURAN LEVEL (kamu trader penuh — tentukan level sendiri, dalam HARGA absolut):\n"
         "- 'sl' = harga INVALIDASI tesis (di mana kamu terbukti SALAH). WAJIB ada bila side≠flat.\n"
         "  Long: sl < harga sekarang. Short: sl > harga sekarang. Letakkan di BALIK struktur\n"
