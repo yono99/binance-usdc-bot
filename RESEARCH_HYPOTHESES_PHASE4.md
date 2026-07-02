@@ -249,3 +249,39 @@ Override sadar atas urutan Tahap 1→2: basket diciutkan 5+5 kaki × ~$5-10/kaki
 DD kumulatif >15% notional ATAU 6 siklus negatif beruntun = mati permanen.
 Paper-test Tahap 1 TETAP berjalan paralel (tak tersentuh) — vonis ilmiah tetap
 dari 15 siklus paper; jalur live-mikro hanya mengukur slippage lebih awal.
+
+---
+
+# ADDENDUM PEMILIK #2 (2026-07-02) — ATURAN COMPOUNDING BOT UTAMA
+(dikunci SEBELUM satu pun trade live tercatat; tujuan pemilik: pertumbuhan aset)
+
+Mesin compounding = `bet_pct` (margin = % saldo, auto-scale saat modal tumbuh).
+Compounding memperbesar DUA arah — menyalakannya sebelum expectancy terbukti
+positif berarti mempercepat kerugian. Maka:
+
+## Gerbang naik-kelas (bet tetap $2 → bet_pct)
+`bet_pct` boleh > 0 HANYA bila SEMUA terpenuhi, diukur dari riwayat LIVE
+(terisolasi per mode sejak commit 7d9da76):
+1. ≥ 30 trade live TERTUTUP, dan
+2. `expectancy_r` > 0 atas seluruh trade live itu (bukan winrate — winrate bisa
+   dibeli dgn R:R buruk), dan
+3. drawdown lock TIDAK sedang/pernah terpasang dalam 30 trade terakhir.
+
+Cara ukur (satu perintah, mode aktif = live):
+    curl -s http://127.0.0.1:8000/api/stats
+    → lihat "trades" (≥30?) dan "expectancy_r" (>0?)
+
+## Saat dinyalakan
+- Mulai kecil: bet_pct 4–5% (≈ setara $2 di saldo $50 — kontinuitas, bukan lompatan).
+- Naik bertahap maks 2× per 30 trade positif berikutnya. Tanpa lompatan.
+
+## Turun-kelas OTOMATIS (tanpa negosiasi)
+Kembali ke bet tetap $2 bila SALAH SATU:
+- drawdown lock terpasang (kunci 20% dari puncak), ATAU
+- expectancy_r atas 30 trade live terakhir < 0.
+Naik lagi = ulangi gerbang dari nol (30 trade positif baru).
+
+## Larangan
+- Menyalakan bet_pct "karena minggu ini bagus" (n kecil = noise, lihat H26/H28).
+- Menaikkan max_drawdown_pct utk "memberi ruang" saat mendekati kunci.
+- Menghitung trade paper/test sebagai bukti utk gerbang live (bucket terpisah!).
