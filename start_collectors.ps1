@@ -7,11 +7,10 @@ Set-Location $repo
 New-Item -ItemType Directory -Force "$repo\logs" | Out-Null
 
 $daemons = @(
-    @{ Name = "l2collect";   Args = @("l2collect.py", "--symbols", "CRV/USDC:USDC", "BOME/USDC:USDC",
-                                      "FIL/USDC:USDC", "NEAR/USDC:USDC", "NEO/USDC:USDC", "PNUT/USDC:USDC",
-                                      "BTC/USDC:USDC", "ETH/USDC:USDC", "--levels", "10", "--interval", "2") },
+    # l2collect DIHENTIKAN 2026-07-02: H30 DITOLAK di langkah 3 (replay konservatif).
     # oicollect DIHENTIKAN 2026-07-02: redundan — arsip metrics Binance Vision
     # menyimpan OI 5-menit permanen (H19 sudah diuji & DITOLAK dari arsip itu).
+    # Satu-satunya program forward tersisa: paper-test H28 (evaluasi ≥15 siklus).
     @{ Name = "h28_forward"; Args = @("h28_forward.py", "--interval", "3600") }
 )
 
