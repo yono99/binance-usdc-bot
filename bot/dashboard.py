@@ -18,7 +18,8 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
-from .settings_store import PRESETS, RuntimeSettings, load_settings, save_settings
+from .settings_store import (PRESETS, RuntimeSettings, get_active_mode, load_settings,
+                             save_settings, set_active_mode)
 from . import store
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -465,16 +466,45 @@ def api_clear_trades() -> JSONResponse:
 
 @app.post("/api/settings")
 def api_set_settings(payload: dict) -> JSONResponse:
-    known = set(RuntimeSettings().__dict__)
+    """Simpan pengaturan mode AKTIF. NON-DESTRUKTIF: field yang tak dikirim
+    dipertahankan dari nilai TERSIMPAN (patch di atas, bukan reset ke default
+    RuntimeSettings()). 'mode' SENGAJA diabaikan di sini — ganti mode HANYA
+    via POST /api/mode. Insiden nyata 2026-07-02: tab dashboard basi menyimpan
+    ulang form lama, leverage & mode ikut kembali ke nilai lama — form basi
+    kini tak bisa lagi menimpa mode aktif, dan field yang ia tak sebut aman."""
+    known = set(RuntimeSettings().__dict__) - {"mode"}
     if isinstance(payload.get("symbols"), str):
         payload["symbols"] = [x.strip() for x in payload["symbols"].split(",") if x.strip()]
-    s = RuntimeSettings(**{k: v for k, v in payload.items() if k in known}).clamp()
+    s = load_settings()                       # basis: nilai TERSIMPAN mode aktif
+    for k, v in payload.items():
+        if k in known:
+            setattr(s, k, v)
+    s = s.clamp()
     save_settings(s)
     d = asdict(s)
     d["techniques"] = list(PRESETS)
     d["timeframe"] = s.timeframe()
     d["liq_pct"] = round(s.liquidation_frac() * 100, 3)
     return JSONResponse(d)
+
+
+@app.get("/api/mode")
+def api_get_mode() -> JSONResponse:
+    """Mode trading AKTIF (dry/test/live) — satu sumber kebenaran dibaca bot &
+    dashboard. Diubah HANYA lewat POST /api/mode (tindakan sengaja, terpisah
+    dari /api/settings supaya form basi tak bisa menimpanya diam-diam)."""
+    return JSONResponse({"mode": get_active_mode() or "(ikut .env)"})
+
+
+@app.post("/api/mode")
+def api_set_mode(payload: dict) -> JSONResponse:
+    """Satu-satunya jalur resmi ganti mode trading aktif. mode="" = ikut .env."""
+    mode = str(payload.get("mode", "")).strip().lower()
+    if mode not in ("dry", "test", "live", ""):
+        return JSONResponse({"ok": False, "error": "mode harus salah satu: dry|test|live"},
+                            status_code=400)
+    set_active_mode(mode)
+    return JSONResponse({"ok": True, "mode": mode or "(ikut .env)"})
 
 
 PAGE = """<!doctype html>
