@@ -28,6 +28,7 @@ from .logger import LOG_DIR, journal, log
 from .memory import AgentMemory
 from .news import NewsVeto
 from . import vrp
+from . import mtf
 from .planner import SessionPlanner, default_plan
 from .react_agent import ReactAgent
 from .signals import Signal
@@ -87,6 +88,7 @@ class ForwardTester:
         self.news = NewsVeto(self.settings, self.cfg)
         self._news_base = self.news.enabled     # kemampuan dasar (Gemini+config); UI bisa mematikan
         self.vrp = vrp.VRPBrake(self.ex, self.cfg)   # rem-VRP (shadow: catat, tak blokir)
+        self.mtf = mtf.MTFAgree(self.cfg)            # kesepakatan multi-TF (shadow: catat, tak blokir)
         # ReAct agent: gerbang entry AKTIF utk teknik non-gemini (Gemini mati → fallback ikut sinyal).
         self.react = ReactAgent(self.settings, self.cfg)
         self.lessons = LessonsEngine(self.settings, self.cfg)
@@ -988,9 +990,13 @@ class ForwardTester:
             ok, entry = self._live_open(sym, is_long, qty, entry, sl, tp, rs)
             if not ok:
                 return
+        buf_full = self.buffers.get(sym)
+        mtf_stamp = (self.mtf.stamp(buf_full, self.tf, side)
+                     if buf_full is not None else {})   # kesepakatan multi-TF (shadow)
         self.open[sym] = {"side": "long" if is_long else "short", "entry": entry, "qty": qty,
                           "sl": sl, "tp": tp, "liq": liq, "bet": bet,
-                          **self.vrp.stamp()}   # stempel regime VRP saat open (A/B shadow)
+                          **self.vrp.stamp(),   # stempel regime VRP saat open (A/B shadow)
+                          **mtf_stamp}
         if gem:                                     # catat keputusan Gemini → settle saat tutup
             self.open[sym]["conviction"] = gem_conv   # untuk skor Brier saat close
             try:
@@ -1031,6 +1037,7 @@ class ForwardTester:
         r = pnl / pos["bet"] if pos["bet"] else 0.0
         self.trades.append(namedtuple("T", ["r"])(r))
         vrp.log_close(sym, pos, r, mode=self.settings.mode)   # shadow log ber-mode
+        mtf.log_close(sym, pos, r, pos.get("conviction"), self.settings.mode)  # shadow MTF
         if pos.get("conviction") is not None:       # skor Brier (Phase 1 kalibrasi)
             try:
                 from .store import log_calibration

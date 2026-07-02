@@ -532,6 +532,16 @@ def api_calibration(mode: str = None, n: int = 50, days: int = 14) -> JSONRespon
                                                  days=max(1, int(days))))
 
 
+@app.get("/api/mtf")
+def api_mtf(mode: str = None, sample: int = 100) -> JSONResponse:
+    """Report shadow gerbang kesepakatan multi-TF per mode (agree vs disagree).
+    verdict INSUFFICIENT sampai total ≥ sample. Tak memblokir apa pun (shadow)."""
+    from . import mtf
+    from .settings_store import _env_mode
+    m = mode if mode in ("dry", "test", "live") else (get_active_mode() or _env_mode())
+    return JSONResponse(mtf.report(m, sample=max(1, int(sample))))
+
+
 @app.get("/api/mode")
 def api_get_mode() -> JSONResponse:
     """Mode trading AKTIF (dry/test/live) — satu sumber kebenaran dibaca bot &

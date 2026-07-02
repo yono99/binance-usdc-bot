@@ -151,3 +151,13 @@ agent:
 vrp:
   mode: shadow
   gap_threshold: 0.10
+
+# Kesepakatan multi-timeframe (Phase 3 kalibrasi) — SHADOW dulu (pola VRP).
+# Base signal v4 sudah pakai satu HTF (htf_mult=4 → 15m×4=1h). Gate ini membaca
+# arah di ≥2 TF lain (base×mults) & catat agree/disagree tiap trade, TAK blokir.
+#   mode: off | shadow (default). enforce = perubahan terpisah setelah report positif.
+#   Ukur: python -c "from bot import mtf; print(mtf.report('dry'))"
+mtf:
+  mode: shadow
+  mults: [8, 16]        # 15m×8=2h, 15m×16=4h (di luar HTF 1h base signal)
+  sample: 100           # ambang sampel sebelum report bermakna
