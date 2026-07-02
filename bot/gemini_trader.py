@@ -128,6 +128,7 @@ class GeminiTrader:
             "setup_track_record": self._track_record(),         # stats per-setup (dihitung kode)
             "calibration": self._calibration(),                 # kejujuran confidence-nya (Brier)
             "sl_feedback": self._sl_feedback(symbol),           # ADAPTASI pasca SL/cut-loss
+            "loss_postmortem": self._postmortem(symbol),        # TANYA-JAWAB kekalahan (koreksi diri)
         }
         return ctx
 
@@ -159,6 +160,14 @@ class GeminiTrader:
                 "avg_mae_pct": _avg("mae_pct"),
                 "last_reasons": [d.get("exit_reason") for d in decs[:4]],
                 "last_sides": [d.get("side") for d in decs[:4]]}
+
+    def _postmortem(self, symbol: str, limit: int = 4) -> list[dict]:
+        """Post-mortem SL/cut-loss simbol INI sbg tanya-jawab (dari SQLite). Gemini
+        melihat alasan entry-nya sendiri yang GAGAL → koreksi, bukan ulangi."""
+        try:
+            return store.loss_postmortems(symbol, limit=limit)
+        except Exception:  # boundary — konteks opsional
+            return []
 
     def _calibration(self) -> dict:
         """Kalibrasi confidence Gemini di mode ini (Brier rolling) dari SQLite. Memberi

@@ -346,6 +346,52 @@ def recent_decisions(symbol: str | None = None, limit: int = 20) -> list[dict]:
         return [dict(r) for r in c.execute(q, args).fetchall()]
 
 
+def loss_postmortems(symbol: str | None = None, limit: int = 5) -> list[dict]:
+    """POST-MORTEM SL/cut-loss sebagai TANYA-JAWAB (dari data yang SUDAH tersimpan).
+
+    Menyandingkan alasan Gemini SAAT MASUK (rationale + regime/adx/rsi dari context
+    entry) dengan HASILNYA (exit_reason, R, MAE/MFE) agar Gemini bisa MENGOREKSI
+    penalarannya sendiri — bukan mengulang entry yang gagal. Tak butuh kolom baru:
+    context entry sudah disimpan saat commit, tinggal dibaca ulang."""
+    init_db()
+    _migrate()
+    q = ("SELECT symbol, setup, side, conviction, rationale, context, outcome_r, "
+         "mae_pct, mfe_pct, exit_reason FROM gemini_decisions "
+         "WHERE status='settled' AND (exit_reason IN ('sl','liq') OR outcome_r < 0)")
+    args: list = []
+    if symbol:
+        q += " AND symbol=?"
+        args.append(symbol)
+    q += " ORDER BY id DESC LIMIT ?"
+    args.append(limit)
+    with _conn() as c:
+        rows = c.execute(q, args).fetchall()
+    out = []
+    for r in rows:
+        try:
+            mkt = json.loads(r["context"]).get("market", {}) if r["context"] else {}
+        except Exception:  # context lama/rusak → tetap pakai sisanya
+            mkt = {}
+        mae, mfe = r["mae_pct"], r["mfe_pct"]
+        if mfe is not None and mae is not None and mfe >= max(mae, 0.5) * 1.5:
+            hint = "SL kemepetan — sempat untung besar (MFE) lalu tersapu; longgarkan/trailing"
+        elif mae is not None and (mfe or 0) < (mae or 0) * 0.5:
+            hint = "arah/timing salah — langsung merugi (MAE) tanpa MFE berarti"
+        else:
+            hint = "kekalahan wajar — periksa apakah setup ini memang beredge"
+        out.append({
+            "tanya": f"kenapa {r['side']} {r['symbol']} (setup={r['setup']}, "
+                     f"conv={r['conviction']}) di regime={mkt.get('regime')}?",
+            "jawab_saat_masuk": r["rationale"],
+            "pasar_saat_masuk": {k: mkt.get(k) for k in ("regime", "adx", "rsi", "atr_pct")},
+            "hasil": r["exit_reason"] or ("cut-loss" if (r["outcome_r"] or 0) < 0 else "?"),
+            "R": round(float(r["outcome_r"]), 3) if r["outcome_r"] is not None else None,
+            "mae_pct": mae, "mfe_pct": mfe,
+            "koreksi": hint,
+        })
+    return out
+
+
 def settled_decisions() -> list[dict]:
     """Semua keputusan Gemini yang sudah ada hasilnya (untuk track record/signifikansi)."""
     init_db()

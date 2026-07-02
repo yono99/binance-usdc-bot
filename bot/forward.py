@@ -1247,8 +1247,8 @@ class ForwardTester:
                 self._gemini_manage(sym, df_closed)
             # KAPAN evaluasi entry?
             #  - Gemini trader: timing BEBAS, TAPI di-throttle (≥ _decide_interval per simbol)
-            #    & di-PRE-GATE (hanya tanya Gemini bila tak ada blokir murah & sinyal lokal
-            #    melihat peluang) → mencegah ledakan token/rate-limit.
+            #    & di-PRE-GATE (hanya tanya Gemini bila tak ada blokir murah & pasar cukup
+            #    hidup — bukan arah rules) → mencegah ledakan token/rate-limit.
             #  - Teknik rules: hanya saat bar baru tertutup (sinyal berbasis bar).
             bar_closed = df_closed.index[-1] != self.last_closed.get(sym)
             throttled = now - self._last_decide.get(sym, 0) < self._decide_interval
@@ -1267,10 +1267,14 @@ class ForwardTester:
                     pre = pre or (cb or None)
                     pre = pre or ("sudah ada posisi" if sym in self.open else None)
                     pre = pre or ("slot penuh" if len(self.open) >= self.max_open else None)
-                    if pre is None:                      # PRE-GATE murah: sinyal lokal (gratis)
-                        gate_side, _ = self._signal(sym, df_closed)
-                        if gate_side == 0:
-                            pre = "pre-gate: tak ada peluang"
+                    if pre is None:                      # PRE-GATE murah: pasar HIDUP? (ARAH
+                        #   diserahkan ke Gemini — jangan sandera trader pintar di balik rules lama).
+                        #   Hanya saring pasar mati (ATR% < lantai) agar tak buang token. Lantai =
+                        #   knob (calibration): naikkan bila token boros, turunkan bila sinyal langka.
+                        _, gate_atr = self._signal(sym, df_closed)
+                        floor = self.cfg.get("gemini", {}).get("pregate_atr_pct", 0.3)
+                        if c["price"] and gate_atr / c["price"] * 100 < floor:
+                            pre = "pre-gate: pasar terlalu sepi"
                     if pre is not None:
                         c["blocked"] = pre
                         continue
