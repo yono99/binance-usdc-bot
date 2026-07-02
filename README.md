@@ -240,15 +240,17 @@ hanya bisa MENAHAN entry, dan setiap gerbang fail-open (error infra ≠ blokir).
 
 ```mermaid
 flowchart TD
-    EX["Binance USDC-M<br/>OHLCV + funding + orderbook"] --> SCR["Screener + whitelist<br/>bot/screener.py"]
-    SCR --> LOOP["Loop per simbol, poll 30s<br/>bot/forward.py"]
+    EX["Binance USDC-M<br/>OHLCV + funding + orderbook"] --> SCR["Screener 4-metrik (Layer 2)<br/>volume 24h + spread ≤0.03% + ATR<br/>cache 15 mnt — buang pair mahal"]
+    SCR --> LOOP["Loop per simbol<br/>bot/forward.py — hot-reload setting UI"]
 
     LOOP --> SIG["Signal engine<br/>bot/signals.py :: evaluate<br/>EMA/ADX/RSI + HTF + regime + funding + CVD"]
 
     subgraph GATES["Gerbang REM — semuanya bisa memblokir, tak ada yang membuka"]
         NEWS["News veto<br/>bot/news.py — Gemini + RSS<br/>cache 15 mnt, fail-open"]
-        CB["Circuit breaker harian<br/>max loss / max trades"]
+        CB["Circuit breaker HARIAN<br/>max loss % / max trades"]
+        DDL["DRAWDOWN LOCK total<br/>≥20% dari puncak saldo — persisten,<br/>lepas HANYA manual /api/dd-reset"]
         BTCG["BTC dominance gate<br/>bot/altdata.py :: btc_gate_side<br/>blok entri LAWAN arah BTC"]
+        VRP["Rem-VRP (shadow)<br/>bot/vrp.py — gap DVOL−RV30;<br/>enforce hanya bila terbukti A/B"]
         DA["Devil's Advocate<br/>bot/react_agent.py<br/>debat adversarial tiap ENTER"]
         PLAN["Session planner<br/>kuota & bias sesi"]
     end
@@ -257,13 +259,14 @@ flowchart TD
     GATES -->|semua lolos| DEC{"Teknik GEMINI aktif?"}
     DEC -->|ya| GT["GeminiTrader<br/>arah + SL/TP dari LLM<br/>level DIVALIDASI kode"]
     DEC -->|tidak| RULE["Sinyal rule-based<br/>SL/TP = ATR x mult"]
-    GT --> OPEN["Buka posisi paper/live<br/>sizing dari UI, leverage divalidasi"]
-    RULE --> OPEN
+    GT --> SIZE["Sizing<br/>bet tetap $ ATAU bet_pct %saldo<br/>(compounding: gerbang addendum #2 —<br/>≥30 trade live & expectancy>0)"]
+    RULE --> SIZE
+    SIZE --> OPEN["Buka posisi paper/live<br/>leverage & likuidasi divalidasi"]
 
-    OPEN --> MGMT["Kelola posisi<br/>bot/position.py — SL/TP/trailing<br/>+ review agen berkala"]
-    MGMT --> STORE[("SQLite store<br/>saldo, posisi, riwayat veto,<br/>screening, decision log")]
-    STORE --> DASH["Dashboard :8000<br/>panel kontrol + riwayat"]
-    MGMT --> TG["Notifikasi Telegram"]
+    OPEN --> MGMT["Kelola posisi<br/>SL/TP intrabar (paper) / sisi-exchange (live)<br/>+ Gemini manage + review agen berkala<br/>+ akrual FUNDING sim (paper, per 8 jam)"]
+    MGMT --> STORE[("SQLite store — PER MODE<br/>botstate/jurnal/decision-log terpisah<br/>utk dry, test, live — anti kontaminasi")]
+    STORE --> DASH["Dashboard :8000<br/>panel + riwayat (filter mode aktif)<br/>mode HANYA via /api/mode"]
+    MGMT --> TG["Notifikasi Telegram<br/>termasuk alarm drawdown lock"]
 ```
 
 ### Alur riset & program forward (terpisah dari jalur live)
@@ -277,7 +280,7 @@ flowchart TD
     H --> ENG["Engine walk-forward<br/>xsectional / carry / settlement /<br/>lifecycle / statarb / tsmom / combiner"]
 
     ENG --> P1{"1. Walk-forward OOS?"}
-    P1 -->|gagal| DEAD["DITOLAK -> catat di<br/>RESEARCH_LOG.md<br/>(22 hipotesis mati di sini)"]
+    P1 -->|gagal| DEAD["DITOLAK -> catat di<br/>RESEARCH_LOG.md<br/>(program final: 25 hipotesis, 24 mati)"]
     P1 --> P2{"2. Lintas-simbol?"}
     P2 -->|gagal| DEAD
     P2 --> P3{"3. Cost-stress x2?"}
@@ -287,12 +290,13 @@ flowchart TD
     P4 -->|lolos| FWD["Forward paper-test<br/>parameter BEKU, kriteria<br/>pra-registrasi"]
     FWD -->|lolos lagi| LIVE["Baru layak dipertimbangkan live"]
 
-    subgraph DAEMON["Daemon data forward (Scheduled Task, auto-start)"]
-        L2["l2collect.py<br/>L2 8 pair @2s -> H30 spread capture"]
-        OI["oicollect.py<br/>OI 800 perp/jam -> H19 crowding"]
-        H28["h28_forward.py<br/>paper-test H28 VRP-DVOL harian"]
+    subgraph DAEMON["Program forward AKTIF (Scheduled Task, auto-start)"]
+        H28["h28_forward.py — paper-test H28 VRP-DVOL<br/>satu-satunya kandidat hidup; vonis t-test<br/>otomatis stlh >=15 siklus (python h28_eval.py)"]
     end
-    DAEMON -.->|data matang<br/>minggu-bulan| IDEA
+    DAEMON -.->|trades.jsonl<br/>terisi harian| FWD
+
+    ARSIP["Riwayat: l2collect & oicollect DIHENTIKAN 2026-07<br/>H30 spread-capture DITOLAK langkah 3 (replay konservatif:<br/>edge milik posisi antrian MM); H19 OI DITOLAK di uji<br/>historis 450 hari via arsip Binance Vision (bot/vision.py)"]
+    ARSIP -.-> DEAD
 ```
 
 | Layer | Modul |
