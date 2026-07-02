@@ -215,6 +215,20 @@ def score_venue_basis(basis: np.ndarray, window: int) -> np.ndarray:
     return -(basis - m) / np.where(s > 0, s, np.nan)
 
 
+def score_oi_crowding(level, oi, delta_window, funding_min=0.0005):
+    """H19 (pra-registrasi Fase 5): crowding SEGAR. skor = −sign(funding) ×
+    ΔOI%(delta_window), aktif hanya saat |funding| ekstrem (ambang STRUKTURAL
+    funding_min per 8h, dideklarasikan di muka). Funding tinggi + OI naik cepat
+    = leverage baru menumpuk searah crowd → rawan squeeze → fade."""
+    T, N = level.shape
+    doi = np.full((T, N), np.nan)
+    doi[delta_window:] = oi[delta_window:] / np.where(oi[:-delta_window] > 0,
+                                                      oi[:-delta_window], np.nan) - 1.0
+    sc = -np.sign(level) * doi
+    active = (np.abs(level) > funding_min) & np.isfinite(doi)
+    return np.where(active, sc, np.nan)
+
+
 def score_funding_accel(level, interval):
     """H15: akselerasi funding. level=[T×N] rate 8h ffilled. velocity = beda antar
     interval; accel = beda velocity. Skor: short saat crowding funding mengakselerasi

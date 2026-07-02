@@ -176,3 +176,31 @@ def test_venue_basis_engine_controls():
     _, oos0 = xs.walk_forward_scores(close0, panels0, holds=[2, 5], quantile=0.3,
                                      cost_frac=0.0, train_len=800, test_len=300)
     assert not xs.verdict(oos0, 2)["ok"]
+
+
+def test_oi_crowding_controls():
+    """H19 builder: crowding segar (funding+ & OI naik) mendahului penurunan →
+    lolos; OI acak tanpa hubungan → gugur. Gerbang funding_min menonaktifkan
+    simbol ber-funding tipis (NaN)."""
+    rng = np.random.default_rng(19)
+    T, N = 3000, 10
+    lvl = np.tile(np.resize([0.002, -0.002], N), (T, 1))
+    oi_up = np.cumprod(1 + rng.normal(0.001, 0.001, (T, N)), axis=0)  # OI naik
+    r = rng.normal(0, 0.006, (T, N))
+    # funding+ & OI naik → harga turun; funding− & OI naik → harga naik (squeeze dua arah)
+    r += -np.sign(lvl) * 0.004
+    close = 100 * np.exp(np.cumsum(r, axis=0))
+    sc = xss.score_oi_crowding(lvl, oi_up, delta_window=72)
+    _, oos = xs.walk_forward_scores(close, {"oi": sc}, holds=[24], quantile=0.3,
+                                    cost_frac=0.0, train_len=900, test_len=400)
+    v = xs.verdict(oos, 1)
+    assert v["mean"] > 0 and v["ok"], v["reason"]
+
+    close0 = 100 * np.exp(np.cumsum(rng.normal(0, 0.006, (T, N)), axis=0))
+    sc0 = xss.score_oi_crowding(lvl, oi_up, delta_window=72)
+    _, oos0 = xs.walk_forward_scores(close0, {"oi": sc0}, holds=[24], quantile=0.3,
+                                     cost_frac=0.0, train_len=900, test_len=400)
+    assert not xs.verdict(oos0, 1)["ok"]
+
+    thin = xss.score_oi_crowding(np.full((T, N), 0.0001), oi_up, 72)   # funding tipis
+    assert np.isnan(thin[100:]).all()
