@@ -71,7 +71,8 @@ def get(decision_id: str, path: Path | str | None = None) -> dict | None:
 
 
 def record_outcome(symbol: str, outcome: str, outcome_r: float, *,
-                   filled_at_close: bool = True, path: Path | str | None = None) -> str | None:
+                   filled_at_close: bool = True, extras: dict | None = None,
+                   path: Path | str | None = None) -> str | None:
     """Perbarui baris ENTER terakhir utk `symbol` yang outcome-nya masih null.
     Kembalikan id keputusan yang diperbarui, atau None bila tak ada yang cocok.
     Menulis ulang file (volume paper-trade kecil → aman)."""
@@ -87,6 +88,8 @@ def record_outcome(symbol: str, outcome: str, outcome_r: float, *,
             row["outcome"] = outcome
             row["outcome_r"] = round(float(outcome_r), 4)
             row["filled_at_close"] = bool(filled_at_close)
+            if extras:                              # mis. mae_pct/mfe_pct (Fix B)
+                row.update(extras)
             matched_id = row.get("id")
             break
     if matched_id is None:

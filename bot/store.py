@@ -121,6 +121,17 @@ def init_db() -> None:
         c.executescript(_SCHEMA)
 
 
+def _migrate() -> None:
+    """Kolom evaluasi exit (Fix B 2026-07-02): MAE/MFE + alasan exit per keputusan
+    Gemini — bahan menjawab 'SL terlalu mepet?' dgn data, bukan perasaan."""
+    with _conn() as c:
+        for col, typ in (("mae_pct", "REAL"), ("mfe_pct", "REAL"), ("exit_reason", "TEXT")):
+            try:
+                c.execute(f"ALTER TABLE gemini_decisions ADD COLUMN {col} {typ}")
+            except Exception:  # kolom sudah ada
+                pass
+
+
 def insert_event(event: str, payload: dict, ts: str | None = None) -> int:
     """Catat satu event (open/close/dll). Kembalikan id baris."""
     init_db()
@@ -296,17 +307,22 @@ def record_decision(symbol: str, setup: str, side: str, conviction: float,
         return cur.lastrowid
 
 
-def settle_decision(decision_id: int, outcome_r: float) -> bool:
+def settle_decision(decision_id: int, outcome_r: float, mae_pct: float | None = None,
+                    mfe_pct: float | None = None, exit_reason: str | None = None) -> bool:
     init_db()
+    _migrate()
     with _conn() as c:
         return c.execute(
-            "UPDATE gemini_decisions SET status='settled', outcome_r=? WHERE id=?",
-            (float(outcome_r), decision_id)).rowcount > 0
+            "UPDATE gemini_decisions SET status='settled', outcome_r=?, mae_pct=?, "
+            "mfe_pct=?, exit_reason=? WHERE id=?",
+            (float(outcome_r), mae_pct, mfe_pct, exit_reason, decision_id)).rowcount > 0
 
 
 def recent_decisions(symbol: str | None = None, limit: int = 20) -> list[dict]:
     init_db()
-    q = "SELECT id, ts, symbol, setup, side, conviction, rationale, status, outcome_r FROM gemini_decisions"
+    _migrate()
+    q = ("SELECT id, ts, symbol, setup, side, conviction, rationale, status, outcome_r, "
+         "mae_pct, mfe_pct, exit_reason FROM gemini_decisions")
     args: list = []
     if symbol:
         q += " WHERE symbol=?"
@@ -320,8 +336,10 @@ def recent_decisions(symbol: str | None = None, limit: int = 20) -> list[dict]:
 def settled_decisions() -> list[dict]:
     """Semua keputusan Gemini yang sudah ada hasilnya (untuk track record/signifikansi)."""
     init_db()
+    _migrate()
     with _conn() as c:
-        rows = c.execute("SELECT symbol, setup, side, conviction, outcome_r FROM gemini_decisions "
+        rows = c.execute("SELECT symbol, setup, side, conviction, outcome_r, mae_pct, "
+                         "mfe_pct, exit_reason FROM gemini_decisions "
                          "WHERE status='settled' AND outcome_r IS NOT NULL ORDER BY id").fetchall()
     return [dict(r) for r in rows]
 
@@ -332,6 +350,7 @@ def setup_stats(setup: str, scope: str | None = None) -> dict:
     q = ("SELECT COUNT(*) n, COALESCE(AVG(outcome_r),0) exp_r, "
          "COALESCE(SUM(outcome_r>0),0) wins FROM gemini_decisions "
          "WHERE status='settled' AND setup=?")
+    _migrate()
     args: list = [setup]
     if scope and scope != "*":
         q += " AND symbol=?"
@@ -339,8 +358,20 @@ def setup_stats(setup: str, scope: str | None = None) -> dict:
     with _conn() as c:
         r = c.execute(q, args).fetchone()
     n = r["n"]
+    # Analisis exit (Fix B): berapa sering SL tersambar, dan dari SL-hit itu berapa
+    # yang MFE-nya sempat besar (= SL terlalu mepet: sempat untung lalu tersapu).
+    with _conn() as c:
+        e = c.execute(
+            "SELECT COALESCE(SUM(exit_reason='sl'),0) sl_hits, "
+            "COALESCE(AVG(CASE WHEN exit_reason='sl' THEN mae_pct END),0) avg_mae_sl, "
+            "COALESCE(AVG(CASE WHEN exit_reason='sl' THEN mfe_pct END),0) avg_mfe_sl "
+            "FROM gemini_decisions WHERE status='settled' AND setup=?" 
+            + (" AND symbol=?" if scope and scope != "*" else ""), args).fetchone()
     return {"setup": setup, "n": n, "exp_r": float(r["exp_r"]),
-            "win_rate": (r["wins"] / n * 100) if n else 0.0}
+            "win_rate": (r["wins"] / n * 100) if n else 0.0,
+            "sl_hit_rate": (e["sl_hits"] / n * 100) if n else 0.0,
+            "avg_mae_sl_pct": round(float(e["avg_mae_sl"]), 3),
+            "avg_mfe_before_sl_pct": round(float(e["avg_mfe_sl"]), 3)}
 
 
 # ---------- Gemini Trader: pelajaran (playbook) + evidence-gate ----------

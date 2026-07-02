@@ -267,11 +267,12 @@ class ForwardTester:
         # Shadow (A/B): permits() True (eksekusi ikut rules); verdict asli ada di react_action.
         return dec.permits(sig), (dec.react_action or dec.action), dec.reasoning
 
-    def _react_link(self, sym: str, outcome: str, outcome_r: float) -> None:
+    def _react_link(self, sym: str, outcome: str, outcome_r: float,
+                    extras: dict | None = None) -> None:
         """Tautkan outcome ke keputusan ReAct terakhir (decision_log) + update pelajaran.
         Dipakai jalur paper & live. Boundary: pencatatan agen tak boleh ganggu trading."""
         try:
-            did = decision_log.record_outcome(sym, outcome, outcome_r)
+            did = decision_log.record_outcome(sym, outcome, outcome_r, extras=extras)
             if did:                                  # hanya entry yang lewat gerbang ReAct
                 row = decision_log.get(did)
                 if row:
@@ -287,7 +288,9 @@ class ForwardTester:
         risk0 = abs(pos["entry"] - pos["sl"]) * pos["qty"]
         outcome_r = pnl / risk0 if risk0 else 0.0
         outcome = {"liq": "LIQ", "sl": "SL_HIT", "tp": "TP_HIT"}.get(reason, "CLOSE")
-        self._react_link(sym, outcome, outcome_r)
+        self._react_link(sym, outcome, outcome_r,
+                         extras={"mae_pct": round(pos.get("mae_pct", 0.0), 3),
+                                 "mfe_pct": round(pos.get("mfe_pct", 0.0), 3)})
 
     def _last_price(self, sym: str) -> float | None:
         buf = self.buffers.get(sym)
@@ -546,6 +549,19 @@ class ForwardTester:
                 pos["funding_paid"] = pos.get("funding_paid", 0.0) + cost
                 log.info(f"funding sim {sym}: {'bayar' if cost > 0 else 'terima'} "
                          f"${abs(cost):.4f} (rate {rate:+.5%} × {crossings}×)")
+
+    @staticmethod
+    def _sl_floor(entry: float, is_long: bool, sl: float, atr_val: float,
+                  last_range: float, k_atr: float = 1.0, k_range: float = 0.5) -> float:
+        """PURE — Fix A: jarak SL MINIMUM = max(k_atr×ATR, k_range×range candle
+        tertutup terakhir). ATR(14) Wilder telat bereaksi thd candle raksasa,
+        padahal sinyal momentum menyala TEPAT sesudahnya → SL 1.5×ATR-lama lebih
+        sempit dari retrace wajar candle itu → tersambar lalu harga lanjut tanpa
+        kita. SL yang sudah lebih lebar dari lantai TIDAK disentuh."""
+        dist = max(k_atr * atr_val, k_range * last_range)
+        if dist <= 0:
+            return sl
+        return min(sl, entry - dist) if is_long else max(sl, entry + dist)
 
     @staticmethod
     def _dd_check(peak: float, balance: float, max_dd_pct: float) -> tuple[bool, float]:
@@ -923,6 +939,14 @@ class ForwardTester:
             if isinstance(g_tp, (int, float)) and ((is_long and g_tp > entry) or
                                                    (not is_long and g_tp < entry)):
                 tp = float(g_tp)                    # TP Gemini valid; selain itu pakai TP ATR
+        # Fix A: LANTAI jarak SL (berlaku utk SL rule-based & usulan Gemini) —
+        # lalu jaga tetap DI DALAM likuidasi bila pelebaran menabraknya.
+        buf = self.buffers.get(sym)
+        last_range = (float(buf["high"].iloc[-2] - buf["low"].iloc[-2])
+                      if buf is not None and len(buf) >= 2 else 0.0)
+        sl = self._sl_floor(entry, is_long, sl, atr, last_range)
+        if (is_long and sl <= liq) or (not is_long and sl >= liq):
+            sl = (entry + liq) / 2                  # kompromi: selebar mungkin, tetap aman
         if self.live:                               # UANG NYATA: order asli + SL/TP exchange
             try:
                 qty = float(self.ex.client.amount_to_precision(sym, qty))
@@ -976,7 +1000,10 @@ class ForwardTester:
         vrp.log_close(sym, pos, r, mode=self.settings.mode)   # shadow log ber-mode
         if pos.get("gdecision") and self.gtrader is not None:   # umpan balik ke Gemini
             try:
-                self.gtrader.settle(pos["gdecision"], r)
+                self.gtrader.settle(pos["gdecision"], r,
+                                    mae_pct=round(pos.get("mae_pct", 0.0), 3),
+                                    mfe_pct=round(pos.get("mfe_pct", 0.0), 3),
+                                    exit_reason=reason)
                 self._gem_closes += 1
                 if self._gem_closes % 20 == 0:                  # refleksi berkala (belajar)
                     res = self.gtrader.reflect()
@@ -988,6 +1015,9 @@ class ForwardTester:
             self._react_settle(sym, pos, pnl, reason)   # umpan balik ReAct (teknik non-gemini)
         journal("forward_close", {"symbol": sym, "exit": round(exit_fill, 6), "reason": reason,
                                   "pnl_usd": round(pnl, 4), "r": round(r, 4),
+                                  "mae_pct": round(pos.get("mae_pct", 0.0), 3),
+                                  "mfe_pct": round(pos.get("mfe_pct", 0.0), 3),
+                                  "funding_usd": round(pos.get("funding_paid", 0.0), 4),
                                   "equity": round(self.balance_usd, 2)})
         log.info(f"CLOSE {reason.upper()} {sym} pnl=${pnl:+.2f} bal=${self.balance_usd:.2f}")
         icon = {"liq": "💥 <b>LIKUIDASI</b>", "sl": "🛑 SL", "tp": "✅ TP",
@@ -1015,6 +1045,15 @@ class ForwardTester:
             recent = buf.iloc[-2:]                   # candle tertutup terakhir + yang sedang terbentuk
             hi = max(float(recent["high"].max()), last_price)
             lo = min(float(recent["low"].min()), last_price)
+        # Fix B: lacak MFE/MAE (% dari entry) — bahan evaluasi "SL kepencet lalu
+        # balik arah?" utk refleksi Gemini & kalibrasi lantai SL.
+        e = pos["entry"]
+        if long:
+            pos["mfe_pct"] = max(pos.get("mfe_pct", 0.0), (hi - e) / e * 100)
+            pos["mae_pct"] = max(pos.get("mae_pct", 0.0), (e - lo) / e * 100)
+        else:
+            pos["mfe_pct"] = max(pos.get("mfe_pct", 0.0), (e - lo) / e * 100)
+            pos["mae_pct"] = max(pos.get("mae_pct", 0.0), (hi - e) / e * 100)
         # Urutan konservatif: likuidasi → SL → TP (bila satu bar menyentuh dua sisi, ambil yg merugikan).
         if (lo <= pos["liq"]) if long else (hi >= pos["liq"]):
             self._close_usd(sym, pos["liq"], "liq")

@@ -198,8 +198,10 @@ class GeminiTrader:
             symbol, decision["setup"], decision["side"], decision["conviction"],
             decision["rationale"], context, model=self.cfg.get("gemini", {}).get("model", ""))
 
-    def settle(self, decision_id: int, outcome_r: float) -> None:
-        store.settle_decision(decision_id, outcome_r)
+    def settle(self, decision_id: int, outcome_r: float, mae_pct: float | None = None,
+               mfe_pct: float | None = None, exit_reason: str | None = None) -> None:
+        store.settle_decision(decision_id, outcome_r, mae_pct=mae_pct,
+                              mfe_pct=mfe_pct, exit_reason=exit_reason)
 
     # ---------- playbook (evidence-gated) ----------
     def propose_lesson(self, scope: str, setup: str, text: str) -> int:
