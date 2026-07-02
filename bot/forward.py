@@ -487,12 +487,37 @@ class ForwardTester:
         return {"tool_loop": tool_loop, "autonomous": autonomous, "use_planner": use_planner,
                 "ab_shadow": ab_shadow, "use_gemini_trader": use_gemini_trader}
 
+    def _screened(self, base: list[str]) -> list[str]:
+        """Layer 2 utk jalur forward (dulu hanya di engine.py): saring universe
+        dgn 4 metrik screener (volume 24h, spread, ATR min/maks) sebelum dipakai.
+        Biaya per trade adalah musuh utama akun mikro — pair spread-lebar (CRV/
+        BOME ~10-15bps terukur) membocorkan tiap round-trip. Cache 15 menit
+        (universe stabil; re-seed buffer mahal). Fail-open: screener meledak
+        (API down) → pakai universe apa adanya, jangan matikan bot krn infra."""
+        import time as _time
+        from .screener import screen
+        key = tuple(sorted(base))
+        c = getattr(self, "_screen_cache", None)
+        if c and c[0] == key and _time.time() - c[1] < c[3]:
+            return c[2]
+        try:
+            passed = screen(self.ex, list(base), self.cfg, self.tf)
+        except Exception as e:  # boundary — infra gagal ≠ bot mati
+            log.warning(f"screener gagal ({e}) — pakai universe tanpa saring")
+            return list(base)
+        # kosong = tak ada yang lolos ambang SAAT INI (pasar sepi) → hormati
+        # (bot idle), cache pendek supaya cepat pulih saat pasar bangun.
+        ttl = 900 if passed else 180
+        self._screen_cache = (key, _time.time(), passed, ttl)
+        return passed
+
     def _apply_settings(self) -> RuntimeSettings:
         rs = load_settings()
         eff = rs.mode or self.settings.mode               # mode diminta dari UI (atau .env)
         if eff != self._eff_mode:
             self._switch_mode(eff)
         resolved = rs.symbols or self.ex.usdc_symbols()   # kosong = semua USDC
+        resolved = self._screened(resolved)               # Layer 2: likuiditas/spread/ATR
         if rs.timeframe() != self.tf or set(resolved) != set(self.symbols):
             self.tf = rs.timeframe()
             self.symbols = resolved

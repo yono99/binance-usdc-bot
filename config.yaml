@@ -16,7 +16,10 @@ market:
 
 screener:
   min_quote_volume_24h: 5_000_000   # likuiditas minimum (USDC)
-  max_spread_pct: 0.06              # bid-ask maksimum (%)
+  max_spread_pct: 0.03              # bid-ask maksimum (%) — diketatkan utk akun mikro:
+                                    # spread adalah biaya pasti tiap trade; 0.03% masih
+                                    # meloloskan majors (BTC/ETH/SOL/XRP <0.015%), membuang
+                                    # pair mahal (CRV/BOME/PNUT ~0.10-0.15% terukur 2026-07)
   min_atr_pct: 0.25                 # volatilitas minimum (ATR/price %)
   max_atr_pct: 6.0                  # buang yang terlalu liar
 
