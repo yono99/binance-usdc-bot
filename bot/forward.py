@@ -127,7 +127,8 @@ class ForwardTester:
         self._dd_reason = ""
         if self.use_store:
             self.rs = load_settings()
-            self.symbols = self.rs.symbols or self.ex.usdc_symbols()   # kosong = semua USDC
+            self.symbols = self.rs.symbols or self.ex.perp_symbols(
+                tuple(self.cfg["market"].get("settles", ["USDC"])))   # kosong = semua settle config
             self.params = self.rs.params()
             self.tf = self.rs.timeframe()
             self.balance_usd = self.rs.balance_usd
@@ -509,7 +510,14 @@ class ForwardTester:
         if c and c[0] == key and _time.time() - c[1] < c[3]:
             return c[2]
         try:
-            passed = screen(self.ex, list(base), self.cfg, self.tf)
+            todo = list(base)
+            if len(todo) > 80:                    # universe raksasa (USDT+USDC ±800)
+                from .screener import prefilter_volume
+                todo = prefilter_volume(self.ex, todo,
+                                        self.cfg["screener"]["min_quote_volume_24h"])
+            passed = screen(self.ex, todo, self.cfg, self.tf)
+            from .screener import dedup_prefer_usdc
+            passed = dedup_prefer_usdc(passed)    # anti eksposur-dobel base sama
         except Exception as e:  # boundary — infra gagal ≠ bot mati
             log.warning(f"screener gagal ({e}) — pakai universe tanpa saring")
             return list(base)
@@ -611,7 +619,8 @@ class ForwardTester:
         eff = rs.mode or self.settings.mode               # mode diminta dari UI (atau .env)
         if eff != self._eff_mode:
             self._switch_mode(eff)
-        resolved = rs.symbols or self.ex.usdc_symbols()   # kosong = semua USDC
+        resolved = rs.symbols or self.ex.perp_symbols(
+            tuple(self.cfg["market"].get("settles", ["USDC"])))   # kosong = semua settle config
         resolved = self._screened(resolved)               # Layer 2: likuiditas/spread/ATR
         if rs.timeframe() != self.tf or set(resolved) != set(self.symbols):
             self.tf = rs.timeframe()

@@ -35,6 +35,13 @@ class Exchange:
         return sorted(s for s, v in self.markets.items()
                       if v.get("settle") == "USDC" and v.get("swap"))
 
+    def perp_symbols(self, settles: tuple[str, ...] = ("USDC",)) -> list[str]:
+        """Perp aktif utk beberapa settle sekaligus (USDC + USDT satu platform
+        USDS-M, satu client). Catatan: USDT TIDAK ikut promo fee 0% USDC."""
+        return sorted(s for s, v in self.markets.items()
+                      if v.get("swap") and v.get("settle") in settles
+                      and v.get("active", True))
+
     # ---------- data publik (tidak butuh key) ----------
     def ohlcv(self, symbol: str, timeframe: str, limit: int = 200) -> pd.DataFrame:
         raw = self.client.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)

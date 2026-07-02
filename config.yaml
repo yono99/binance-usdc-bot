@@ -7,6 +7,11 @@ market:
   quote: USDC              # margin/quote asset (USDC-M futures)
   timeframe: "15m"         # timeframe sinyal utama
   poll_seconds: 20         # interval loop (REST poll)
+  # settle yang diikutkan saat whitelist kosong. USDT membuka ±760 pair ekstra
+  # TAPI: (1) USDT TIDAK ikut promo fee 0% (taker ~0.05%/sisi nyata); (2) akun
+  # butuh saldo USDT utk margin pair USDT (atau aktifkan Multi-Asset Mode di
+  # Binance); (3) kembaran (BTC/USDT vs BTC/USDC) otomatis di-dedup, prefer USDC.
+  settles: [USDC, USDT]
   # whitelist; kosongkan [] untuk auto-pilih dari screener
   whitelist:
     - BTC/USDC:USDC

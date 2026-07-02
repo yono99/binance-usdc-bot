@@ -15,6 +15,39 @@ def discover_usdc_pairs(ex: Exchange, limit: int = 40) -> list[str]:
     return syms[:limit]
 
 
+def prefilter_volume(ex: Exchange, symbols: list[str], min_qv: float,
+                     top_n: int = 60) -> list[str]:
+    """Pangkas universe BESAR (±800 perp USDT+USDC) dgn SATU panggilan
+    fetch_tickers sebelum screen detail (yang butuh ±2 call/pair — 800 pair
+    tanpa prefilter = ±2400 call/15mnt, tak masuk akal). Ambil top_n by
+    volume 24h di atas ambang. Gagal batch → fail-open potong daftar saja."""
+    try:
+        tks = ex.client.fetch_tickers(symbols)
+    except Exception as e:  # boundary
+        log.warning(f"prefilter tickers gagal ({e}) — pakai {top_n} pertama")
+        return symbols[:top_n]
+    rows = []
+    for s in symbols:
+        qv = float((tks.get(s) or {}).get("quoteVolume") or 0)
+        if qv >= min_qv:
+            rows.append((s, qv))
+    rows.sort(key=lambda r: -r[1])
+    return [s for s, _ in rows[:top_n]]
+
+
+def dedup_prefer_usdc(symbols: list[str]) -> list[str]:
+    """Satu koin bisa lolos dua kali (BTC/USDT & BTC/USDC) → trading keduanya =
+    eksposur DOBEL diam-diam ke aset yang sama. Simpan satu per base; prefer
+    USDC (fee promo 0%), USDT hanya bila tak ada kembaran USDC-nya."""
+    by_base: dict[str, str] = {}
+    for s in symbols:
+        base = s.split("/")[0]
+        cur = by_base.get(base)
+        if cur is None or (":USDC" in s and ":USDT" in cur):
+            by_base[base] = s
+    return sorted(by_base.values())
+
+
 def screen(ex: Exchange, symbols: list[str], cfg: dict, timeframe: str) -> list[str]:
     s = cfg["screener"]
     passed: list[str] = []
