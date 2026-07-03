@@ -16,23 +16,27 @@ def discover_usdc_pairs(ex: Exchange, limit: int = 40) -> list[str]:
 
 
 def prefilter_volume(ex: Exchange, symbols: list[str], min_qv: float,
-                     top_n: int = 60) -> list[str]:
+                     top_n: int | None = None) -> list[str]:
     """Pangkas universe BESAR (±800 perp USDT+USDC) dgn SATU panggilan
     fetch_tickers sebelum screen detail (yang butuh ±2 call/pair — 800 pair
-    tanpa prefilter = ±2400 call/15mnt, tak masuk akal). Ambil top_n by
-    volume 24h di atas ambang. Gagal batch → fail-open potong daftar saja."""
+    tanpa prefilter = ±2400 call/15mnt, tak masuk akal). SEMUA pair >= ambang
+    volume 24h lolos ke screen detail (top_n=None = tanpa batas rangking —
+    penyaringan pertama tak boleh membuang yang sudah lolos ambang likuiditas
+    hanya karena rangking). top_n opsional utk pembatasan eksplisit bila perlu.
+    Gagal batch → fail-open potong 60 pertama saja (fallback aman, bukan janji likuiditas)."""
     try:
         tks = ex.client.fetch_tickers(symbols)
     except Exception as e:  # boundary
-        log.warning(f"prefilter tickers gagal ({e}) — pakai {top_n} pertama")
-        return symbols[:top_n]
+        fallback_n = 60 if top_n is None else top_n
+        log.warning(f"prefilter tickers gagal ({e}) — pakai {fallback_n} pertama")
+        return symbols[:fallback_n]
     rows = []
     for s in symbols:
         qv = float((tks.get(s) or {}).get("quoteVolume") or 0)
         if qv >= min_qv:
             rows.append((s, qv))
     rows.sort(key=lambda r: -r[1])
-    return [s for s, _ in rows[:top_n]]
+    return [s for s, _ in (rows if top_n is None else rows[:top_n])]
 
 
 def dedup_prefer_usdc(symbols: list[str]) -> list[str]:

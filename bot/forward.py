@@ -132,10 +132,14 @@ class ForwardTester:
         self._dd_reason = ""
         if self.use_store:
             self.rs = load_settings(self.settings.mode if self.pin_mode else None)
-            self.symbols = self.rs.symbols or self.ex.perp_symbols(
-                tuple(self.cfg["market"].get("settles", ["USDC"])))   # kosong = semua settle config
             self.params = self.rs.params()
-            self.tf = self.rs.timeframe()
+            self.tf = self.rs.timeframe()          # _screened() di bawah butuh self.tf siap dulu
+            # kosong = semua settle config → SARING lewat screener (Layer 2) SEBELUM seed, jangan
+            # seed universe RAW (ratusan pair) — _apply_settings() sudah begini di siklus hot-reload,
+            # init harus cermin yang sama agar startup tak mencoba seed seluruh universe mentah.
+            resolved = self.rs.symbols or self.ex.perp_symbols(
+                tuple(self.cfg["market"].get("settles", ["USDC"])))
+            self.symbols = self._screened(resolved) if not self.rs.symbols else resolved
             self.balance_usd = self.rs.balance_usd
             self._last_cfg_balance = self.rs.balance_usd
             self._day_start_balance = self.balance_usd

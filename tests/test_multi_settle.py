@@ -37,6 +37,15 @@ def test_prefilter_volume_top_n_above_threshold():
     assert out == ["S9/USDT:USDT", "S8/USDT:USDT", "S7/USDT:USDT"]  # top by volume
 
 
+def test_prefilter_volume_default_no_cap_passes_all_above_threshold():
+    # Penyaringan PERTAMA tak boleh membuang pair yang sudah lolos ambang volume
+    # hanya karena rangking — SEMUA yang >= ambang harus lanjut ke screen detail.
+    syms = [f"S{i}/USDT:USDT" for i in range(10)]
+    out = screener.prefilter_volume(_Ex(), syms, min_qv=3_500_000)   # top_n default (tanpa batas)
+    assert len(out) == 7                                # S3..S9 (qv >= 3.5jt), bukan dipotong top-N
+    assert set(out) == {f"S{i}/USDT:USDT" for i in range(3, 10)}
+
+
 def test_prefilter_fail_open_on_batch_error():
     class _Boom:
         class client:

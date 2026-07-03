@@ -87,6 +87,7 @@ python run.py               # loop penuh (simulasi)
 | Isolasi per-mode | saldo/posisi/jurnal/decision-log dry-test-live TERPISAH (anti kontaminasi; termasuk saat switch mode runtime) | otomatis |
 | Mode switch | `mode` tak bisa diubah form biasa; form basi tak bisa menimpa | `GET/POST /api/mode` |
 | Screener Layer 2 di jalur forward | volume ≥$5jt + spread ≤0.03% + ATR 0.25–6%, cache 15 mnt, fail-open | `config.yaml: screener` |
+| Prefilter volume (penyaringan pertama) | universe besar (>80 pair) disaring SATU batch `fetch_tickers`; **SEMUA** pair ≥ ambang volume lanjut ke screen detail, TANPA batas top-N rangking (dulu terpotong top-60, membuang pair likuid yg kalah rangking) | `screener.prefilter_volume(top_n=None)` |
 | Drawdown lock TOTAL | entry terkunci bila saldo turun ≥20% dari puncak (persisten, tahan restart); CB harian tetap ada | lepas: `POST /api/dd-reset`; ambang: `max_drawdown_pct` |
 | Lantai jarak SL (kalibrasi data) | min = max(**1.75×ATR**, 0.5×range candle terakhir) — dari studi 1 thn ×15 pair (~325rb pemenang, q80); berlaku utk SL rule & Gemini | `data/sl_calibration.json` + kv `sl_calibration` |
 | Data exit utk Gemini | MFE/MAE + alasan exit per trade → jurnal, decision log, tabel Gemini; `setup_stats` punya sl_hit_rate & MFE-sebelum-SL | otomatis |
