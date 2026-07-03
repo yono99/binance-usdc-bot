@@ -859,7 +859,13 @@ class ForwardTester:
             log.error(f"sync posisi live gagal: {e}")
 
     def _live_open(self, sym, is_long, qty, entry, sl, tp, rs) -> tuple[bool, float]:
-        """Tempatkan order ENTRY nyata + SL/TP sisi-exchange. Return (ok, fill_price)."""
+        """Tempatkan order ENTRY nyata + SL/TP sisi-exchange. Return (ok, fill_price).
+        KRITIS: entry & SL/TP di try/except TERPISAH. Bila entry terisi (uang REAL sudah
+        masuk) tapi SL/TP gagal ditempatkan (mis. harga sudah lewat trigger dlm hitungan
+        ms), JANGAN klaim gagal total (posisi_open=False) — itu membuat posisi TELANJANG
+        (tanpa proteksi) HILANG TOTAL dari self.open (live: _monitor_usd tak enforce SL/TP
+        sendiri, percaya penuh ke order exchange). Coba emergency-close dulu; kalau itu
+        JUGA gagal, tetap lacak (return ok=True) drpd bot buta total thd eksposur nyata."""
         try:
             self.ex.set_leverage(sym, rs.leverage)
             side_str = "buy" if is_long else "sell"
@@ -868,6 +874,11 @@ class ForwardTester:
             else:
                 order = self.ex.client.create_order(sym, "market", side_str, qty)
             fill = float(order.get("average") or entry)
+        except Exception as e:  # boundary — entry sendiri gagal → aman, tak ada eksposur
+            log.error(f"LIVE OPEN {sym} gagal (entry): {e}")
+            self.notify.send(f"❌ <b>LIVE OPEN GAGAL</b> {sym}\n{str(e)[:140]}")
+            return False, entry
+        try:
             close_side = "sell" if is_long else "buy"
             # SL/TP dijaga exchange (tetap aktif walau bot mati)
             self.ex.client.create_order(sym, "STOP_MARKET", close_side, qty, None,
@@ -875,10 +886,21 @@ class ForwardTester:
             self.ex.client.create_order(sym, "TAKE_PROFIT_MARKET", close_side, qty, None,
                                         {"stopPrice": tp, "reduceOnly": True})
             return True, fill
-        except Exception as e:  # boundary
-            log.error(f"LIVE OPEN {sym} gagal: {e}")
-            self.notify.send(f"❌ <b>LIVE OPEN GAGAL</b> {sym}\n{str(e)[:140]}")
-            return False, entry
+        except Exception as e:  # boundary — entry SUDAH terisi, SL/TP gagal → posisi telanjang
+            log.error(f"LIVE OPEN {sym}: entry terisi TAPI SL/TP gagal ({e}) — emergency close")
+            try:
+                self.ex.client.create_order(sym, "market", close_side, qty, None, {"reduceOnly": True})
+                self.ex.client.cancel_all_orders(sym)
+                self.notify.send(f"⚠️ <b>LIVE OPEN {sym}</b>: SL/TP gagal dipasang → "
+                                 f"emergency-close berhasil. Tak ada posisi tersisa.\n{str(e)[:140]}")
+                return False, fill                       # posisi sudah ditutup lagi → aman
+            except Exception as e2:  # boundary — emergency close JUGA gagal: posisi telanjang NYATA
+                self.notify.send(
+                    f"🚨 <b>DARURAT</b> {sym}: entry live terisi, SL/TP GAGAL, emergency-close "
+                    f"JUGA GAGAL — posisi TELANJANG tanpa proteksi!\nTutup MANUAL segera di exchange.\n"
+                    f"{str(e)[:100]} | {str(e2)[:100]}")
+                log.error(f"{sym}: posisi telanjang tak terlindungi — intervensi manual WAJIB")
+                return True, fill                        # WAJIB tetap dilacak — jangan hilang total
 
     def _live_close(self, sym: str, pos: dict) -> None:
         """Tutup posisi nyata (reduceOnly market) + batalkan SL/TP tersisa."""
