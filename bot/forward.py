@@ -160,6 +160,13 @@ class ForwardTester:
         _gcfg = self.cfg.get("gemini", {})        # pemicu give-back menuju TP (knob kalibrasi)
         self._giveback_tp_frac = float(_gcfg.get("giveback_tp_frac", 0.5))
         self._giveback_margin = float(_gcfg.get("giveback_margin", 0.2))
+        # Kuota panggilan Gemini per-SIKLUS (bukan per-simbol): universe besar + _last_decide
+        # kosong saat boot/restart bikin SEMUA simbol jadi "bebas panggil" serentak dlm satu
+        # loop sekuensial → ledakan 429 + _monitor_usd (SL/TP keras) simbol lain ikut tertunda.
+        # Penyaringan pertama (screener+pre-gate) TETAP gratis-Gemini; ini cuma membatasi
+        # BERAPA BANYAK yg boleh lanjut ke Gemini dlm satu siklus yg sama.
+        self._gemini_decide_budget = int(_gcfg.get("gemini_decide_budget_per_cycle", 8))
+        self._gemini_decide_used = 0              # reset tiap awal siklus (_on_cycle_store)
         self._last_decide: dict = {}              # throttle keputusan-entry Gemini per simbol
         self._decide_interval = 180               # detik min antar keputusan entry (~3 mnt) — hemat token
         # KESELAMATAN: Gemini-trader boleh order LIVE hanya bila di-set eksplisit di config.
@@ -1285,6 +1292,7 @@ class ForwardTester:
 
     def _on_cycle_store(self) -> None:
         rs = self._apply_settings()
+        self._gemini_decide_used = 0      # kuota panggilan Gemini per-siklus, reset tiap cycle
         self._process_close_requests()
         if self.live:
             self._live_reconcile()        # sinkron posisi & saldo nyata dari Binance
@@ -1357,6 +1365,13 @@ class ForwardTester:
                     if pre is not None:
                         c["blocked"] = pre
                         continue
+                    if self._gemini_decide_used >= self._gemini_decide_budget:
+                        # Kuota per-siklus habis — JANGAN set _last_decide (bukan throttle
+                        # normal) agar simbol ini tetap prioritas dicoba di siklus BERIKUTNYA,
+                        # bukan menunggu penuh _decide_interval lagi.
+                        c["blocked"] = "kuota gemini per-siklus habis"
+                        continue
+                    self._gemini_decide_used += 1
                     self._last_decide[sym] = now         # throttle: tandai panggilan Gemini
                     side, atr, gdec, gctx = self._gemini_decision(sym, df_closed)
                     c["gemini"] = {"dec": gdec, "ctx": gctx}

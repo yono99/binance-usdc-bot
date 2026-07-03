@@ -103,6 +103,9 @@ gemini:
   planner_min_trades: 3     # lantai kuota trade sesi: planner tak boleh cekik di bawah ini (kecuali risk_off).
   giveback_tp_frac: 0.5     # posisi sempat >= ini (fraksi jarak entry→TP) menuju TP ...
   giveback_margin: 0.2      # ... lalu balik >= ini → PAKSA Gemini review (kunci profit / exit)
+  gemini_decide_budget_per_cycle: 8   # MAKSIMUM simbol baru yg boleh panggil Gemini per siklus
+  #   (sisanya nunggu siklus berikutnya). Universe besar + restart = semua simbol jadi "bebas
+  #   panggil" serentak tanpa ini -> ledakan 429 & _monitor_usd (SL/TP) simbol lain tertunda.
   pregate_atr_pct: 0.25     # lantai pre-gate: tanya Gemini hanya bila ATR% >= ini (pasar hidup).
   #                           Naikkan bila token boros; turunkan bila sinyal langka. ARAH tetap milik Gemini.
   # Devil's Advocate (adaptasi debat Bull/Bear TradingAgents): pass LLM kedua yang HANYA
