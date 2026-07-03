@@ -94,7 +94,19 @@ export function PriceChart({ status, available }: { status: Status | null; avail
   // render data ke chart
   useEffect(() => {
     if (!data || !candle.current || !rsiSeries.current) return;
-    if (!data.bars?.length) return;
+    if (!data.bars?.length) {
+      // Fetch gagal/kosong (simbol/tf lain, exchange error) — BERSIHKAN chart lama, jangan
+      // biarkan candle/panah/garis simbol SEBELUMNYA nyangkut seolah masih berlaku (bingung
+      // saat ganti pair: "chart tidak menampilkan" krn kelihatan beku, bukan kosong jujur).
+      candle.current.setData([]);
+      candle.current.setMarkers([]);
+      priceLines.current.forEach((pl) => candle.current!.removePriceLine(pl));
+      priceLines.current = [];
+      emaSeries.current.forEach((s) => pxChart.current!.removeSeries(s));
+      emaSeries.current = [];
+      rsiSeries.current.setData([]);
+      return;
+    }
     const t = (x: number) => (x / 1000) as UTCTimestamp;
     candle.current.setData(data.bars.map((b) => ({ time: t(b.x), open: b.o, high: b.h, low: b.l, close: b.c })));
 
