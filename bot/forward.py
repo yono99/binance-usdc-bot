@@ -144,6 +144,9 @@ class ForwardTester:
             self._last_cfg_balance = self.rs.balance_usd
             self._day_start_balance = self.balance_usd
             self._restore_state()           # pulihkan saldo+posisi+state-harian dari SQLite (tahan-restart)
+            # Posisi restored WAJIB dipantau sejak siklus pertama, walau simbolnya gugur
+            # screening (lihat _apply_settings — union yg sama, cegah orphan sejak boot).
+            self.symbols = sorted(set(self.symbols) | set(self.open.keys()))
         else:
             self.tf = self.cfg["market"]["timeframe"]
         self.bt.sl_mult = self.params["sl_atr_mult"]
@@ -675,6 +678,11 @@ class ForwardTester:
         resolved = rs.symbols or self.ex.perp_symbols(
             tuple(self.cfg["market"].get("settles", ["USDC"])))   # kosong = semua settle config
         resolved = self._screened(resolved)               # Layer 2: likuiditas/spread/ATR
+        # Posisi TERBUKA wajib tetap dipantau meski simbolnya gugur dari screening (mis. volume/
+        # spread berubah) — kalau tidak, SL/TP/give-back-nya berhenti dicek diam-diam (orphan:
+        # posisi tetap hidup tapi tak ada yg mengawasi). Screener hanya boleh menyaring simbol
+        # BARU, tak pernah "membutakan" bot dari eksposur yg sudah ada.
+        resolved = sorted(set(resolved) | set(self.open.keys()))
         if rs.timeframe() != self.tf or set(resolved) != set(self.symbols):
             self.tf = rs.timeframe()
             self.symbols = resolved

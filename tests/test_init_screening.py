@@ -21,6 +21,9 @@ class _StubEx:
 @pytest.fixture(autouse=True)
 def _no_network(monkeypatch):
     monkeypatch.setattr(fwd, "Exchange", _StubEx)
+    # Isolasi dari SQLite SUNGGUHAN (mode "dry" bisa berisi posisi terbuka nyata dari bot yg
+    # sedang jalan) — union posisi-terbuka (anti-orphan) tak boleh kebocoran state produksi.
+    monkeypatch.setattr(fwd.ForwardTester, "_restore_state", lambda self: None)
 
 
 def test_init_use_store_screens_raw_universe_before_seed(cfg, monkeypatch):
