@@ -53,6 +53,7 @@ export interface Position {
   qty?: number;
   bet?: number;
   mark?: number;
+  opened_ts?: string | null;   // ISO — utk marker panah entry di chart
 }
 
 export interface PairStatus {

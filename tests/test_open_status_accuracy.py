@@ -104,3 +104,32 @@ def test_successful_open_still_shows_success_label(make_df, monkeypatch):
 
     assert "BTC/USDC:USDC" in ft.open                            # posisi BENAR-BENAR terbuka
     assert ft.sig_cache["BTC/USDC:USDC"]["blocked"] == "→ posisi dibuka"
+    assert ft.open["BTC/USDC:USDC"].get("opened_ts")             # utk marker panah entry di chart
+
+
+def test_status_position_view_includes_opened_ts():
+    """pos_view (dikirim ke /api/status, dipakai chart) harus meneruskan opened_ts."""
+    ft = ForwardTester.__new__(ForwardTester)
+    ft.symbols = ["BTC/USDC:USDC"]
+    ft.sig_cache = {"BTC/USDC:USDC": {"price": 101.0}}
+    ft.open = {"BTC/USDC:USDC": {"side": "long", "entry": 100.0, "sl": 95.0, "tp": 110.0,
+                                 "liq": 90.0, "qty": 1.0, "bet": 10.0,
+                                 "opened_ts": "2026-07-03T10:00:00+00:00"}}
+    from bot.settings_store import RuntimeSettings
+    rs_obj = RuntimeSettings(mode="dry")
+    ft._circuit_breaker = lambda: None
+    ft._dd_lock, ft._dd_reason, ft._peak_balance = False, "", 0.0
+    ft._dd_check = lambda peak, bal, pct: (False, 0.0)
+    ft.balance_usd = 100.0
+    ft.corr_threshold = 0
+    ft._day_pnl, ft._day_trades = 0.0, 0
+    ft.settings = types.SimpleNamespace(mode="dry")
+    ft.pin_mode = True
+    ft.tf = "15m"
+    ft.max_open = 10
+    from unittest.mock import patch
+    with patch("bot.store.set_kv") as m:
+        ft._write_status(rs_obj, False, "")
+        status = m.call_args_list[0][0][1]   # tangkap payload yg ditulis ke kv
+    pv = next(s["position"] for s in status["symbols"] if s["symbol"] == "BTC/USDC:USDC")
+    assert pv["opened_ts"] == "2026-07-03T10:00:00+00:00"

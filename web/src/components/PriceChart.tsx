@@ -133,6 +133,26 @@ export function PriceChart({ status, available }: { status: Status | null; avail
       add(p.liq, "#b91c1c", "LIQ", true);
     }
 
+    // Panah entry: tandai candle SAAT posisi dibuka (dari atas menunjuk turun ke candle).
+    // Cari bar TERAKHIR yg waktunya <= saat open (candle yg sedang berjalan ketika dibuka).
+    if (sm?.position?.opened_ts) {
+      const openedSec = Math.floor(new Date(sm.position.opened_ts).getTime() / 1000);
+      const bar = [...data.bars].reverse().find((b) => b.x / 1000 <= openedSec);
+      candle.current.setMarkers(
+        bar
+          ? [{
+              time: t(bar.x),
+              position: "aboveBar",
+              color: sm.position.side === "long" ? "#22c55e" : "#ef4444",
+              shape: "arrowDown",
+              text: sm.position.side.toUpperCase(),
+            }]
+          : []
+      );
+    } else {
+      candle.current.setMarkers([]);
+    }
+
     if (data.rsi) rsiSeries.current.setData(data.rsi.map((y, i) => ({ time: t(data.bars[i].x), value: y })));
     pxChart.current!.timeScale().fitContent();
     rsiChart.current!.timeScale().fitContent();

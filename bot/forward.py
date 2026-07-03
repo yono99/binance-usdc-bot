@@ -1082,6 +1082,7 @@ class ForwardTester:
                      if buf_full is not None else {})   # kesepakatan multi-TF (shadow)
         self.open[sym] = {"side": "long" if is_long else "short", "entry": entry, "qty": qty,
                           "sl": sl, "tp": tp, "liq": liq, "bet": bet,
+                          "opened_ts": pd.Timestamp.utcnow().isoformat(),  # utk marker panah di chart
                           **self.vrp.stamp(),   # stempel regime VRP saat open (A/B shadow)
                           **mtf_stamp}
         if gem:                                     # catat keputusan Gemini → settle saat tutup
@@ -1478,7 +1479,8 @@ class ForwardTester:
                 pos_view = {"side": pos["side"], "entry": round(pos["entry"], 6),
                             "sl": round(pos["sl"], 6), "tp": round(pos["tp"], 6),
                             "liq": round(pos["liq"], 6), "pnl_usd": pnl_usd, "roi_pct": roi,
-                            "qty": pos["qty"], "bet": pos.get("bet"), "mark": round(price, 6)}
+                            "qty": pos["qty"], "bet": pos.get("bet"), "mark": round(price, 6),
+                            "opened_ts": pos.get("opened_ts")}   # utk marker panah entry di chart
             syms.append({"symbol": sym, "price": price, "atr_pct": c.get("atr_pct"),
                          "signal": c.get("side", "-"), "in_position": bool(pos),
                          "blocked": c.get("blocked"), "position": pos_view,
