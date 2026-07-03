@@ -1047,9 +1047,13 @@ class ForwardTester:
             except Exception:
                 pass
             if qty <= 0:
+                c = self.sig_cache.setdefault(sym, {})
+                c["blocked"] = "qty live nol setelah presisi → skip"
                 return
             ok, entry = self._live_open(sym, is_long, qty, entry, sl, tp, rs)
             if not ok:
+                c = self.sig_cache.setdefault(sym, {})
+                c["blocked"] = "order live gagal → skip"
                 return
         buf_full = self.buffers.get(sym)
         mtf_stamp = (self.mtf.stamp(buf_full, self.tf, side)
@@ -1428,7 +1432,11 @@ class ForwardTester:
                     self._open_usd(sym, side, atr, rs)
                     if sym in self.open:             # trade nyata terbuka → hitung utk kuota sesi
                         self._session_trades += 1
-                    c["blocked"] = "→ posisi dibuka"
+                        c["blocked"] = "→ posisi dibuka"
+                    # else: _open_usd GAGAL diam-diam (margin habis/SL invalid/abstain/dll) —
+                    # JANGAN timpa. _open_usd SUDAH menulis alasan gagal yang akurat ke
+                    # sig_cache[sym]['blocked'] di titik early-return-nya sendiri; menimpanya
+                    # dgn "posisi dibuka" di sini membuat UI klaim sukses padahal gagal.
         self._agent_portfolio_review(rs)   # POINT 2: agen otonom kelola portofolio (REDUCE_RISK/FLAT)
         self._write_status(rs, news_veto, note)
         self._persist_state()        # saldo+posisi durable -> tahan restart
