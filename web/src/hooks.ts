@@ -6,12 +6,17 @@ export function usePoll<T>(fetcher: () => Promise<T>, ms = 10000) {
   const [error, setError] = useState<string | null>(null);
   const fnRef = useRef(fetcher);
   fnRef.current = fetcher;
+  const seqRef = useRef(0);   // cegah respons USANG (out-of-order) menimpa data yg lebih baru
 
   const refetch = useCallback(async () => {
+    const seq = ++seqRef.current;
     try {
-      setData(await fnRef.current());
+      const result = await fnRef.current();
+      if (seq !== seqRef.current) return;   // refetch lebih baru sudah menyusul → buang hasil ini
+      setData(result);
       setError(null);
     } catch (e) {
+      if (seq !== seqRef.current) return;
       setError(String(e));
     }
   }, []);
