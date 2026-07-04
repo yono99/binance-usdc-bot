@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { api, cls, f } from "../api";
 import type { Trade, TradesResp } from "../types";
-import { Table, type Col } from "./Table";
+import { type Col } from "./Table";
+import { PaginatedTable } from "./PaginatedTable";
 
 const REASONS = ["tp", "sl", "liq", "manual", "eod"];
 
@@ -89,7 +90,7 @@ export function TradeHistory({ tick }: { tick: number }) {
       </button>{" "}
       <span className="sub">{data.count} trade</span>
       <div style={{ marginTop: 10 }}>
-        <Table cols={cols} rows={data.trades} rowCls={(r) => (r.reason === "liq" ? "liqrow" : "")} />
+        <PaginatedTable cols={cols} rows={data.trades} rowCls={(r) => (r.reason === "liq" ? "liqrow" : "")} />
       </div>
     </div>
   );

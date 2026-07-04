@@ -71,7 +71,7 @@ export function GeminiUsage() {
         </div>
         <div>
           <div className="sub" style={{ marginBottom: 6 }}>Per key (rotasi)</div>
-          <Table
+          <PaginatedTable
             cols={[
               { t: "Key#", render: (r) => r.key_idx },
               { t: "Calls", render: (r) => n(r.calls) },
