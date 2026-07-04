@@ -57,6 +57,9 @@ class RuntimeSettings:
     # --- Penyetelan Gemini (atur frekuensi panggilan → hemat RPM/token), semua di UI ---
     gemini_decide_seconds: int = 180            # throttle keputusan Gemini per simbol (teknik gemini)
     gemini_manage_seconds: int = 60             # throttle kelola posisi Gemini (exit-only)
+    gemini_min_hold_s: int = 300                # GRACE: manajer Gemini tak boleh exit sebelum posisi
+    #                                             ditahan ≥ ini (anti-whipsaw "baru entry langsung close").
+    #                                             SL/TP TETAP jaga selama grace. 0 = nonaktif.
     gemini_portfolio_seconds: int = 300         # throttle review portofolio (autonomous)
     gemini_plan_hours: int = 6                  # interval planner (tujuan sesi)
     gemini_tool_iters: int = 4                  # maks langkah tool-loop per keputusan
@@ -98,6 +101,7 @@ class RuntimeSettings:
         self.poll_seconds = int(max(5, min(3600, self.poll_seconds)))
         self.gemini_decide_seconds = int(max(30, min(3600, self.gemini_decide_seconds)))
         self.gemini_manage_seconds = int(max(30, min(3600, self.gemini_manage_seconds)))
+        self.gemini_min_hold_s = int(max(0, min(86400, self.gemini_min_hold_s)))
         self.gemini_portfolio_seconds = int(max(60, min(3600, self.gemini_portfolio_seconds)))
         self.gemini_plan_hours = int(max(1, min(24, self.gemini_plan_hours)))
         self.gemini_tool_iters = int(max(1, min(8, self.gemini_tool_iters)))

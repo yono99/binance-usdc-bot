@@ -27,6 +27,7 @@ type Form = {
   poll_seconds: number;
   gemini_decide_seconds: number;
   gemini_manage_seconds: number;
+  gemini_min_hold_s: number;
   gemini_portfolio_seconds: number;
   gemini_plan_hours: number;
   gemini_tool_iters: number;
@@ -74,6 +75,7 @@ export function ControlPanel({
     poll_seconds: d.poll_seconds,
     gemini_decide_seconds: d.gemini_decide_seconds ?? 180,
     gemini_manage_seconds: d.gemini_manage_seconds ?? 60,
+    gemini_min_hold_s: d.gemini_min_hold_s ?? 300,
     gemini_portfolio_seconds: d.gemini_portfolio_seconds ?? 300,
     gemini_plan_hours: d.gemini_plan_hours ?? 6,
     gemini_tool_iters: d.gemini_tool_iters ?? 4,
@@ -139,6 +141,7 @@ export function ControlPanel({
     ["taker_fee_pct", "Fee taker USDT %"], ["maker_fee_pct", "Fee maker USDT %"],
     ["usdc_taker_fee_pct", "Fee taker USDC %"], ["usdc_maker_fee_pct", "Fee maker USDC %"],
     ["gemini_decide_seconds", "Interval keputusan"], ["gemini_manage_seconds", "Interval kelola"],
+    ["gemini_min_hold_s", "Grace tahan minimal"],
     ["gemini_portfolio_seconds", "Interval portofolio"], ["gemini_plan_hours", "Interval planner"],
     ["gemini_tool_iters", "Maks tool-loop"],
   ];
@@ -165,6 +168,7 @@ export function ControlPanel({
             usdc_taker_fee_pct: res.usdc_taker_fee_pct, usdc_maker_fee_pct: res.usdc_maker_fee_pct,
             gemini_decide_seconds: res.gemini_decide_seconds ?? p.gemini_decide_seconds,
             gemini_manage_seconds: res.gemini_manage_seconds ?? p.gemini_manage_seconds,
+            gemini_min_hold_s: res.gemini_min_hold_s ?? p.gemini_min_hold_s,
             gemini_portfolio_seconds: res.gemini_portfolio_seconds ?? p.gemini_portfolio_seconds,
             gemini_plan_hours: res.gemini_plan_hours ?? p.gemini_plan_hours,
             gemini_tool_iters: res.gemini_tool_iters ?? p.gemini_tool_iters } : p
@@ -346,6 +350,11 @@ export function ControlPanel({
           Interval kelola posisi (dtk)
           <input type="number" min={30} max={3600} step={5} value={form.gemini_manage_seconds}
             onChange={(e) => set("gemini_manage_seconds", +e.target.value)} />
+        </label>
+        <label>
+          Grace tahan minimal (dtk) <span className="sub">manajer tak exit dini; SL/TP tetap jaga</span>
+          <input type="number" min={0} max={86400} step={30} value={form.gemini_min_hold_s}
+            onChange={(e) => set("gemini_min_hold_s", +e.target.value)} />
         </label>
         <label>
           Interval review portofolio (dtk)

@@ -29,6 +29,7 @@ export interface Settings {
   poll_seconds: number;
   gemini_decide_seconds: number;
   gemini_manage_seconds: number;
+  gemini_min_hold_s: number;
   gemini_portfolio_seconds: number;
   gemini_plan_hours: number;
   gemini_tool_iters: number;

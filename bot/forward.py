@@ -160,6 +160,7 @@ class ForwardTester:
         self._last_news_note = ""
         self._last_manage: dict = {}              # throttle kelola-posisi per simbol
         self._manage_interval = 60                # detik minimum antar review posisi (~1 menit)
+        self._min_hold_s = 300                    # GRACE anti-whipsaw: manajer tak exit sblm ditahan segini
         _gcfg = self.cfg.get("gemini", {})        # pemicu give-back menuju TP (knob kalibrasi)
         self._giveback_tp_frac = float(_gcfg.get("giveback_tp_frac", 0.5))
         self._giveback_margin = float(_gcfg.get("giveback_margin", 0.2))
@@ -434,6 +435,18 @@ class ForwardTester:
         pos = self.open.get(sym)
         if not pos or not pos.get("gdecision") or self.gtrader is None:
             return
+        # GRACE anti-whipsaw: jangan izinkan exit-LLM sebelum posisi ditahan ≥ _min_hold_s.
+        # Bukti: gemini_exit dini sering memotong posisi yg lalu PULIH di atas entry. SL/TP di
+        # _monitor_usd/exit-sweep TETAP jalan selama grace → proteksi keras utuh. Return SEBELUM
+        # panggil LLM → hemat token juga. opened_ts hilang (live-reconcile) → fail-open (tak blokir).
+        opened = pos.get("opened_ts")
+        if opened and self._min_hold_s > 0:
+            try:
+                held = (pd.Timestamp.utcnow() - pd.Timestamp(opened)).total_seconds()
+            except Exception:  # boundary — gagal parse → anggap sudah lewat grace
+                held = self._min_hold_s
+            if held < self._min_hold_s:
+                return
         try:
             price = float(self.ex.ticker(sym)["last"])
         except Exception as e:  # boundary
@@ -701,6 +714,7 @@ class ForwardTester:
         # Penyetelan Gemini dari UI (hot-reload) — atur frekuensi panggilan → hemat RPM/token.
         self._decide_interval = int(rs.gemini_decide_seconds)
         self._manage_interval = int(rs.gemini_manage_seconds)
+        self._min_hold_s = int(rs.gemini_min_hold_s)
         self._autonomous_interval = int(rs.gemini_portfolio_seconds)
         self._plan_horizon_h = int(rs.gemini_plan_hours)
         self.tool_max_iters = int(rs.gemini_tool_iters)
