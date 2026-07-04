@@ -1334,7 +1334,12 @@ class ForwardTester:
         # dibatasi cap wall-clock. cycles = berapa siklus muat dalam satu jendela giliran.
         cycles = max(1, self._decide_interval // max(1, rs.poll_seconds))
         need = -(-len(self.symbols) // cycles)                       # ceil(simbol / cycles)
-        self._gemini_decide_budget = max(1, min(need, self._gemini_decide_cap))
+        new_budget = max(1, min(need, self._gemini_decide_cap))
+        if new_budget != self._gemini_decide_budget:                # log HANYA saat berubah (anti-spam)
+            log.info(f"Budget Gemini/siklus: {new_budget} "
+                     f"(simbol={len(self.symbols)}, cycles={cycles}, cap={self._gemini_decide_cap}"
+                     f"{', MENTOK CAP' if need > self._gemini_decide_cap else ''})")
+        self._gemini_decide_budget = new_budget
         self._process_close_requests()
         if self.live:
             self._live_reconcile()        # sinkron posisi & saldo nyata dari Binance
@@ -1513,6 +1518,8 @@ class ForwardTester:
             "open_count": len(self.open),
             "max_open": self.max_open,
             "poll_seconds": rs.poll_seconds,
+            "gemini_decide_budget": self._gemini_decide_budget,   # budget DINAMIS siklus ini
+            "gemini_decide_cap": self._gemini_decide_cap,
             "order_type": rs.order_type,
             "fee_pct": rs.fee_pct(),
             "day_pnl": round(self._day_pnl, 2),
