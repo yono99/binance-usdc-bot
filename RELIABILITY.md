@@ -73,8 +73,15 @@ GEMINI_API_KEYS=key_projectA,key_projectB,key_projectC   # dipisah koma
 
 Knob:
 - `GEMINI_MIN_INTERVAL_S` (env) — jeda antar-request per key. Set `0` untuk paid tier.
-- `gemini.gemini_decide_budget_per_cycle` (`config.yaml`, default 8) — maks
-  keputusan Gemini per siklus. Naikkan bila kuota lebih lega (banyak key).
+- `gemini.gemini_decide_cap` (`config.yaml`, default 24) — CAP budget keputusan
+  Gemini/siklus. Budget dihitung DINAMIS = `min(ceil(simbol/cycles), cap)`,
+  `cycles = gemini_decide_seconds // poll_seconds` → semua simbol dapat giliran
+  sekali per decide-interval tanpa melampaui cap. Cap jaga wall-clock: `cap ×
+  ~2dtk < poll_seconds` agar `_monitor_usd` (SL/TP) tak tertunda. Naikkan bila
+  universe besar & poll longgar; turunkan bila siklus mepet.
+- `GEMINI_TIMEOUT_S` (env, default 20) — timeout HTTP per panggilan Gemini. Satu
+  call hang → error transien → rotasi key, siklus tak beku. Penting krn budget
+  dinamis bisa banyak call/siklus.
 
 ## Watchdog 24/7
 
