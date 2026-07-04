@@ -78,6 +78,8 @@ export interface Status {
   open_count?: number;
   max_open?: number;
   poll_seconds?: number;
+  gemini_decide_budget?: number;
+  gemini_decide_cap?: number;
   order_type?: string;
   fee_pct?: number;
   day_pnl?: number;

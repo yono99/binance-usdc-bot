@@ -115,6 +115,17 @@ export function BotStatus({ status, onAction }: { status: Status | null; onActio
         <div className="sub" style={{ marginBottom: 8 }}>
           Daftar <b>pantau (screening)</b> — bukan posisi terbuka. Sinyal &amp; ATR terisi saat bar baru
           tertutup, tiap siklus screening (~{Math.round((status.poll_seconds ?? 900) / 60)} mnt).
+          {status.gemini_decide_budget != null && (
+            <>
+              {" "}Budget Gemini: <b>{status.gemini_decide_budget}</b>/siklus
+              {status.gemini_decide_cap != null && status.gemini_decide_budget >= status.gemini_decide_cap ? (
+                <span className="sub"> (mentok cap {status.gemini_decide_cap})</span>
+              ) : (
+                status.gemini_decide_cap != null && <span className="sub"> (cap {status.gemini_decide_cap})</span>
+              )}
+              .
+            </>
+          )}
         </div>
         {msg && <div className="ok">{msg}</div>}
         {(() => {
