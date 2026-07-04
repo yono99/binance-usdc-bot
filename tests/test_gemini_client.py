@@ -1,4 +1,6 @@
 """GeminiClient — helper pure: klasifikasi error, rotasi key, fallback model."""
+import time
+
 import pytest
 
 from bot import gemini_client as gc
@@ -8,8 +10,10 @@ from bot.gemini_client import FALLBACK_MODELS, GeminiClient
 @pytest.fixture(autouse=True)
 def _reset_states():
     gc._states.clear()
+    gc._last_call["ts"] = 0.0
     yield
     gc._states.clear()
+    gc._last_call["ts"] = 0.0
 
 
 class _Err(Exception):
@@ -77,3 +81,20 @@ def test_set_model_default_uses_fallback_list():
 
 def test_available_false_without_keys():
     assert GeminiClient([]).available is False          # tanpa key → tak tersedia
+
+
+# ---------- throttle RPM (jeda wajib antar-request) ----------
+
+def test_throttle_enforces_min_interval(monkeypatch):
+    monkeypatch.setattr(gc, "_MIN_INTERVAL", 0.05)
+    gc._throttle()                          # panggilan pertama → lewat tanpa tunggu
+    t0 = time.time()
+    gc._throttle()                          # panggilan kedua langsung → harus tertahan ~0.05s
+    assert time.time() - t0 >= 0.045
+
+
+def test_generate_skips_when_all_keys_cooling(monkeypatch):
+    monkeypatch.setattr(gc, "genai", object())   # available=True (butuh genai truthy + keys)
+    c = GeminiClient(["k1"], "gemini-2.5-flash")
+    gc._mark_bad("k1", "rate")                    # satu-satunya key masuk cooldown 60s
+    assert c.generate("halo") is None             # → tak menembak request; fallback deterministik

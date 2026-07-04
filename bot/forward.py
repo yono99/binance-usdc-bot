@@ -1331,6 +1331,15 @@ class ForwardTester:
         self._process_close_requests()
         if self.live:
             self._live_reconcile()        # sinkron posisi & saldo nyata dari Binance
+        # EXIT DULU: SL/TP/liq murni aritmetika (harga Binance vs level) — WAJIB jalan tiap
+        # siklus SEBELUM Gemini disentuh. Cegah posisi kena-TP tak tertutup saat LLM lambat/
+        # hang (generate_content tanpa timeout bisa membekukan sisa siklus). Guard per-simbol:
+        # error satu simbol tak boleh membatalkan sapuan exit yang lain.
+        for sym in list(self.open):
+            try:
+                self._monitor_usd(sym, self._update_buffer(sym))
+            except Exception as e:  # boundary — exit adalah jalur keselamatan, jangan pernah putus
+                log.warning(f"exit-sweep {sym}: {e}")
         # rollover hari UTC → reset state circuit breaker
         today = pd.Timestamp.utcnow().date()
         if today != self._day:

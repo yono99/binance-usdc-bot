@@ -12,6 +12,8 @@ Konsep:
 """
 from __future__ import annotations
 
+import os
+import threading
 import time
 
 from .logger import log
@@ -34,6 +36,23 @@ FALLBACK_MODELS = [
 
 COOLDOWN_RATE = 60.0        # 429 / kuota habis → istirahatkan 60 dtk
 COOLDOWN_AUTH = 5 * 60.0    # 403 / key invalid → 5 menit
+
+# THROTTLE global: jeda WAJIB antar-request ke Gemini (batas RPM, bukan token).
+# Free tier ~10 RPM → butuh ≥6 dtk antar panggilan. Module-level → SEMUA layer
+# (trader/news/planner/devil) berbagi antrean → tak pernah tembak >1 req per interval.
+# Knob: set env GEMINI_MIN_INTERVAL_S (mis. "0" utk paid tier RPM tinggi).
+_MIN_INTERVAL = float(os.getenv("GEMINI_MIN_INTERVAL_S", "6.5"))
+_throttle_lock = threading.Lock()
+_last_call = {"ts": 0.0}
+
+
+def _throttle() -> None:
+    """Blok sampai ≥_MIN_INTERVAL detik berlalu sejak panggilan Gemini terakhir."""
+    with _throttle_lock:
+        wait = _MIN_INTERVAL - (time.time() - _last_call["ts"])
+        if wait > 0:
+            time.sleep(wait)
+        _last_call["ts"] = time.time()
 
 # State per-key LINTAS panggilan & instance (module-level, seperti elearning `states`).
 _states: dict[str, dict] = {}
@@ -150,6 +169,9 @@ class GeminiClient:
             return None
         if _breaker_open():                 # breaker terbuka → jangan panggil (putus spiral 429)
             return None
+        now = time.time()                   # semua key masih cooling (429) → jangan tembak
+        if self.keys and not any(_st(k)["cooldown_until"] <= now for k in self.keys):
+            return None                     # → pakai fallback deterministik siklus ini
         last_err = ""
         for rnd in range(self.rounds):
             any_transient = False
@@ -158,6 +180,7 @@ class GeminiClient:
                 for key in _ordered_keys(self.keys):
                     ki = self.keys.index(key)
                     try:
+                        _throttle()          # jeda WAJIB antar-request → hormati batas RPM
                         resp = _get_client(key).models.generate_content(model=model, contents=prompt)
                         txt = (resp.text or "").strip()
                         if not txt:
@@ -196,7 +219,8 @@ class GeminiClient:
                 if model_down:
                     continue
             if rnd < self.rounds - 1 and any_transient:
-                time.sleep(min(_next_available_s(self.keys) or 4.0, 8.0))   # backoff (cap 8s)
+                # backoff EKSPONENSIAL (2→4→8…, cap 30s) atau tunggu key pulih, mana lebih lama
+                time.sleep(min(max(_next_available_s(self.keys), 2.0 * 2 ** rnd), 30.0))
             else:
                 break
         log.warning(f"Gemini {purpose} gagal semua key/model: {last_err[:160]}")
