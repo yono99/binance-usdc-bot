@@ -14,7 +14,8 @@ import { HistoryPanels } from "./components/HistoryPanels";
 import { GeminiUsage } from "./components/GeminiUsage";
 import { GeminiTraderPanel } from "./components/GeminiTraderPanel";
 import { PositionsPanel } from "./components/PositionsPanel";
-import { Table, type Col } from "./components/Table";
+import { type Col } from "./components/Table";
+import { PaginatedTable } from "./components/PaginatedTable";
 
 export default function App() {
   const { data: stats, refetch: refetchStats } = usePoll(api.stats, 10000);
@@ -87,11 +88,11 @@ function StatsTables({ s }: { s: Stats }) {
     <>
       <div className="panel">
         <h2>Per Simbol</h2>
-        <Table cols={symCols} rows={s.per_symbol} />
+        <PaginatedTable cols={symCols} rows={s.per_symbol} />
       </div>
       <div className="panel">
         <h2>Trade Terakhir</h2>
-        <Table cols={recentCols} rows={s.recent} rowCls={(r) => (r.reason === "liq" ? "liqrow" : "")} />
+        <PaginatedTable cols={recentCols} rows={s.recent} rowCls={(r) => (r.reason === "liq" ? "liqrow" : "")} />
       </div>
     </>
   );

@@ -2,6 +2,7 @@ import { usePoll } from "../hooks";
 import { api, cls, f } from "../api";
 import type { GeminiTrader as GT } from "../types";
 import { Table, type Col } from "./Table";
+import { PaginatedTable } from "./PaginatedTable";
 
 const ts = (s: string) => (s || "").slice(0, 19).replace("T", " ");
 
@@ -86,7 +87,7 @@ export function GeminiTraderPanel() {
       </div>
 
       <div className="sub" style={{ margin: "14px 0 6px" }}>Keputusan terakhir</div>
-      <Table cols={decCols} rows={data.recent} empty="Belum ada keputusan — set teknik 'gemini' & jalankan bot" />
+      <PaginatedTable cols={decCols} rows={data.recent} empty="Belum ada keputusan — set teknik 'gemini' & jalankan bot" />
     </div>
   );
 }

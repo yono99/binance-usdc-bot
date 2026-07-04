@@ -1122,7 +1122,8 @@ class ForwardTester:
             pnl = max(pos["qty"] * move - fee - funding, -pos["bet"])  # rugi maks = margin
         self.balance_usd += pnl
         self._day_pnl += pnl                        # untuk circuit breaker harian
-        r = pnl / pos["bet"] if pos["bet"] else 0.0
+        risk0 = abs(pos["entry"] - pos["sl"]) * pos["qty"]   # R = jarak-SL (identik backtest & _react_settle)
+        r = pnl / risk0 if risk0 else 0.0
         self.trades.append(namedtuple("T", ["r"])(r))
         vrp.log_close(sym, pos, r, mode=self.settings.mode)   # shadow log ber-mode
         mtf.log_close(sym, pos, r, pos.get("conviction"), self.settings.mode)  # shadow MTF
