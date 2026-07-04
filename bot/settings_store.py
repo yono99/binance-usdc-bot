@@ -61,8 +61,10 @@ class RuntimeSettings:
     gemini_plan_hours: int = 6                  # interval planner (tujuan sesi)
     gemini_tool_iters: int = 4                  # maks langkah tool-loop per keputusan
     order_type: str = "limit"                   # default maker (limit) | market (taker)
-    taker_fee_pct: float = 0.05                 # fee taker (%) — market order
-    maker_fee_pct: float = 0.02                 # fee maker (%) — limit order
+    taker_fee_pct: float = 0.05                 # fee taker USDT-M (%) — market order (VIP0)
+    maker_fee_pct: float = 0.02                 # fee maker USDT-M (%) — limit order (VIP0)
+    usdc_maker_fee_pct: float = 0.0             # fee maker USDC-M (%) — promo Binance = 0%
+    usdc_taker_fee_pct: float = 0.04            # fee taker USDC-M (%) — promo diskon (bukan 0%)
     gemini_model: str = ""                      # model Gemini (kosong = default config.yaml)
     mode: str = ""                              # kosong = ikut .env | dry | test | live (UANG NYATA)
     # --- Agent otonom (toggle dari UI; OR dengan config.yaml; hot-reload) ---
@@ -102,6 +104,8 @@ class RuntimeSettings:
         self.order_type = self.order_type if self.order_type in ("market", "limit") else "market"
         self.taker_fee_pct = max(0.0, float(self.taker_fee_pct))
         self.maker_fee_pct = max(0.0, float(self.maker_fee_pct))
+        self.usdc_maker_fee_pct = max(0.0, float(self.usdc_maker_fee_pct))
+        self.usdc_taker_fee_pct = max(0.0, float(self.usdc_taker_fee_pct))
         self.gemini_model = str(self.gemini_model or "").strip()
         self.mode = self.mode if self.mode in ("", "dry", "test", "live") else ""
         for f in ("agent_full_auto", "agent_tool_loop", "agent_autonomous", "agent_planner",
@@ -116,8 +120,16 @@ class RuntimeSettings:
         return self
 
     def fee_pct(self) -> float:
-        """Fee per sisi sesuai jenis order: maker (limit) vs taker (market)."""
+        """Fee per sisi sesuai jenis order: maker (limit) vs taker (market). USDT-M (backtest/fallback)."""
         return self.maker_fee_pct if self.order_type == "limit" else self.taker_fee_pct
+
+    def fee_rate(self, settle: str, is_maker: bool) -> float:
+        """Fee per-sisi per-settle (%). USDC-M dapat promo Binance (maker 0%, taker 0.04%);
+        USDT-M standar VIP0 (0.02/0.05). Entry maker bila order_type='limit'; exit SL/TP/market
+        SELALU taker. Sumber: promo USDC-Margined Futures Binance (aktif s.d. further notice)."""
+        if str(settle).upper() == "USDC":
+            return self.usdc_maker_fee_pct if is_maker else self.usdc_taker_fee_pct
+        return self.maker_fee_pct if is_maker else self.taker_fee_pct
 
     def preset(self) -> dict:
         return PRESETS[self.technique]

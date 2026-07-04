@@ -40,7 +40,8 @@ class Exchange:
         USDS-M, satu client). KRIPTO MURNI saja: perp saham/komoditas ter-
         tokenisasi (MSTR/XAU/SOXL... underlyingType EQUITY/COMMODITY) dibuang —
         jam perdagangan & perilaku aset TradFi beda kelas, di luar mandat bot.
-        Catatan: USDT tidak ikut promo fee 0% USDC."""
+        Catatan fee (promo Binance USDC-M): USDC maker 0% / taker ~0.04%;
+        USDT-M standar 0.02%/0.05%. Exit SL/TP = market = taker. Lihat RuntimeSettings.fee_rate."""
         return sorted(s for s, v in self.markets.items()
                       if v.get("swap") and v.get("settle") in settles
                       and v.get("active", True)

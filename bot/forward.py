@@ -1081,8 +1081,11 @@ class ForwardTester:
         buf_full = self.buffers.get(sym)
         mtf_stamp = (self.mtf.stamp(buf_full, self.tf, side)
                      if buf_full is not None else {})   # kesepakatan multi-TF (shadow)
+        settle = "USDC" if sym.endswith(":USDC") else "USDT"
+        entry_fee_rate = rs.fee_rate(settle, rs.order_type == "limit")   # kaki ENTRY: maker bila limit
         self.open[sym] = {"side": "long" if is_long else "short", "entry": entry, "qty": qty,
                           "sl": sl, "tp": tp, "liq": liq, "bet": bet,
+                          "entry_fee_rate": entry_fee_rate,   # fee kaki-entry (per-settle); exit selalu taker
                           "opened_ts": pd.Timestamp.utcnow().isoformat(),  # utk marker panah di chart
                           **self.vrp.stamp(),   # stempel regime VRP saat open (A/B shadow)
                           **mtf_stamp}
@@ -1118,7 +1121,14 @@ class ForwardTester:
             pnl = -pos["bet"]                       # rugi seluruh margin
         else:
             move = (exit_fill - pos["entry"]) if is_long else (pos["entry"] - exit_fill)
-            fee = self.fee / 100 * (pos["entry"] + exit_fill) * pos["qty"]
+            # Fee PER-KAKI PER-SETTLE (realita Binance): kaki-entry sesuai order_type saat open
+            # (maker bila limit → USDC-M 0%), kaki-exit SL/TP/market SELALU taker (USDC-M 0.04%).
+            settle = "USDC" if sym.endswith(":USDC") else "USDT"
+            entry_rate = pos.get("entry_fee_rate")
+            if entry_rate is None:                  # posisi lama / live-reconcile tanpa stempel
+                entry_rate = self.rs.fee_rate(settle, self.rs.order_type == "limit") if self.rs else self.fee
+            exit_rate = self.rs.fee_rate(settle, False) if self.rs else self.fee  # exit = taker
+            fee = (entry_rate / 100 * pos["entry"] + exit_rate / 100 * exit_fill) * pos["qty"]
             funding = pos.get("funding_paid", 0.0)  # akrual simulasi funding (paper, P3)
             pnl = max(pos["qty"] * move - fee - funding, -pos["bet"])  # rugi maks = margin
         self.balance_usd += pnl

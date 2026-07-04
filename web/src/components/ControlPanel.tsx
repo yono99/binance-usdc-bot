@@ -34,6 +34,8 @@ type Form = {
   order_type: string;
   taker_fee_pct: number;
   maker_fee_pct: number;
+  usdc_maker_fee_pct: number;
+  usdc_taker_fee_pct: number;
   gemini_model: string;
 };
 
@@ -79,6 +81,8 @@ export function ControlPanel({
     order_type: d.order_type,
     taker_fee_pct: d.taker_fee_pct,
     maker_fee_pct: d.maker_fee_pct,
+    usdc_maker_fee_pct: d.usdc_maker_fee_pct,
+    usdc_taker_fee_pct: d.usdc_taker_fee_pct,
     gemini_model: d.gemini_model || "",
   });
 
@@ -132,7 +136,8 @@ export function ControlPanel({
     ["target_profit_pct", "Target profit %"],
     ["max_open_positions", "Max posisi"], ["poll_seconds", "Interval screening"],
     ["daily_max_loss_pct", "Stop-loss harian %"], ["daily_max_trades", "Max trade harian"],
-    ["taker_fee_pct", "Fee taker %"], ["maker_fee_pct", "Fee maker %"],
+    ["taker_fee_pct", "Fee taker USDT %"], ["maker_fee_pct", "Fee maker USDT %"],
+    ["usdc_taker_fee_pct", "Fee taker USDC %"], ["usdc_maker_fee_pct", "Fee maker USDC %"],
     ["gemini_decide_seconds", "Interval keputusan"], ["gemini_manage_seconds", "Interval kelola"],
     ["gemini_portfolio_seconds", "Interval portofolio"], ["gemini_plan_hours", "Interval planner"],
     ["gemini_tool_iters", "Maks tool-loop"],
@@ -157,6 +162,7 @@ export function ControlPanel({
             max_open_positions: res.max_open_positions, poll_seconds: res.poll_seconds,
             daily_max_loss_pct: res.daily_max_loss_pct, daily_max_trades: res.daily_max_trades,
             taker_fee_pct: res.taker_fee_pct, maker_fee_pct: res.maker_fee_pct,
+            usdc_taker_fee_pct: res.usdc_taker_fee_pct, usdc_maker_fee_pct: res.usdc_maker_fee_pct,
             gemini_decide_seconds: res.gemini_decide_seconds ?? p.gemini_decide_seconds,
             gemini_manage_seconds: res.gemini_manage_seconds ?? p.gemini_manage_seconds,
             gemini_portfolio_seconds: res.gemini_portfolio_seconds ?? p.gemini_portfolio_seconds,
@@ -297,12 +303,20 @@ export function ControlPanel({
           </select>
         </label>
         <label>
-          Fee taker % (market)
+          Fee taker USDT-M % <span className="sub">(market)</span>
           <input type="number" min={0} step={0.001} value={form.taker_fee_pct} onChange={(e) => set("taker_fee_pct", +e.target.value)} />
         </label>
         <label>
-          Fee maker % (limit)
+          Fee maker USDT-M % <span className="sub">(limit)</span>
           <input type="number" min={0} step={0.001} value={form.maker_fee_pct} onChange={(e) => set("maker_fee_pct", +e.target.value)} />
+        </label>
+        <label>
+          Fee taker USDC-M % <span className="sub">(promo ~0.04)</span>
+          <input type="number" min={0} step={0.001} value={form.usdc_taker_fee_pct} onChange={(e) => set("usdc_taker_fee_pct", +e.target.value)} />
+        </label>
+        <label>
+          Fee maker USDC-M % <span className="sub">(promo 0)</span>
+          <input type="number" min={0} step={0.001} value={form.usdc_maker_fee_pct} onChange={(e) => set("usdc_maker_fee_pct", +e.target.value)} />
         </label>
         <label style={{ gridColumn: "1 / -1" }}>
           Model Gemini (screening regime/news) · <span className="sub">kosong = default config</span>

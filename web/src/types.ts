@@ -36,6 +36,8 @@ export interface Settings {
   order_type: string;
   taker_fee_pct: number;
   maker_fee_pct: number;
+  usdc_maker_fee_pct: number;
+  usdc_taker_fee_pct: number;
   gemini_model: string;
   techniques: string[];
   timeframe: string;
