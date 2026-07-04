@@ -10,10 +10,10 @@ from bot.gemini_client import FALLBACK_MODELS, GeminiClient
 @pytest.fixture(autouse=True)
 def _reset_states():
     gc._states.clear()
-    gc._last_call["ts"] = 0.0
+    gc._last_call.clear()
     yield
     gc._states.clear()
-    gc._last_call["ts"] = 0.0
+    gc._last_call.clear()
 
 
 class _Err(Exception):
@@ -85,12 +85,33 @@ def test_available_false_without_keys():
 
 # ---------- throttle RPM (jeda wajib antar-request) ----------
 
-def test_throttle_enforces_min_interval(monkeypatch):
+def test_throttle_enforces_min_interval_per_key(monkeypatch):
     monkeypatch.setattr(gc, "_MIN_INTERVAL", 0.05)
-    gc._throttle()                          # panggilan pertama → lewat tanpa tunggu
+    gc._throttle("k1")                      # panggilan pertama k1 → lewat tanpa tunggu
     t0 = time.time()
-    gc._throttle()                          # panggilan kedua langsung → harus tertahan ~0.05s
+    gc._throttle("k1")                      # k1 lagi langsung → tertahan ~0.05s
     assert time.time() - t0 >= 0.045
+
+
+def test_throttle_independent_across_keys(monkeypatch):
+    monkeypatch.setattr(gc, "_MIN_INTERVAL", 0.05)
+    gc._throttle("k1")
+    t0 = time.time()
+    gc._throttle("k2")                      # key BEDA → tak menunggu k1 (kuota per-project terpisah)
+    assert time.time() - t0 < 0.02
+
+
+def test_classify_rpd_vs_rpm():
+    assert gc._classify(_Err("Quota exceeded: GenerateRequestsPerDayPerProject")) == "rate_day"
+    assert gc._classify(_Err(status_code=429)) == "rate"      # per-menit (tanpa 'per day')
+
+
+def test_mark_bad_rpd_cools_much_longer_than_rpm():
+    gc._mark_bad("k1", "rate")
+    rpm_cd = gc._st("k1")["cooldown_until"]
+    gc._mark_bad("k2", "rate_day")
+    rpd_cd = gc._st("k2")["cooldown_until"]
+    assert rpd_cd > rpm_cd + 3600           # RPD sampai reset harian (jam), bukan 60 dtk
 
 
 def test_generate_skips_when_all_keys_cooling(monkeypatch):

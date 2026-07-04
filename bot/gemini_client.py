@@ -34,25 +34,26 @@ FALLBACK_MODELS = [
     "gemini-2.5-flash-lite",         # last resort
 ]
 
-COOLDOWN_RATE = 60.0        # 429 / kuota habis → istirahatkan 60 dtk
+COOLDOWN_RATE = 60.0        # 429 RPM (per-menit) → istirahatkan 60 dtk (jendela bergulir)
 COOLDOWN_AUTH = 5 * 60.0    # 403 / key invalid → 5 menit
 
-# THROTTLE global: jeda WAJIB antar-request ke Gemini (batas RPM, bukan token).
-# Free tier ~10 RPM → butuh ≥6 dtk antar panggilan. Module-level → SEMUA layer
-# (trader/news/planner/devil) berbagi antrean → tak pernah tembak >1 req per interval.
-# Knob: set env GEMINI_MIN_INTERVAL_S (mis. "0" utk paid tier RPM tinggi).
+# THROTTLE PER-KEY: jeda WAJIB antar-request UNTUK KEY YANG SAMA (batas RPM Google
+# = per PROJECT, bukan per key → key dari project BERBEDA punya kuota terpisah dan
+# boleh jalan paralel). Free tier ~10 RPM/project → ≥6 dtk/key. Dgn N key beda-project
+# → RPM efektif ~N×. Knob env: GEMINI_MIN_INTERVAL_S (set "0" utk paid tier RPM tinggi).
+# ponytail: spacing per-key = rate-limiter cukup; tak perlu token-bucket penuh.
 _MIN_INTERVAL = float(os.getenv("GEMINI_MIN_INTERVAL_S", "6.5"))
 _throttle_lock = threading.Lock()
-_last_call = {"ts": 0.0}
+_last_call: dict[str, float] = {}      # per-key: ts panggilan terakhir
 
 
-def _throttle() -> None:
-    """Blok sampai ≥_MIN_INTERVAL detik berlalu sejak panggilan Gemini terakhir."""
+def _throttle(key: str) -> None:
+    """Blok sampai ≥_MIN_INTERVAL detik berlalu sejak panggilan TERAKHIR key ini."""
     with _throttle_lock:
-        wait = _MIN_INTERVAL - (time.time() - _last_call["ts"])
+        wait = _MIN_INTERVAL - (time.time() - _last_call.get(key, 0.0))
         if wait > 0:
             time.sleep(wait)
-        _last_call["ts"] = time.time()
+        _last_call[key] = time.time()
 
 # State per-key LINTAS panggilan & instance (module-level, seperti elearning `states`).
 _states: dict[str, dict] = {}
@@ -96,13 +97,26 @@ def _get_client(key: str):
     return c
 
 
+def _secs_to_rpd_reset() -> float:
+    """Detik hingga reset RPD (tengah malam Pacific ≈ 08:00 UTC; abaikan DST — ±1 jam)."""
+    import datetime as _dt
+    now = _dt.datetime.now(_dt.timezone.utc)
+    reset = now.replace(hour=8, minute=0, second=0, microsecond=0)
+    if reset <= now:
+        reset += _dt.timedelta(days=1)
+    return (reset - now).total_seconds()
+
+
 def _classify(err: Exception) -> str:
-    """Gemini error → jenis tindakan: rate | auth | model | request | other."""
+    """Gemini error → tindakan: rate | rate_day | auth | model | request | other."""
     msg = str(err).lower()
     status = getattr(err, "status_code", None) or getattr(err, "code", None)
     if "api key not valid" in msg or "api_key_invalid" in msg or status == 403 or "permission_denied" in msg:
         return "auth"
     if status == 429 or "quota" in msg or "exhausted" in msg or "resource_exhausted" in msg or "rate limit" in msg:
+        # RPD (per-hari) vs RPM (per-menit) → cooldown beda. Google sebut "PerDay" di detail.
+        if "perday" in msg.replace(" ", "").replace("_", "") or "per day" in msg or "daily" in msg:
+            return "rate_day"
         return "rate"
     if status in (500, 502, 503, 504, 404) or "overloaded" in msg or "unavailable" in msg or "not found" in msg:
         return "model"
@@ -131,6 +145,8 @@ def _mark_bad(key: str, kind: str) -> None:
     s["fails"] += 1
     if kind == "rate":
         s["cooldown_until"] = time.time() + COOLDOWN_RATE
+    elif kind == "rate_day":     # RPD habis → key mati sampai reset harian; jgn coba lagi tiap menit
+        s["cooldown_until"] = time.time() + _secs_to_rpd_reset()
     elif kind == "auth":
         s["cooldown_until"] = time.time() + COOLDOWN_AUTH
 
@@ -180,7 +196,7 @@ class GeminiClient:
                 for key in _ordered_keys(self.keys):
                     ki = self.keys.index(key)
                     try:
-                        _throttle()          # jeda WAJIB antar-request → hormati batas RPM
+                        _throttle(key)       # jeda WAJIB per-key → hormati RPM (per-project)
                         resp = _get_client(key).models.generate_content(model=model, contents=prompt)
                         txt = (resp.text or "").strip()
                         if not txt:
@@ -206,7 +222,7 @@ class GeminiClient:
                             store.log_gemini_usage(model, purpose, ki, 0, 0, 0, ok=False, error=last_err[:160])
                             log.warning(f"Gemini {purpose} request invalid: {last_err[:120]}")
                             return None
-                        if kind in ("rate", "auth"):
+                        if kind in ("rate", "rate_day", "auth"):
                             _mark_bad(key, kind)
                             store.log_gemini_usage(model, purpose, ki, 0, 0, 0, ok=False, error=f"{kind}: {last_err[:140]}")
                             any_transient = True
