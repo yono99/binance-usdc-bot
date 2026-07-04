@@ -67,5 +67,14 @@ export const api = {
 
 export const f = (n: number | null | undefined, d = 2): string =>
   n == null || Number.isNaN(Number(n)) ? "—" : Number(n).toFixed(d);
+// Harga: desimal ADAPTIF (~6 angka penting) → gerak koin sub-sen (SHIB/PEPE 0.0044)
+// tak lagi tersembunyi oleh pembulatan 4-desimal tetap. Cap 2..8 desimal.
+export const fp = (n: number | null | undefined): string => {
+  if (n == null || Number.isNaN(Number(n))) return "—";
+  const x = Math.abs(Number(n));
+  if (x === 0) return "0.00";
+  const d = Math.min(8, Math.max(2, 5 - Math.floor(Math.log10(x))));
+  return Number(n).toFixed(d);
+};
 export const cls = (v: number | null | undefined): string =>
   v == null ? "" : v > 0 ? "pos" : v < 0 ? "neg" : "";

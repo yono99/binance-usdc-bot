@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { api, f } from "../api";
+import { api, f, fp } from "../api";
 import { usePoll } from "../hooks";
 import type { NewsLogEntry, ScreenLogEntry } from "../types";
 import { type Col } from "./Table";
@@ -73,7 +73,7 @@ export function HistoryPanels() {
       render: (r) => r.signal || "—",
       cls: (r) => (r.signal === "LONG" ? "pos" : r.signal === "SHORT" ? "neg" : ""),
     },
-    { t: "Harga", render: (r) => f(r.price, 4) },
+    { t: "Harga", render: (r) => fp(r.price) },
     { t: "ATR%", render: (r) => f(r.atr_pct, 2) },
     { t: "Alasan tak-entry", render: (r) => r.blocked || "—" },
   ];

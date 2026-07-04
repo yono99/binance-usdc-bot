@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api, f } from "../api";
+import { api, f, fp } from "../api";
 import type { Status } from "../types";
 import { Table, type Col } from "./Table";
 
@@ -30,9 +30,9 @@ export function PositionsPanel({ status, onAction }: { status: Status | null; on
     },
     { t: "Qty", render: (r) => f(r.position!.qty, 4) },
     { t: "Margin", render: (r) => "$" + f(r.position!.bet, 2) },
-    { t: "Entry", render: (r) => f(r.position!.entry, 4) },
-    { t: "Mark", render: (r) => f(r.position!.mark ?? r.price, 4) },
-    { t: "Liq", render: (r) => <span className="neg">{f(r.position!.liq, 4)}</span> },
+    { t: "Entry", render: (r) => fp(r.position!.entry) },
+    { t: "Mark", render: (r) => fp(r.position!.mark ?? r.price) },
+    { t: "Liq", render: (r) => <span className="neg">{fp(r.position!.liq)}</span> },
     {
       t: "PnL (ROI)",
       render: (r) => {
@@ -65,7 +65,7 @@ export function PositionsPanel({ status, onAction }: { status: Status | null; on
     { t: "Pair", render: (r) => <b>{r.symbol}</b> },
     { t: "Tipe", render: (r) => r.type, cls: (r) => r.cls },
     { t: "Arah", render: (r) => r.side },
-    { t: "Harga trigger", render: (r) => f(r.trigger, 4) },
+    { t: "Harga trigger", render: (r) => fp(r.trigger) },
     { t: "Qty", render: (r) => f(r.qty, 4) },
   ];
 

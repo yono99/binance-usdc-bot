@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api, f } from "../api";
+import { api, f, fp } from "../api";
 import type { Status } from "../types";
 import { Table, type Col } from "./Table";
 import { Pager } from "./Pager";
@@ -46,7 +46,7 @@ export function BotStatus({ status, onAction }: { status: Status | null; onActio
   type Row = NonNullable<Status["symbols"]>[number];
   const cols: Col<Row>[] = [
     { t: "Pair", render: (r) => r.symbol },
-    { t: "Harga", render: (r) => f(r.price, 4) },
+    { t: "Harga", render: (r) => fp(r.price) },
     { t: "ATR%", render: (r) => f(r.atr_pct, 2) },
     {
       t: "Sinyal",

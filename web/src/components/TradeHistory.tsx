@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, cls, f } from "../api";
+import { api, cls, f, fp } from "../api";
 import type { Trade, TradesResp } from "../types";
 import { type Col } from "./Table";
 import { PaginatedTable } from "./PaginatedTable";
@@ -47,8 +47,8 @@ export function TradeHistory({ tick }: { tick: number }) {
     { t: "Reason", render: (r) => (r.reason === "liq" ? "⚠ LIQ" : r.reason || "—") },
     { t: "R", render: (r) => (r.r != null ? (r.r > 0 ? "+" : "") + f(r.r, 3) : "—"), cls: (r) => cls(r.r) },
     { t: "PnL$", render: (r) => (r.pnl_usd != null ? (r.pnl_usd >= 0 ? "+" : "") + f(r.pnl_usd, 2) : "—"), cls: (r) => (r.pnl_usd == null ? "" : r.pnl_usd >= 0 ? "pos" : "neg") },
-    { t: "Entry", render: (r) => f(r.entry, 4) },
-    { t: "Exit", render: (r) => f(r.exit, 4) },
+    { t: "Entry", render: (r) => fp(r.entry) },
+    { t: "Exit", render: (r) => fp(r.exit) },
     { t: "Equity", render: (r) => f(r.equity, 2) },
     { t: "", render: (r) => (r.id != null ? <button className="del" title="Hapus trade ini" onClick={() => del(r.id!)}>✕</button> : "") },
   ];
