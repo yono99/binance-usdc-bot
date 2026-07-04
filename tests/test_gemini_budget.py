@@ -40,14 +40,15 @@ def ft(make_df, monkeypatch):
     ft._day_trades = 0
     ft._day = pd.Timestamp.utcnow().date()
     ft._dd_lock = False
-    ft._gemini_decide_budget = 2                  # KUOTA KECIL utk uji (5 simbol > 2 kuota)
+    ft._gemini_decide_cap = 2                     # CAP KECIL utk uji (5 simbol > cap 2) → budget dinamis mentok di 2
+    ft._gemini_decide_budget = 2                  # ditimpa _on_cycle_store; recompute → min(ceil(5/3),2)=2
     ft._gemini_decide_used = 0
     ft.news = types.SimpleNamespace(check=lambda: (False, ""))
     ft.vrp = types.SimpleNamespace(check=lambda: (False, None), mode="shadow")
 
     df = make_df([100.0] * 65)
     monkeypatch.setattr(ft, "_apply_settings",
-                        lambda: types.SimpleNamespace(enabled=True, technique="gemini"))
+                        lambda: types.SimpleNamespace(enabled=True, technique="gemini", poll_seconds=60))
     monkeypatch.setattr(ft, "_process_close_requests", lambda: None)
     monkeypatch.setattr(ft, "_update_drawdown", lambda rs: False)
     monkeypatch.setattr(ft, "_apply_funding_sim", lambda: None)

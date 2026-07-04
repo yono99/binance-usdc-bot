@@ -43,6 +43,10 @@ COOLDOWN_AUTH = 5 * 60.0    # 403 / key invalid → 5 menit
 # → RPM efektif ~N×. Knob env: GEMINI_MIN_INTERVAL_S (set "0" utk paid tier RPM tinggi).
 # ponytail: spacing per-key = rate-limiter cukup; tak perlu token-bucket penuh.
 _MIN_INTERVAL = float(os.getenv("GEMINI_MIN_INTERVAL_S", "6.5"))
+# Timeout HTTP per panggilan (ms) — batasi satu call yang hang agar tak membekukan siklus
+# (loop entry kini bisa banyak call/siklus krn budget dinamis). Timeout → error transien →
+# generate() merotasi key/model seperti error lain. Knob: GEMINI_TIMEOUT_S.
+_TIMEOUT_MS = int(float(os.getenv("GEMINI_TIMEOUT_S", "20")) * 1000)
 _throttle_lock = threading.Lock()
 _last_call: dict[str, float] = {}      # per-key: ts panggilan terakhir
 
@@ -92,7 +96,10 @@ def _breaker_record(ok: bool) -> None:
 def _get_client(key: str):
     c = _clients.get(key)
     if c is None:
-        c = genai.Client(api_key=key)
+        try:
+            c = genai.Client(api_key=key, http_options={"timeout": _TIMEOUT_MS})
+        except Exception:  # SDK lawas tak dukung http_options → tanpa timeout (fail-open)
+            c = genai.Client(api_key=key)
         _clients[key] = c
     return c
 

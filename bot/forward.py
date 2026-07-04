@@ -166,9 +166,10 @@ class ForwardTester:
         # Kuota panggilan Gemini per-SIKLUS (bukan per-simbol): universe besar + _last_decide
         # kosong saat boot/restart bikin SEMUA simbol jadi "bebas panggil" serentak dlm satu
         # loop sekuensial → ledakan 429 + _monitor_usd (SL/TP keras) simbol lain ikut tertunda.
-        # Penyaringan pertama (screener+pre-gate) TETAP gratis-Gemini; ini cuma membatasi
-        # BERAPA BANYAK yg boleh lanjut ke Gemini dlm satu siklus yg sama.
-        self._gemini_decide_budget = int(_gcfg.get("gemini_decide_budget_per_cycle", 8))
+        # DINAMIS (_recompute_decide_budget): budget = minimum agar SEMUA simbol dapat giliran
+        # sekali per _decide_interval, dibatasi cap wall-clock (budget × latensi < poll_seconds).
+        self._gemini_decide_cap = int(_gcfg.get("gemini_decide_cap", 24))  # batas serial: ~cap×2dtk < poll
+        self._gemini_decide_budget = self._gemini_decide_cap
         self._gemini_decide_used = 0              # reset tiap awal siklus (_on_cycle_store)
         self._last_decide: dict = {}              # throttle keputusan-entry Gemini per simbol
         self._decide_interval = 180               # detik min antar keputusan entry (~3 mnt) — hemat token
@@ -1329,6 +1330,11 @@ class ForwardTester:
     def _on_cycle_store(self) -> None:
         rs = self._apply_settings()
         self._gemini_decide_used = 0      # kuota panggilan Gemini per-siklus, reset tiap cycle
+        # Budget dinamis: pas untuk memberi SEMUA simbol satu giliran per _decide_interval,
+        # dibatasi cap wall-clock. cycles = berapa siklus muat dalam satu jendela giliran.
+        cycles = max(1, self._decide_interval // max(1, rs.poll_seconds))
+        need = -(-len(self.symbols) // cycles)                       # ceil(simbol / cycles)
+        self._gemini_decide_budget = max(1, min(need, self._gemini_decide_cap))
         self._process_close_requests()
         if self.live:
             self._live_reconcile()        # sinkron posisi & saldo nyata dari Binance
