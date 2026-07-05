@@ -24,6 +24,8 @@ type Form = {
   max_open_positions: number;
   daily_max_loss_pct: number;
   daily_max_trades: number;
+  corr_threshold: number;
+  corr_lookback: number;
   poll_seconds: number;
   gemini_decide_seconds: number;
   gemini_manage_seconds: number;
@@ -72,6 +74,8 @@ export function ControlPanel({
     max_open_positions: d.max_open_positions,
     daily_max_loss_pct: d.daily_max_loss_pct,
     daily_max_trades: d.daily_max_trades,
+    corr_threshold: d.corr_threshold ?? 0.85,
+    corr_lookback: d.corr_lookback ?? 50,
     poll_seconds: d.poll_seconds,
     gemini_decide_seconds: d.gemini_decide_seconds ?? 180,
     gemini_manage_seconds: d.gemini_manage_seconds ?? 60,
@@ -164,6 +168,7 @@ export function ControlPanel({
             target_profit_pct: res.target_profit_pct,
             max_open_positions: res.max_open_positions, poll_seconds: res.poll_seconds,
             daily_max_loss_pct: res.daily_max_loss_pct, daily_max_trades: res.daily_max_trades,
+            corr_threshold: res.corr_threshold ?? p.corr_threshold, corr_lookback: res.corr_lookback ?? p.corr_lookback,
             taker_fee_pct: res.taker_fee_pct, maker_fee_pct: res.maker_fee_pct,
             usdc_taker_fee_pct: res.usdc_taker_fee_pct, usdc_maker_fee_pct: res.usdc_maker_fee_pct,
             gemini_decide_seconds: res.gemini_decide_seconds ?? p.gemini_decide_seconds,
@@ -294,6 +299,14 @@ export function ControlPanel({
         <label>
           Max trade harian · <span className="sub">stop buka posisi setelah N trade hari ini (0 = nonaktif)</span>
           <input type="number" min={0} max={1000} step={1} value={form.daily_max_trades} onChange={(e) => set("daily_max_trades", +e.target.value)} />
+        </label>
+        <label>
+          Guard korelasi · <span className="sub">blok entry SEARAH bila korelasi return ≥ ini (0 = nonaktif)</span>
+          <input type="number" min={0} max={1} step={0.01} value={form.corr_threshold} onChange={(e) => set("corr_threshold", +e.target.value)} />
+        </label>
+        <label>
+          Lookback korelasi (bar) · <span className="sub">jendela hitung korelasi (&lt;20 = nonaktif)</span>
+          <input type="number" min={0} max={500} step={1} value={form.corr_lookback} onChange={(e) => set("corr_lookback", +e.target.value)} />
         </label>
         <label>
           Interval refresh bot (dtk) · <span className="sub">sinyal dievaluasi per bar TF</span>

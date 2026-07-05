@@ -49,6 +49,8 @@ class RuntimeSettings:
     max_open_positions: int = 2                 # slot posisi paralel maksimum
     daily_max_loss_pct: float = 3.0             # circuit breaker: stop buka posisi bila rugi harian ≥ % saldo awal hari (0 = nonaktif)
     daily_max_trades: int = 20                  # circuit breaker: stop bila jumlah trade hari ini tercapai (0 = nonaktif)
+    corr_threshold: float = 0.85                 # guard korelasi: blok entry SEARAH bila korelasi return ≥ ini (0 = nonaktif)
+    corr_lookback: int = 50                      # bar untuk hitung korelasi (<20 = nonaktif)
     max_drawdown_pct: float = 20.0               # KILL-SWITCH drawdown TOTAL dari puncak saldo (0 = nonaktif).
                                                  # Beda dgn daily_max_loss: ini KUMULATIF & tak reset harian —
                                                  # kebocoran pelan berhari-hari tetap tertangkap. Lepas kunci
@@ -97,6 +99,8 @@ class RuntimeSettings:
         self.max_open_positions = int(max(1, min(20, self.max_open_positions)))
         self.daily_max_loss_pct = max(0.0, min(100.0, float(self.daily_max_loss_pct)))   # 0 = nonaktif; >100% saldo tak masuk akal
         self.daily_max_trades = int(max(0, min(1000, self.daily_max_trades)))            # 0 = nonaktif
+        self.corr_threshold = max(0.0, min(1.0, float(self.corr_threshold)))             # korelasi ∈ [0,1]; 0 = nonaktif
+        self.corr_lookback = int(max(0, min(500, self.corr_lookback)))                   # <20 = nonaktif
         self.max_drawdown_pct = max(0.0, min(90.0, float(self.max_drawdown_pct)))        # 0 = nonaktif
         self.poll_seconds = int(max(5, min(3600, self.poll_seconds)))
         self.gemini_decide_seconds = int(max(30, min(3600, self.gemini_decide_seconds)))

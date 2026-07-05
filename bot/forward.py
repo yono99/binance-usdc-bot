@@ -711,6 +711,8 @@ class ForwardTester:
         # circuit breaker harian diatur user dari UI (0 = nonaktif) — hot-reload
         self.daily_max_loss_pct = float(rs.daily_max_loss_pct)
         self.daily_max_trades = int(rs.daily_max_trades)
+        self.corr_threshold = float(rs.corr_threshold)   # guard korelasi hot-reload dari UI
+        self.corr_lookback = int(rs.corr_lookback)
         # Penyetelan Gemini dari UI (hot-reload) — atur frekuensi panggilan → hemat RPM/token.
         self._decide_interval = int(rs.gemini_decide_seconds)
         self._manage_interval = int(rs.gemini_manage_seconds)
