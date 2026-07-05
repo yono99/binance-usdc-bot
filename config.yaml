@@ -80,9 +80,11 @@ strategy:
   mr_rsi_low: 30           # MR long bila rsi < ini
   mr_rsi_high: 70          # MR short bila rsi > ini
   # anti-"entry di pucuk / sell minus" (v2-v4): tolak entry yang sudah overextended dari mean.
-  entry_rsi_max: 75        # long ditolak bila RSI >= ini (jenuh-beli, kejar pucuk)
-  entry_rsi_min: 25        # short ditolak bila RSI <= ini (jenuh-jual, jual di dasar)
-  entry_ext_atr: 2.5       # |harga - EMA_slow| / ATR >= ini → terlalu jauh dari mean, tolak
+  entry_rsi_max: 72        # long ditolak bila RSI >= ini (jenuh-beli, kejar pucuk)
+  entry_rsi_min: 28        # short ditolak bila RSI <= ini (jenuh-jual, jual di dasar)
+  entry_ext_atr: 2.2       # |harga - EMA_slow| / ATR >= ini → terlalu jauh dari mean, tolak
+  entry_runup_bars: 3      # anti-chase: lihat lonjakan berapa bar terakhir
+  entry_runup_atr: 2.0     # (close - close[N bar lalu]) / ATR >= ini → baru melonjak, jangan kejar
   sessions: []             # jam UTC yang diizinkan; [] = semua jam
   # v3 — funding & open interest
   funding_z_window: 30     # jendela z-score funding (8h/poin → ~10 hari)

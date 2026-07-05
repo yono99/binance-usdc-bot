@@ -5,7 +5,8 @@ from bot.optimize import Features
 from bot.strategy_lab import FeaturesV2, decide_v2
 
 CFG = {"strategy": {"adx_strong": 25, "adx_range": 18, "mr_rsi_low": 30, "mr_rsi_high": 70,
-                    "entry_rsi_max": 75, "entry_rsi_min": 25, "entry_ext_atr": 2.5}}
+                    "entry_rsi_max": 75, "entry_rsi_min": 25, "entry_ext_atr": 2.5,
+                    "entry_runup_bars": 3, "entry_runup_atr": 2.0}}
 G = {"entry_confidence": 0.1, "use_htf": False, "regime": False}
 
 
@@ -27,6 +28,15 @@ def test_long_vetoed_when_overextended():
     assert side[0] == 1        # entry bersih lolos
     assert side[1] == 0        # RSI 80 >= 75 → tolak (kejar pucuk)
     assert side[2] == 0        # (103.5-100)/1 = 3.5 >= 2.5 ATR → tolak (terlalu jauh dari mean)
+
+
+def test_long_vetoed_by_runup_even_when_rsi_ema_pass():
+    # Pucuk 'diam-diam': RSI moderat (54) & harga PAS di EMA (dist=0), tapi baru melonjak
+    # 5 ATR dalam 3 bar → kaki run-up harus tetap menolak (kasus tipe 1000SHIB).
+    f2 = _f2(long_score=[0, 0, 0, 0, 0.5], short_score=[0] * 5,
+             rsi=[54] * 5, close=[100, 100, 100, 100, 105], ema_ref=[100, 100, 100, 100, 105], atr=1.0)
+    side = decide_v2(f2, G, CFG, sessions=None)
+    assert side[4] == 0        # runup (105-100)/1 = 5 >= 2.0 ATR → tolak walau RSI/EMA lolos
 
 
 def test_short_vetoed_when_oversold_or_extended_down():

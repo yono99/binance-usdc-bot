@@ -101,9 +101,17 @@ def decide_v2(f2: FeaturesV2, g: dict, cfg: dict, sessions: set | None) -> np.nd
     rsi_lo = st.get("entry_rsi_min", 0.0)
     ext = st.get("entry_ext_atr", float("inf"))
     atr = f2.base.atr
-    dist = np.divide(f2.base.close - f2.ema_ref, atr, out=np.zeros_like(atr), where=atr > 0)
-    overbought = (f2.rsi >= rsi_hi) | (dist >= ext)
-    oversold = (f2.rsi <= rsi_lo) | (dist <= -ext)
+    close = f2.base.close
+    dist = np.divide(close - f2.ema_ref, atr, out=np.zeros_like(atr), where=atr > 0)
+    # Kaki ke-3 (anti-CHASE): lonjakan N-bar terakhir. Menangkap pucuk yang RSI/EMA absolut
+    # LOLOS — harga baru rally/jatuh tajam lalu langsung balik (mis. 1000SHIB: RSI 54, MFE 0.03).
+    # runup = (close - close[N bar lalu]) / ATR. Long dilarang bila baru melonjak; short bila baru anjlok.
+    n = int(st.get("entry_runup_bars", 3))
+    runup_lim = st.get("entry_runup_atr", float("inf"))
+    prev = np.concatenate([np.full(n, np.nan), close[:-n]]) if n > 0 else close
+    runup = np.divide(close - prev, atr, out=np.zeros_like(atr), where=(atr > 0) & ~np.isnan(prev))
+    overbought = (f2.rsi >= rsi_hi) | (dist >= ext) | (runup >= runup_lim)
+    oversold = (f2.rsi <= rsi_lo) | (dist <= -ext) | (runup <= -runup_lim)
     side = np.where((side == 1) & overbought, 0, side)
     side = np.where((side == -1) & oversold, 0, side)
 
