@@ -110,14 +110,26 @@ class GeminiTrader:
         except Exception:  # boundary — konteks opsional
             return []
 
+    def _exit_track_record(self) -> list[dict]:
+        """Scorecard per exit_reason (sl/tp/cut-loss/gemini_exit) DIHITUNG KODE — agar Gemini
+        BELAJAR cara-keluar mana yang -EV (mis. gemini_exit / cut prematur) & berhentikan."""
+        try:
+            return store.exit_stats()
+        except Exception:  # boundary — konteks opsional
+            return []
+
     # ---------- konteks ----------
     def build_context(self, symbol: str, df: pd.DataFrame, *, alt: dict | None = None,
                       position: dict | None = None, balance: float | None = None,
-                      news_note: str = "", portfolio: dict | None = None) -> dict:
+                      news_note: str = "", portfolio: dict | None = None,
+                      btc_lead: dict | None = None) -> dict:
         ctx = {
             "symbol": symbol,
             "market": _market_summary(df, self.cfg),
             "alt": alt or {},                       # funding_z, oi_delta, cvd_imb, basis_z (skalar)
+            "btc_lead": btc_lead or {},             # MOTHERCOIN: gerak BTC 1bar/3bar % + arah.
+            #   Alt ber-beta lebih tinggi → BTC turun 1-4%+ sering diperbesar/diperpanjang di alt.
+            #   Gemini pakai ini utk hindari LONG alt saat BTC jatuh (konteks arah pasar).
             "position": position,                   # posisi terbuka di simbol INI (atau None)
             "portfolio": portfolio,                 # SEMUA posisi terbuka + eksposur (korelasi/risiko)
             "balance_usd": round(balance, 2) if balance is not None else None,
@@ -126,6 +138,7 @@ class GeminiTrader:
             "tested_lessons": store.active_lessons(limit=10),   # HANYA yang lolos bukti
             # Grounding tambahan dari SQLite (agar Gemini PAHAM performa nyatanya):
             "setup_track_record": self._track_record(),         # stats per-setup (dihitung kode)
+            "exit_track_record": self._exit_track_record(),      # BELAJAR dari SL/CL/TP/gemini_exit
             "calibration": self._calibration(),                 # kejujuran confidence-nya (Brier)
             "sl_feedback": self._sl_feedback(symbol),           # ADAPTASI pasca SL/cut-loss
             "loss_postmortem": self._postmortem(symbol),        # TANYA-JAWAB kekalahan (koreksi diri)

@@ -242,7 +242,8 @@ class ForwardTester:
         posview = {"side": pos["side"], "entry": round(pos["entry"], 6)} if pos else None
         ctx = self.gtrader.build_context(sym, df_closed, alt=alt, position=posview,
                                          balance=self.balance_usd, news_note=self._last_news_note,
-                                         portfolio=self._portfolio_view())
+                                         portfolio=self._portfolio_view(),
+                                         btc_lead=self._btc_lead())   # MOTHERCOIN → konteks Gemini
         dec = self.gtrader.decide(ctx)
         # Phase 4: silang-periksa Devil's Advocate. Bila kritik KUAT (≥ threshold) →
         # turunkan conviction SATU tier (bukan diabaikan). Fail-open bila devil off/gagal.
@@ -498,6 +499,17 @@ class ForwardTester:
                 pos["sl"] = round(float(act["new_sl"]), 6)
                 log.info(f"Gemini tighten SL {sym}: {old:.6f} → {pos['sl']:.6f}")
 
+    @staticmethod
+    def _regime_stamp(df, cfg) -> dict:
+        """Stempel regime pasar saat OPEN → untuk laporan EV per-regime (regime_ev.py).
+        Non-throw. Bentuk dict mengikuti pola vrp.stamp() agar mudah di-**spread.
+        HANYA observasi (tak mengubah pnl/keputusan)."""
+        try:
+            from .gemini_trader import _market_summary
+            return {"regime": _market_summary(df, cfg)["regime"]}
+        except Exception:  # boundary — regime opsional, jangan pernah blokir trading
+            return {"regime": "unknown"}
+
     def _close_trade(self, sym: str, price: float, reason: str) -> None:
         pos = self.open.pop(sym)
         tr = self.bt._close(pos, price, pd.Timestamp.utcnow(), 0, reason)
@@ -505,7 +517,8 @@ class ForwardTester:
         vrp.log_close(sym, pos, tr.r, mode=self.settings.mode)  # shadow log ber-mode
         self.equity *= (1 + self.risk_frac * tr.r)
         journal("forward_close", {"symbol": sym, "exit": price, "r": round(tr.r, 4),
-                                  "reason": reason, "equity": round(self.equity, 2)})
+                                  "reason": reason, "regime": pos.get("regime", "unknown"),
+                                  "equity": round(self.equity, 2)})
         log.info(f"CLOSE {reason.upper()} {sym} @ {price:.6f} R={tr.r:+.2f} eq={self.equity:.2f}")
 
     def _monitor(self, sym: str) -> None:
@@ -533,6 +546,7 @@ class ForwardTester:
         sig = _Sig("long" if side == 1 else "short", atr)
         pos = self.bt._open(sym, sig, {"open": price}, pd.Timestamp.utcnow(), 0)
         pos.update(self.vrp.stamp())            # stempel regime VRP saat open (A/B shadow)
+        pos.update(self._regime_stamp(df_closed, self.cfg))  # stempel regime → laporan EV
         self.open[sym] = pos
         journal("forward_open", {"symbol": sym, "side": sig.side, "entry": pos["entry"],
                                  "sl": pos["sl"], "tp": pos["tp"]})
@@ -1104,6 +1118,7 @@ class ForwardTester:
                           "entry_fee_rate": entry_fee_rate,   # fee kaki-entry (per-settle); exit selalu taker
                           "opened_ts": pd.Timestamp.utcnow().isoformat(),  # utk marker panah di chart
                           **self.vrp.stamp(),   # stempel regime VRP saat open (A/B shadow)
+                          **self._regime_stamp(buf_full, self.cfg),  # regime → laporan EV
                           **mtf_stamp}
         if gem:                                     # catat keputusan Gemini → settle saat tutup
             self.open[sym]["conviction"] = gem_conv   # untuk skor Brier saat close
@@ -1179,6 +1194,7 @@ class ForwardTester:
             self._react_settle(sym, pos, pnl, reason)   # umpan balik ReAct (teknik non-gemini)
         journal("forward_close", {"symbol": sym, "exit": round(exit_fill, 6), "reason": reason,
                                   "pnl_usd": round(pnl, 4), "r": round(r, 4),
+                                  "regime": pos.get("regime", "unknown"),
                                   "mae_pct": round(pos.get("mae_pct", 0.0), 3),
                                   "mfe_pct": round(pos.get("mfe_pct", 0.0), 3),
                                   "funding_usd": round(pos.get("funding_paid", 0.0), 4),

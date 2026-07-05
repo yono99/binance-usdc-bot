@@ -8,12 +8,22 @@ from bot.gemini_client import FALLBACK_MODELS, GeminiClient
 
 
 @pytest.fixture(autouse=True)
-def _reset_states():
+def _reset_states(monkeypatch, tmp_path):
+    # isolasi cooldown DURABLE: tanpa ini, _persisted + store nyata bocor antar-test/antar-run
+    # (key "auth"/"rate_day" ter-persist ke SQLite → cooldown basi mencemari test berikutnya).
+    from bot import store
+    monkeypatch.setattr(store, "DB_PATH", tmp_path / "gc.db")
+    store.init_db()
     gc._states.clear()
     gc._last_call.clear()
+    gc._persisted.clear()
+    gc._persist_loaded = False
+    gc._breaker.update({"fails": 0, "open_until": 0.0})
     yield
     gc._states.clear()
     gc._last_call.clear()
+    gc._persisted.clear()
+    gc._persist_loaded = False
 
 
 class _Err(Exception):

@@ -357,6 +357,29 @@ def recent_decisions(symbol: str | None = None, limit: int = 20) -> list[dict]:
         return [dict(r) for r in c.execute(q, args).fetchall()]
 
 
+def exit_stats() -> list[dict]:
+    """Scorecard AGREGAT per exit_reason (sl/tp/cut-loss/gemini_exit/liq) — DIHITUNG KODE,
+    bukan klaim AI. Agar Gemini BELAJAR cara-keluar mana yang sistematis merugikan (mis.
+    gemini_exit -EV → berhenti cut prematur, biarkan SL/TP jalan)."""
+    init_db()
+    _migrate()
+    q = ("SELECT COALESCE(exit_reason,'?') reason, COUNT(*) n, "
+         "COALESCE(AVG(outcome_r),0) exp_r, COALESCE(SUM(outcome_r>0),0) wins, "
+         "COALESCE(SUM(outcome_r),0) sum_r FROM gemini_decisions "
+         "WHERE status='settled' AND outcome_r IS NOT NULL "
+         "GROUP BY COALESCE(exit_reason,'?') ORDER BY exp_r ASC")
+    with _conn() as c:
+        rows = c.execute(q).fetchall()
+    out = []
+    for r in rows:
+        n = r["n"] or 0
+        out.append({"reason": r["reason"], "n": n,
+                    "win_rate": round((r["wins"] / n * 100) if n else 0.0, 1),
+                    "exp_r": round(float(r["exp_r"]), 3),
+                    "sum_r": round(float(r["sum_r"]), 3)})
+    return out
+
+
 def loss_postmortems(symbol: str | None = None, limit: int = 5) -> list[dict]:
     """POST-MORTEM SL/cut-loss sebagai TANYA-JAWAB (dari data yang SUDAH tersimpan).
 

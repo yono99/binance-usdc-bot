@@ -43,7 +43,7 @@ def read_events(path: Path) -> list[dict]:
     return out
 
 
-def compute_stats(path: Path | None = None, start_equity: float = 1000.0,
+def compute_stats(path: Path | None = None, start_equity: float | None = None,
                   mode: str | None = None) -> dict:
     events = read_events(path) if path else store.all_events()
     opens = {}
@@ -65,6 +65,10 @@ def compute_stats(path: Path | None = None, start_equity: float = 1000.0,
     gross_w = sum(wins)
     gross_l = abs(sum(r for r in rs if r <= 0))
 
+    # start_equity default = ekuitas pada close PERTAMA (return sejak trade pertama tercatat),
+    # BUKAN 1000 hardcode yang bikin return_pct palsu (mis. -98.94%). Caller boleh override.
+    if start_equity is None:
+        start_equity = float(closes[0].get("equity", 1000.0)) if closes else 1000.0
     equity_curve = [start_equity] + [float(e.get("equity", start_equity)) for e in closes]
     # indeks titik likuidasi pada equity_curve (close ke-i -> titik i+1)
     liq_points = [i + 1 for i, e in enumerate(closes) if e.get("reason") == "liq"]
@@ -99,7 +103,7 @@ def compute_stats(path: Path | None = None, start_equity: float = 1000.0,
         "profit_factor": round(gross_w / gross_l, 2) if gross_l > 0 else (None if gross_w == 0 else float("inf")),
         "total_r": round(sum(rs), 3),
         "equity": round(equity_curve[-1], 2),
-        "return_pct": round((equity_curve[-1] / start_equity - 1) * 100, 2),
+        "return_pct": round((equity_curve[-1] / start_equity - 1) * 100, 2) if start_equity else 0.0,
         "equity_curve": equity_curve,
         "liq_points": liq_points,
         "open_positions": open_positions,

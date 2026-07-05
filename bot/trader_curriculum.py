@@ -106,6 +106,12 @@ STRUKTUR PASAR & PRICE ACTION (lebih penting dari pola hafalan):
 - Likuiditas & stop-hunt: harga sering menyapu di atas swing-high / bawah swing-low (memicu
   stop) lalu berbalik. Sapuan + penolakan cepat = sinyal jebakan, bukan breakout sejati.
 - Volume/dorongan: gerakan sehat didukung partisipasi; breakout tanpa dorongan rentan gagal.
+- MOTHERCOIN (BTC pemimpin pasar): konteks berisi `btc_lead` = gerak BTC {ret_1bar_pct,
+  ret_3bar_pct, dir (1=naik,-1=turun)}. Alt ber-beta lebih tinggi → saat BTC turun 1-4%+ ,
+  alt lain sering IKUT jatuh
+  (diperbesar/diperpanjang). ATURAN KONTEKS (bukan ramalan): JANGAN long alt saat BTC jelas
+  jatuh, JANGAN short alt saat BTC melonjak keras — melawan mothercoin = turunkan conviction
+  atau flat. Ini filter ARAH/RISIKO (kapan tak melawan pasar), tetap harus lolos evidence-gate.
 """
 
 KNOWLEDGE["chart_patterns"] = """\
@@ -208,6 +214,10 @@ def curriculum_prompt(modules: list[str] | None = None) -> str:
         "- 'setup_track_record': win-rate & expectancy R tiap setup-mu + seberapa sering SL\n"
         "  tersambar (sl_hit_rate) & MFE sebelum SL. Setup dgn exp_r negatif = KURANGI conviction\n"
         "  atau hindari; sl_hit tinggi dgn mfe besar = SL-mu terlalu mepet, longgarkan sedikit.\n"
+        "- 'exit_track_record': performa AGREGAT per CARA-KELUAR (sl/tp/cut-loss/gemini_exit).\n"
+        "  Belajar dari cara exit-mu: cara-keluar dgn exp_r NEGATIF (mis. gemini_exit / cut\n"
+        "  prematur) = perilaku exit yang merugikan → HENTIKAN, biarkan SL/TP berjalan. Exit\n"
+        "  yang salah menghapus edge entry. tp exp_r positif & besar = target-mu bekerja, sabar.\n"
         "- 'calibration': Brier confidence-mu (0.25=koin; makin kecil=makin jujur). Bila Brier\n"
         "  buruk = kamu terlalu percaya diri → turunkan conviction sampai kalibrasi membaik.\n"
         "- 'sl_feedback' (ADAPTASI WAJIB bila ada): entry terakhirmu di simbol INI kena SL/\n"
