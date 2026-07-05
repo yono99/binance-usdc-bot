@@ -37,6 +37,7 @@ def _base_ft(make_df):
     ft._day = pd.Timestamp.utcnow().date()
     ft._dd_lock = False
     ft._gemini_decide_budget = 8
+    ft._gemini_decide_cap = 8
     ft._gemini_decide_used = 0
     ft.news = types.SimpleNamespace(check=lambda: (False, ""))
     ft.vrp = types.SimpleNamespace(check=lambda: (False, None), mode="shadow")
@@ -123,6 +124,7 @@ def test_status_position_view_includes_opened_ts():
     ft.balance_usd = 100.0
     ft.corr_threshold = 0
     ft._day_pnl, ft._day_trades = 0.0, 0
+    ft._gemini_decide_budget, ft._gemini_decide_cap = 8, 8
     ft.settings = types.SimpleNamespace(mode="dry")
     ft.pin_mode = True
     ft.tf = "15m"
