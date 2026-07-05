@@ -31,7 +31,10 @@ def test_v2_equals_v1_without_enhancements(cfg, make_df):
     g = {"entry_confidence": conf, "sl_atr_mult": 1.5, "tp_atr_mult": 2.5,
          "use_htf": False, "regime": False}
     side_v1 = decide(f, conf)
-    side_v2 = decide_v2(f2, g, cfg, sessions=None)
+    # gerbang overextension = filter tambahan config-level; matikan utk uji ekuivalensi inti v1
+    cfg_no_gate = {**cfg, "strategy": {**cfg["strategy"], "entry_rsi_max": 100,
+                                       "entry_rsi_min": 0, "entry_ext_atr": float("inf")}}
+    side_v2 = decide_v2(f2, g, cfg_no_gate, sessions=None)
     warm = warmup(cfg)
     assert np.array_equal(side_v1[warm:], side_v2[warm:])
 

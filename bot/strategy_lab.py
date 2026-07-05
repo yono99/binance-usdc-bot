@@ -32,6 +32,7 @@ class FeaturesV2:
     rsi: np.ndarray
     htf_dir: np.ndarray   # +1 uptrend HTF, -1 downtrend, 0 unknown
     hour: np.ndarray
+    ema_ref: np.ndarray   # EMA slow = acuan "mean" untuk gerbang overextension (jarak-ke-EMA)
 
 
 def _htf_dir(df: pd.DataFrame, cfg: dict, mult: int) -> np.ndarray:
@@ -57,6 +58,7 @@ def precompute_v2(df: pd.DataFrame, cfg: dict, htf_mult: int) -> FeaturesV2:
         rsi=np.nan_to_num(rsi(df["close"], s["rsi_period"]).to_numpy(), nan=50.0),
         htf_dir=_htf_dir(df, cfg, htf_mult),
         hour=df.index.hour.to_numpy(),
+        ema_ref=np.nan_to_num(ema(df["close"], s["ema_slow"]).to_numpy()),
     )
 
 
@@ -87,6 +89,23 @@ def decide_v2(f2: FeaturesV2, g: dict, cfg: dict, sessions: set | None) -> np.nd
             mr_short &= f2.htf_dir <= 0
         side = np.where((side == 0) & mr_long, 1,
                         np.where((side == 0) & mr_short, -1, side))
+
+    # Anti-"entry di pucuk / sell minus": tolak entry yang sudah OVEREXTENDED dari mean.
+    #   long dilarang bila RSI jenuh-beli ATAU harga jauh di ATAS EMA (kejar pucuk),
+    #   short dilarang bila RSI jenuh-jual ATAU harga jauh di BAWAH EMA (jual di dasar).
+    # Jarak dinormalisasi ATR agar adil lintas-simbol. Knob kalibrasi (default konservatif —
+    # hanya buang yang benar-benar ekstrem; longgarkan/perketat via config, bukan kode).
+    # v5-v7 (mean-reversion murni) TAK lewat sini — mereka justru MEMFADE ekstrem.
+    # default = NON-AKTIF (v2 tanpa enhancement tetap == v1); config.yaml yg meng-opt-in.
+    rsi_hi = st.get("entry_rsi_max", 100.0)
+    rsi_lo = st.get("entry_rsi_min", 0.0)
+    ext = st.get("entry_ext_atr", float("inf"))
+    atr = f2.base.atr
+    dist = np.divide(f2.base.close - f2.ema_ref, atr, out=np.zeros_like(atr), where=atr > 0)
+    overbought = (f2.rsi >= rsi_hi) | (dist >= ext)
+    oversold = (f2.rsi <= rsi_lo) | (dist <= -ext)
+    side = np.where((side == 1) & overbought, 0, side)
+    side = np.where((side == -1) & oversold, 0, side)
 
     # filter sesi jam (UTC)
     if sessions:
