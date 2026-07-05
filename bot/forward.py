@@ -1321,6 +1321,10 @@ class ForwardTester:
     def _corr_conflict(self, sym: str, side: int) -> str | None:
         """Guard korelasi: bila ada posisi terbuka SEARAH yg return-nya berkorelasi
         >= threshold dengan kandidat, kembalikan simbolnya (blok entry). None = aman."""
+        # Toggle non-gemini (config strategy.gate_corr, default OFF): teknik non-gemini hanya
+        # kena guard bila di-ON-kan. Gemini SELALU pakai guard ini (via corr_threshold) — tak berubah.
+        if not self.use_gemini_trader and not self.cfg.get("strategy", {}).get("gate_corr", False):
+            return None
         if self.corr_threshold <= 0 or self.corr_lookback < 20:
             return None
         cand = self.buffers.get(sym)

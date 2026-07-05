@@ -43,9 +43,11 @@ def _warn_bad_gemini_keys(keys: list[str]) -> None:
     from .logger import log
     seen: dict[str, int] = {}
     for i, k in enumerate(keys):
-        if not (len(k) == 39 and k.startswith("AIzaSy")):
+        # Dua format valid: legacy 'AIzaSy…' (39 char) & auth-key baru 'AQ.Ab8…' (Google 2026,
+        # jalan di endpoint native generativelanguage). Selain itu = kemungkinan typo/kepotong.
+        if not ((len(k) == 39 and k.startswith("AIzaSy")) or k.startswith("AQ.")):
             log.warning(f"GEMINI_API_KEYS Key#{i} cacat: len={len(k)} awalan={k[:6]!r} "
-                        "(seharusnya 39 char & mulai 'AIzaSy') — kemungkinan kepotong/typo, akan selalu error.")
+                        "(harus 'AIzaSy'+39char ATAU 'AQ.…') — kemungkinan kepotong/typo, akan selalu error.")
         if k in seen:
             log.warning(f"GEMINI_API_KEYS Key#{i} DUPLIKAT dari Key#{seen[k]} — tak menambah kuota RPM.")
         else:

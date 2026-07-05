@@ -4,7 +4,9 @@ import numpy as np
 from bot.optimize import Features
 from bot.strategy_lab import FeaturesV2, decide_v2
 
+# Gate kini OPT-IN (default OFF). Test veto pakai CFG dgn toggle ON.
 CFG = {"strategy": {"adx_strong": 25, "adx_range": 18, "mr_rsi_low": 30, "mr_rsi_high": 70,
+                    "gate_overext": True, "gate_runup": True,
                     "entry_rsi_max": 75, "entry_rsi_min": 25, "entry_ext_atr": 2.5,
                     "entry_runup_bars": 3, "entry_runup_atr": 2.0}}
 G = {"entry_confidence": 0.1, "use_htf": False, "regime": False}
@@ -46,3 +48,14 @@ def test_short_vetoed_when_oversold_or_extended_down():
     assert side[0] == -1       # short bersih lolos
     assert side[1] == 0        # RSI 20 <= 25 → tolak (jual di dasar)
     assert side[2] == 0        # (96.5-100)/1 = -3.5 <= -2.5 ATR → tolak (jauh di bawah mean)
+
+
+def test_gates_off_by_default_no_veto():
+    # Toggle absen (default OFF) → entry overextended & baru melonjak TETAP lolos.
+    cfg_off = {"strategy": {k: v for k, v in CFG["strategy"].items()
+                            if k not in ("gate_overext", "gate_runup")}}
+    f2 = _f2(long_score=[0.5, 0.5, 0.5], short_score=[0, 0, 0],
+             rsi=[55, 80, 55], close=[100, 100, 103.5], ema_ref=[100, 100, 100], atr=1.0)
+    side = decide_v2(f2, G, cfg_off, sessions=None)
+    assert side[1] == 1        # RSI 80 TAK ditolak — gate off
+    assert side[2] == 1        # jarak 3.5 ATR TAK ditolak — gate off

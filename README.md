@@ -101,6 +101,24 @@ mengaktifkan regime veto & news veto (`config.yaml: gemini.news_veto`) **dan
 strategy co-pilot riset** (`--copilot`, lihat [RESEARCH.md](RESEARCH.md)). Tanpa key →
 non-aktif (veto allow, co-pilot pakai interpretasi deterministik).
 
+### Update 2026-07-05 — kuota Gemini & toggle gate teknik non-gemini
+
+Diagnosa: bot Gemini "sulit entry" bukan karena gate/confidence — **78% panggilan LLM
+gagal `429 RESOURCE_EXHAUSTED`**. Akarnya: model utama `gemini-2.5-flash` (free tier
+dipangkas Des'25) sudah sesak, sementara model `*-preview` masih longгар (3 Juli:
+preview 0 gagal vs 2.5-flash ~90% gagal). Bukan kapasitas key — 11 akun/key berotasi
+normal, modelnya yang salah pilih.
+
+| Perubahan | Detail | Kontrol |
+|---|---|---|
+| Urutan model kuota-sehat | primary → `gemini-3-flash-preview`, fallback `3.1-flash-lite-preview` → `3.5-flash` → `2.5-flash` → `2.5-flash-lite`. Sehat dicoba dulu → 429 anjlok | `config.yaml: gemini.model` + `FALLBACK_MODELS` |
+| Validator terima key `AQ.` | format auth-key baru Google 2026 (`AQ.Ab8…`) tak lagi dicap "cacat"; jalan di endpoint native | `bot/config.py` |
+| Cooldown key persist | cooldown PANJANG (RPD habis / auth) disimpan ke SQLite (`kv: gemini_key_cooldowns`, hash key) → restart tak menghajar ulang key yg kuota hariannya habis; RPM 60s tak disimpan | otomatis (`bot/gemini_client.py`) |
+| 3 toggle gate (teknik NON-gemini) | `gate_overext` (RSI/jarak-EMA), `gate_runup` (anti-chase lonjakan), `gate_corr` (korelasi non-gemini) — **default OFF**, opt-in. Jalur Gemini **tak** memakai gate ini; guard korelasi Gemini tetap via `corr_threshold` (tak berubah) | `config.yaml: strategy.gate_*` |
+
+> Catatan model preview: kuota free-nya longгар SEKARANG, tapi Google bisa deprecate
+> kapan saja → fallback stabil (`3.5/2.5-flash`) sengaja disimpan sbagai jaring pengaman.
+
 ---
 
 ## Backtest dulu (wajib sebelum live)

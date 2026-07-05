@@ -97,7 +97,7 @@ class GeminiTrader:
         gcfg = cfg.get("gemini", {})
         self.cfg = cfg
         self.mode = settings.mode                    # untuk kalibrasi per-mode di konteks
-        self.client = GeminiClient(settings.gemini_keys, gcfg.get("model", "gemini-2.5-flash"))
+        self.client = GeminiClient(settings.gemini_keys, gcfg.get("model", "gemini-3-flash-preview"))
         self.enabled = settings.gemini_enabled and self.client.available
 
     def _track_record(self) -> list[dict]:

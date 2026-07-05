@@ -80,6 +80,10 @@ strategy:
   mr_rsi_low: 30           # MR long bila rsi < ini
   mr_rsi_high: 70          # MR short bila rsi > ini
   # anti-"entry di pucuk / sell minus" (v2-v4): tolak entry yang sudah overextended dari mean.
+  # TOGGLE on/off (default OFF) — HANYA berlaku teknik non-gemini; jalur Gemini tak pakai gate ini.
+  gate_overext: false      # ON → aktifkan gate RSI-jenuh + jarak-ke-EMA (entry_rsi_*/entry_ext_atr)
+  gate_runup: false        # ON → aktifkan gate anti-chase lonjakan N-bar (entry_runup_*)
+  gate_corr: false         # ON → aktifkan guard korelasi utk non-gemini (gemini tetap pakai corr_threshold)
   entry_rsi_max: 72        # long ditolak bila RSI >= ini (jenuh-beli, kejar pucuk)
   entry_rsi_min: 28        # short ditolak bila RSI <= ini (jenuh-jual, jual di dasar)
   entry_ext_atr: 2.2       # |harga - EMA_slow| / ATR >= ini → terlalu jauh dari mean, tolak
@@ -103,7 +107,7 @@ strategy:
 gemini:
   # peran: confirm | veto | off  (lihat README)
   role: "veto"
-  model: "gemini-2.5-flash"
+  model: "gemini-3-flash-preview"   # kuota free 2.5-flash dipangkas Des'25 (429 masif); preview masih longgar
   min_regime_score: 0.4     # bila Gemini nilai regime < ini -> skip entry
   news_veto: true           # veto entry saat ada berita high-impact (real-time, butuh GEMINI_ENABLED)
   planner_min_trades: 3     # lantai kuota trade sesi: planner tak boleh cekik di bawah ini (kecuali risk_off).

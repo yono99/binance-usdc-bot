@@ -12,6 +12,7 @@ Konsep:
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import threading
 import time
@@ -26,11 +27,14 @@ except Exception:  # SDK belum terpasang
 
 # Daftar model + urutan fallback — DISAMAKAN dengan elearning (lib/gemini/client.ts).
 # Model 3.x dicoba dulu; bila tak tersedia utk key → error 'model' → fallback ke 2.5.
+# Urutan = KUOTA-SEHAT dulu. Free tier 2.5/3.5-flash dipangkas Des'25 → 429 masif;
+# model *-preview masih longgar (bukti: 3 Juli, preview 0 gagal vs 2.5-flash ~90% gagal).
+# 2.5/3.5-flash tetap disimpan sbg cadangan bila preview di-deprecate Google.
 FALLBACK_MODELS = [
-    "gemini-2.5-flash",              # utama
-    "gemini-3.5-flash",
-    "gemini-3-flash-preview",
+    "gemini-3-flash-preview",        # utama — kuota free longgar
     "gemini-3.1-flash-lite-preview",
+    "gemini-3.5-flash",
+    "gemini-2.5-flash",
     "gemini-2.5-flash-lite",         # last resort
 ]
 
@@ -66,8 +70,49 @@ _states: dict[str, dict] = {}
 _clients: dict = {}
 
 
+# Persist cooldown PANJANG (rate_day/auth) ke SQLite (tabel kv) → restart tak menghajar ulang
+# key yang kuota hariannya sudah habis. Simpan HASH key (jangan taruh API key mentah di DB).
+_KV_COOLDOWN = "gemini_key_cooldowns"
+_PERSIST_MIN = 120.0                  # hanya persist cooldown > ini; RPM 60s tak relevan lintas-restart
+_persisted: dict[str, float] = {}     # key_hash → cooldown_until (epoch)
+_persist_loaded = False
+
+
+def _key_hash(key: str) -> str:
+    return hashlib.sha256(key.encode()).hexdigest()[:16]
+
+
+def _load_persisted() -> None:
+    global _persist_loaded
+    if _persist_loaded:
+        return
+    _persist_loaded = True
+    try:
+        d = store.get_kv(_KV_COOLDOWN) or {}
+        now = time.time()
+        _persisted.update({h: float(u) for h, u in d.items() if float(u) > now})
+    except Exception:   # boundary — persistence tak boleh ganggu trading
+        pass
+
+
+def _save_persisted() -> None:
+    try:
+        now = time.time()
+        alive = {h: u for h, u in _persisted.items() if u > now}
+        _persisted.clear()
+        _persisted.update(alive)
+        store.set_kv(_KV_COOLDOWN, alive)
+    except Exception:
+        pass
+
+
 def _st(key: str) -> dict:
-    return _states.setdefault(key, {"cooldown_until": 0.0, "fails": 0, "last_used": 0.0})
+    s = _states.get(key)
+    if s is None:                     # state baru → warisi cooldown durable bila masih berlaku
+        _load_persisted()
+        s = {"cooldown_until": _persisted.get(_key_hash(key), 0.0), "fails": 0, "last_used": 0.0}
+        _states[key] = s
+    return s
 
 
 # Circuit-breaker GLOBAL: hentikan panggil Gemini saat gagal beruntun (anti-spiral 429).
@@ -145,6 +190,10 @@ def _mark_ok(key: str) -> None:
     s["fails"] = 0
     s["cooldown_until"] = 0.0
     s["last_used"] = time.time()
+    h = _key_hash(key)
+    if h in _persisted:              # key pulih → buang catatan cooldown durable yg basi
+        _persisted.pop(h, None)
+        _save_persisted()
 
 
 def _mark_bad(key: str, kind: str) -> None:
@@ -156,6 +205,9 @@ def _mark_bad(key: str, kind: str) -> None:
         s["cooldown_until"] = time.time() + _secs_to_rpd_reset()
     elif kind == "auth":
         s["cooldown_until"] = time.time() + COOLDOWN_AUTH
+    if s["cooldown_until"] - time.time() > _PERSIST_MIN:   # cooldown panjang (rate_day/auth) → durable
+        _persisted[_key_hash(key)] = s["cooldown_until"]
+        _save_persisted()
 
 
 def _next_available_s(keys: list[str]) -> float:

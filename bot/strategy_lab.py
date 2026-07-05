@@ -97,9 +97,13 @@ def decide_v2(f2: FeaturesV2, g: dict, cfg: dict, sessions: set | None) -> np.nd
     # hanya buang yang benar-benar ekstrem; longgarkan/perketat via config, bukan kode).
     # v5-v7 (mean-reversion murni) TAK lewat sini — mereka justru MEMFADE ekstrem.
     # default = NON-AKTIF (v2 tanpa enhancement tetap == v1); config.yaml yg meng-opt-in.
-    rsi_hi = st.get("entry_rsi_max", 100.0)
-    rsi_lo = st.get("entry_rsi_min", 0.0)
-    ext = st.get("entry_ext_atr", float("inf"))
+    # TOGGLE on/off per-gate (default OFF): off → ambang dinetralkan (100/0/inf) = gate lewat.
+    # Hanya berlaku teknik NON-gemini (decide_v2); jalur Gemini tak lewat sini sama sekali.
+    on_overext = bool(st.get("gate_overext", False))
+    on_runup = bool(st.get("gate_runup", False))
+    rsi_hi = st.get("entry_rsi_max", 100.0) if on_overext else 100.0
+    rsi_lo = st.get("entry_rsi_min", 0.0) if on_overext else 0.0
+    ext = st.get("entry_ext_atr", float("inf")) if on_overext else float("inf")
     atr = f2.base.atr
     close = f2.base.close
     dist = np.divide(close - f2.ema_ref, atr, out=np.zeros_like(atr), where=atr > 0)
@@ -107,7 +111,7 @@ def decide_v2(f2: FeaturesV2, g: dict, cfg: dict, sessions: set | None) -> np.nd
     # LOLOS — harga baru rally/jatuh tajam lalu langsung balik (mis. 1000SHIB: RSI 54, MFE 0.03).
     # runup = (close - close[N bar lalu]) / ATR. Long dilarang bila baru melonjak; short bila baru anjlok.
     n = int(st.get("entry_runup_bars", 3))
-    runup_lim = st.get("entry_runup_atr", float("inf"))
+    runup_lim = st.get("entry_runup_atr", float("inf")) if on_runup else float("inf")
     prev = np.concatenate([np.full(n, np.nan), close[:-n]]) if n > 0 else close
     runup = np.divide(close - prev, atr, out=np.zeros_like(atr), where=(atr > 0) & ~np.isnan(prev))
     overbought = (f2.rsi >= rsi_hi) | (dist >= ext) | (runup >= runup_lim)
