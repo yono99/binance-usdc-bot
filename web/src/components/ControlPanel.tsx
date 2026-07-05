@@ -12,6 +12,31 @@ function riskWarn(lev: number, liq: number) {
 }
 const liqPct = (lev: number) => Math.max(1 / lev - 0.005, 0.0005) * 100;
 
+// Default teknik gemini yang direkomendasikan. HANYA knob teknik/gerbang/throttle/fee —
+// modal & identitas (saldo, mode, leverage, bet, pair, gemini_model) TAK disentuh.
+// Prinsip: jangan over-gate (korelasi 0.55 mereka blok terlalu banyak → 0.85), throttle
+// hemat free-tier, circuit breaker harian nyala tapi tak mencekik, fee USDC-M promo benar.
+const REKOMENDASI_GEMINI: Partial<Form> = {
+  technique: "gemini",
+  order_type: "limit",              // maker lebih murah (exit SL/TP tetap taker)
+  corr_threshold: 0.85,             // longgarkan dari 0.55 (over-gating = sedikit entry & tetap -EV)
+  corr_lookback: 50,
+  max_open_positions: 5,            // $ kecil: 20 slot menyebar modal terlalu tipis
+  daily_max_loss_pct: 20,           // breaker harian nyala (100 = praktis mati)
+  daily_max_trades: 20,
+  poll_seconds: 60,
+  gemini_decide_seconds: 180,
+  gemini_manage_seconds: 60,
+  gemini_min_hold_s: 300,           // anti-whipsaw
+  gemini_portfolio_seconds: 300,
+  gemini_plan_hours: 6,
+  gemini_tool_iters: 4,
+  taker_fee_pct: 0.05,
+  maker_fee_pct: 0.02,
+  usdc_taker_fee_pct: 0.04,
+  usdc_maker_fee_pct: 0.0,
+};
+
 type Form = {
   enabled: boolean;
   technique: string;
@@ -115,6 +140,14 @@ export function ControlPanel({
   if (!s || !form) return <div className="panel"><h2>Kontrol Bot (paper)</h2><div className="empty">memuat…</div></div>;
 
   const set = (k: keyof Form, v: Form[keyof Form]) => setForm((p) => (p ? { ...p, [k]: v } : p));
+
+  const resetRekomendasi = () => {
+    if (!confirm("Muat default teknik gemini rekomendasi?\n\nMengubah: teknik, guard korelasi, throttle Gemini, breaker harian, jenis order & fee.\nTIDAK menyentuh: saldo, mode, leverage, bet, pair, model.\n\nNilai hanya DIMUAT ke form — tekan Simpan untuk menerapkan."))
+      return;
+    setForm((p) => (p ? { ...p, ...REKOMENDASI_GEMINI } : p));
+    setSaved(" rekomendasi dimuat — tekan Simpan untuk menerapkan");
+    setTimeout(() => setSaved(""), 6000);
+  };
   const warn = riskWarn(form.leverage, +liqPct(form.leverage).toFixed(3));
 
   const setMode = async (m: string) => {
@@ -391,7 +424,10 @@ export function ControlPanel({
           {adjusted.join(" · ")}
         </div>
       )}
-      <button onClick={save}>Simpan pengaturan</button>
+      <button onClick={save}>Simpan pengaturan</button>{" "}
+      <button onClick={resetRekomendasi} className="pg" title="Muat default teknik gemini rekomendasi (tak menyentuh modal/mode/pair)">
+        Reset ke rekomendasi
+      </button>
       <span className="sub">{saved}</span>
     </div>
   );
