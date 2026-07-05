@@ -63,6 +63,8 @@ export const api = {
   deleteTrade: (id: number) =>
     fetch(`/api/trades/${id}`, { method: "DELETE" }).then((r) => r.json()),
   clearTrades: () => postJSON<{ ok: boolean; removed: number }>("/api/trades/clear"),
+  resetGeminiUsage: () =>
+    postJSON<{ ok: boolean; removed: number }>("/api/gemini-usage/reset"),
 };
 
 export const f = (n: number | null | undefined, d = 2): string =>

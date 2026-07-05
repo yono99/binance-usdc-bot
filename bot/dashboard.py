@@ -421,6 +421,14 @@ def api_gemini_usage(recent: int = 100) -> JSONResponse:
     return JSONResponse(store.gemini_usage_stats(min(max(1, recent), 100)))
 
 
+@app.post("/api/gemini-usage/reset")
+def api_gemini_usage_reset(payload: dict = None) -> JSONResponse:
+    """Reset pemantauan token Gemini (kosongkan tabel gemini_usage). Hanya counter
+    pemantauan — keputusan/kalibrasi/pelajaran TAK terhapus."""
+    removed = store.reset_gemini_usage()
+    return JSONResponse({"ok": True, "removed": removed})
+
+
 def _json_safe(o):
     """NaN/inf → None rekursif. Statistik (division) bisa menghasilkan float
     non-JSON pada kombinasi data tertentu → 500 di endpoint (terjadi nyata di

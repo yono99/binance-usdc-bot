@@ -276,6 +276,17 @@ def log_gemini_usage(model: str, purpose: str, key_idx: int, prompt_tokens: int,
              prompt_tokens, output_tokens, total_tokens, 1 if ok else 0, error))
 
 
+def reset_gemini_usage() -> int:
+    """Kosongkan tabel pemantauan token Gemini (reset counter dari UI). Kembalikan jumlah
+    baris terhapus. Tabel lain (keputusan/kalibrasi/pelajaran) TAK tersentuh."""
+    init_db()
+    with _conn() as c:
+        n = c.execute("SELECT COUNT(*) FROM gemini_usage").fetchone()[0]
+        c.execute("DELETE FROM gemini_usage")
+        c.execute("DELETE FROM sqlite_sequence WHERE name='gemini_usage'")
+    return int(n)
+
+
 def gemini_usage_stats(recent: int = 30) -> dict:
     init_db()
     today = datetime.now(timezone.utc).date().isoformat()

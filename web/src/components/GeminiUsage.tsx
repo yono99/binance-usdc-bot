@@ -17,8 +17,16 @@ function Card({ lbl, val, c = "" }: { lbl: string; val: string | number; c?: str
 }
 
 export function GeminiUsage() {
-  const { data } = usePoll<GU>(() => api.geminiUsage(100), 15000);
+  const { data, refetch } = usePoll<GU>(() => api.geminiUsage(100), 15000);
   if (!data) return null;
+
+  const onReset = async () => {
+    if (!confirm("Reset pemantauan token Gemini? Data panggilan/token dihapus " +
+                 "(keputusan & kalibrasi TIDAK terhapus).")) return;
+    const r = await api.resetGeminiUsage();
+    alert(`Pemantauan direset — ${r.removed.toLocaleString("id-ID")} baris dihapus.`);
+    refetch();
+  };
 
   const recentCols: Col<GU["recent"][number]>[] = [
     { t: "Waktu", render: (r) => ts(r.ts) },
@@ -37,7 +45,10 @@ export function GeminiUsage() {
 
   return (
     <div className="panel">
-      <h2>Pemantauan Token Gemini</h2>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <h2>Pemantauan Token Gemini</h2>
+        <button className="btnsm" onClick={onReset}>Reset pemantauan</button>
+      </div>
       <div className="cards" style={{ marginBottom: 14 }}>
         <Card lbl="Token hari ini" val={n(data.today.tokens)} />
         <Card lbl="Panggilan hari ini" val={n(data.today.calls)} />
