@@ -116,9 +116,10 @@ def test_classify_rpd_vs_rpm():
     assert gc._classify(_Err(status_code=429)) == "rate"      # per-menit (tanpa 'per day')
 
 
-def test_mark_bad_rpd_is_per_key_model_not_whole_key():
+def test_mark_bad_rpd_is_per_key_model_not_whole_key(monkeypatch):
     """RPD habis = per (key,model): tandai model itu mati sampai reset harian, TAPI biarkan
     key tetap hidup untuk model lain (dulu RPD mematikan seluruh key seharian)."""
+    monkeypatch.setattr(gc, "_secs_to_rpd_reset", lambda: 7200.0)
     import time
     gc._mark_bad("k2", "rate_day", "gemini-3-flash-preview")
     assert gc._model_dead("k2", "gemini-3-flash-preview")            # model ini mati (jam, sampai reset)

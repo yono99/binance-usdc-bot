@@ -233,6 +233,20 @@ def _next_available_s(keys: list[str]) -> float:
     return max(0.0, min(_st(k)["cooldown_until"] for k in keys) - now)
 
 
+def all_keys_dead(keys: list[str], model: str) -> bool:
+    """True bila SEMUA key sudah kehabisan kuota RPD HARIAN untuk model ini.
+
+    Dipakai forward.py untuk fallback ke rules-based trading saat tak ada key
+    yang tersedia — mencegah bot diam total sampai reset harian.
+    Hanya cek RPD (rate_day); cooldown RPM singkat (~60s) TIDAK dihitung dead
+    karena key akan pulih dalam hitungan menit."""
+    if not keys:
+        return False
+    _load_persisted()
+    now = time.time()
+    return all(_persisted.get(_model_key(k, model), 0.0) > now for k in keys)
+
+
 class GeminiClient:
     def __init__(self, keys: list[str], model: str | list[str] = "", rounds: int = 2):
         self.keys = list(keys or [])

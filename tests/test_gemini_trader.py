@@ -173,8 +173,6 @@ def test_build_context_grounds_gemini_on_sqlite(db, trader):
     assert ctx["calibration"]["n"] == 1 and ctx["calibration"]["brier"] is not None
 
 
-<<<<<<< HEAD
-<<<<<<< HEAD
 def test_split_batch_hoists_global_context(db, trader):
     """Grounding global (track record, kalibrasi, btc_lead, portfolio) dikirim SEKALI;
     market/sl_feedback tetap per-simbol → itu inti penghematan token batch."""
@@ -231,10 +229,6 @@ def test_track_record_evidence_gate_small_sample_is_noise(db, trader):
     assert tr["range_fade"]["exp_r"] < 0 and tr["range_fade"]["evidence"] == "adequate"
 
 
-=======
->>>>>>> parent of 3542ce0 (feat: perbaikan entry posisi)
-=======
->>>>>>> parent of 3542ce0 (feat: perbaikan entry posisi)
 # ---------- kelola posisi: GUARDRAIL exit-only / tighten tak boleh longgar ----------
 
 def test_valid_tighten_never_loosens():
@@ -334,3 +328,52 @@ def test_curriculum_module_selection_is_subset():
     only_risk = curriculum_prompt(modules=["risk"])
     assert "average down" in only_risk                # modul risk masuk
     assert "POLA CANDLE" not in only_risk             # modul lain tak ikut
+
+
+# ─── Fitur: Sub-batch chunking di decide_batch ───────────────────────────────
+
+def test_decide_batch_chunking_splits_correctly(trader, cfg):
+    """batch_chunk_size=2 dengan 4 simbol → generate() dipanggil 2× (2 chunk).
+    Spy pada generate() karena itu jalur yang benar-benar berbeda per-chunk."""
+    trader.cfg = {**cfg, "gemini": {"batch_chunk_size": 2}}
+    trader.enabled = True
+    syms = [f"S{i}/USDT:USDT" for i in range(4)]
+    contexts = {s: {"symbol": s, "market": {}} for s in syms}
+
+    gen_calls = []
+
+    def fake_generate(prompt, purpose=""):
+        gen_calls.append(purpose)
+        # Balas flat untuk semua simbol dalam chunk (ambil dari prompt tidak diperlukan—langsung flat)
+        chunk_flat = {s: {"setup": "no_trade", "side": "flat",
+                          "conviction": 0.0, "rationale": "test"} for s in syms}
+        return json.dumps(chunk_flat)
+
+    trader.client.generate = fake_generate
+    result = trader.decide_batch(contexts)
+
+    # 4 simbol / chunk 2 → 2 panggilan generate()
+    assert len(gen_calls) == 2
+    assert all(p == "trader_batch" for p in gen_calls)
+    # Semua simbol ada di output
+    assert set(result.keys()) == set(syms)
+
+
+def test_decide_batch_chunking_default_is_4(trader, cfg):
+    """batch_chunk_size default=4: 3 simbol → 1 panggilan generate()."""
+    trader.cfg = {**cfg, "gemini": {}}   # tanpa override → default 4
+    trader.enabled = True
+    syms = [f"S{i}/USDT:USDT" for i in range(3)]
+    contexts = {s: {"symbol": s, "market": {}} for s in syms}
+
+    gen_calls = []
+
+    def fake_generate(prompt, purpose=""):
+        gen_calls.append(purpose)
+        chunk_flat = {s: {"setup": "no_trade", "side": "flat",
+                          "conviction": 0.0, "rationale": "test"} for s in syms}
+        return json.dumps(chunk_flat)
+
+    trader.client.generate = fake_generate
+    trader.decide_batch(contexts)
+    assert len(gen_calls) == 1    # 3 simbol ≤ 4 → satu chunk

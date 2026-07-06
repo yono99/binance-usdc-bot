@@ -16,7 +16,7 @@ def ft(make_df, monkeypatch):
     ft = ForwardTester.__new__(ForwardTester)
     syms = [f"S{i}/USDT:USDT" for i in range(5)]
     ft.symbols = syms
-    ft.cfg = {}
+    ft.cfg = {"signals": {"atr_period": 14}, "gemini": {"pregate_atr_pct": 0.0}}
     ft.live = False
     ft.use_store = True
     ft.pin_mode = True
@@ -30,7 +30,13 @@ def ft(make_df, monkeypatch):
     ft._decide_interval = 180
     ft.use_gemini_trader = True
     ft.use_planner = False
-    ft.gtrader = types.SimpleNamespace()          # kehadirannya cukup (bukan None)
+    ft.gtrader = types.SimpleNamespace(
+        build_context=lambda *a, **k: {"market": {}},
+        client=types.SimpleNamespace(
+            keys=[],            # kosong → all_keys_dead selalu False (tak ada key)
+            models=["gemini-3-flash-preview"],
+        ),
+    )          # kehadirannya cukup (bukan None)
     ft.max_open = 10
     ft.corr_threshold = 0
     ft.daily_max_trades = 0
@@ -43,6 +49,14 @@ def ft(make_df, monkeypatch):
     ft._gemini_decide_cap = 2                     # CAP KECIL utk uji (5 simbol > cap 2) → budget dinamis mentok di 2
     ft._gemini_decide_budget = 2                  # ditimpa _on_cycle_store; recompute → min(ceil(5/3),2)=2
     ft._gemini_decide_used = 0
+    ft.balance_usd = 1000.0
+    ft._last_news_note = ""
+    ft._session_trades = 0
+    ft._session_plan = None
+    ft.rs = None
+    ft.react = types.SimpleNamespace(challenge_gemini=lambda *a, **k: None, devil_threshold=0.7)
+    ft._decide_price_cache = {}
+    ft._last_rpd_warn = 0.0
     ft.news = types.SimpleNamespace(check=lambda: (False, ""))
     ft.vrp = types.SimpleNamespace(check=lambda: (False, None), mode="shadow")
 
@@ -58,13 +72,23 @@ def ft(make_df, monkeypatch):
     monkeypatch.setattr(ft, "_monitor_usd", lambda sym, buf=None: None)
     monkeypatch.setattr(ft, "_signal", lambda sym, df_closed: (0, 999.0))  # pre-gate ATR lolos
     monkeypatch.setattr(ft, "_write_status", lambda *a, **k: None)
+    monkeypatch.setattr(ft, "_alt_arrays",
+                        lambda sym, df: ([0.0]*len(df), [0.0]*len(df), [0.0]*len(df), [False]*len(df)))
+    monkeypatch.setattr(ft, "_portfolio_view", lambda: [])
+    monkeypatch.setattr(ft, "_btc_lead", lambda: {})
+    monkeypatch.setattr(ft, "_corr_conflict", lambda sym, side: None)
+    monkeypatch.setattr(ft, "_gemini_manage", lambda sym, df_closed: None)
+    monkeypatch.setattr(ft, "_agent_portfolio_review", lambda rs: None)
     ft.autonomous = False
     monkeypatch.setattr(ft, "_persist_state", lambda: None)
     monkeypatch.setattr(ft, "_persist_logs", lambda *a, **k: None)
     calls = []
-    monkeypatch.setattr(ft, "_gemini_decision",
-                        lambda sym, df_closed: (calls.append(sym) or 0, 1.0,
-                                                {"side": "flat", "rationale": "", "setup": None}, {}))
+    def mock_decide_batch(contexts):
+        for sym in contexts:
+            calls.append(sym)
+        return {sym: {"setup": "trend_pullback", "side": "flat", "conviction": 0.0, "rationale": ""}
+                for sym in contexts}
+    ft.gtrader.decide_batch = mock_decide_batch
     ft._gemini_calls = calls
     return ft
 

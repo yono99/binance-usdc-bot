@@ -105,8 +105,18 @@ class GeminiTrader:
         win rate, expectancy R, seberapa sering SL tersambar & MAE/MFE-nya. Memberi Gemini
         BUKTI performa tiap setup-nya sendiri — bukan klaim, bukan ramalan."""
         try:
-            setups = sorted({d["setup"] for d in store.settled_decisions() if d.get("setup")})
-            return [store.setup_stats(s) for s in setups]
+            from .stats import effective_sample_size
+            decs = store.settled_decisions()
+            setups = sorted({d["setup"] for d in decs if d.get("setup")})
+            out = []
+            for s in setups:
+                stats = store.setup_stats(s)
+                rs = [float(d["outcome_r"]) for d in decs if d["setup"] == s]
+                eff_n = effective_sample_size(rs)
+                stats["eff_n"] = round(eff_n, 1)
+                stats["evidence"] = "adequate" if eff_n >= 30 else "insufficient"
+                out.append(stats)
+            return out
         except Exception:  # boundary — konteks opsional
             return []
 
@@ -223,37 +233,60 @@ class GeminiTrader:
         return shared, per
 
     def decide_batch(self, contexts: dict[str, dict]) -> dict[str, dict]:
-        """Satu panggilan Gemini untuk BANYAK simbol → hemat RPD/TPM: kurikulum + grounding
-        global dikirim SEKALI (bukan per simbol). Balas JSON {symbol: keputusan}. Simbol
-        hilang / parse gagal → FLAT (fail-safe, sama seperti decide tunggal)."""
+        """Satu atau beberapa panggilan Gemini untuk BANYAK simbol → hemat RPD/TPM.
+
+        Kurikulum + grounding global dikirim SEKALI per sub-batch (bukan per simbol).
+        Batch besar dipecah menjadi sub-batch ≤ batch_chunk_size (default 4) agar:
+          1. Prompt tidak terlalu panjang → Gemini tak "lupa" simbol awal (attention OK).
+          2. Error parse satu chunk hanya flat chunk itu — chunk lain tetap jalan.
+          3. Token per request lebih terkontrol → reliabilitas parse JSON naik.
+
+        Balas JSON {symbol: keputusan}. Simbol hilang / parse gagal → FLAT (fail-safe)."""
         def _all_flat(reason: str) -> dict[str, dict]:
             return {s: {**_FLAT, "rationale": reason} for s in contexts}
+
         if not contexts:
             return {}
         if not self.enabled:
             return _all_flat("gemini off → flat")
-        shared, per = self._split_batch(contexts)
-        prompt = (
-            curriculum_prompt(modules=DECISION_MODULES)
-            + "\n\nBANYAK SIMBOL: 'KONTEKS BERSAMA' berlaku untuk SEMUA. Untuk SETIAP simbol di\n"
-              "array 'symbols', hasilkan keputusan dengan SKEMA OUTPUT yang sama seperti di atas.\n"
-              "Balas HANYA JSON object, KUNCI = symbol persis (mis. \"BTC/USDC:USDC\"):\n"
-              '{"<symbol>": {<skema keputusan>}, ...}. Sertakan SEMUA simbol; ragu → flat.\n\n'
-            + "KONTEKS BERSAMA (JSON):\n" + json.dumps(shared, default=str)
-            + "\n\nsymbols (JSON array):\n" + json.dumps(per, default=str))
-        text = self.client.generate(prompt, purpose="trader_batch")
-        if not text:
-            return _all_flat("gemini gagal → flat")
-        try:
-            data = json.loads(text[text.find("{"):text.rfind("}") + 1])
-        except Exception as e:  # boundary — jangan trading karena parse gagal
-            log.warning(f"trader_batch parse gagal → semua flat: {e}")
-            return _all_flat("parse gagal → flat")
-        out = {}
-        for s in contexts:
-            d = data.get(s)
-            out[s] = self._sanitize(d) if isinstance(d, dict) else {
-                **_FLAT, "rationale": "tak ada di balasan → flat"}
+
+        chunk_size = int(self.cfg.get("gemini", {}).get("batch_chunk_size", 4))
+        chunk_size = max(1, chunk_size)
+        items = list(contexts.items())
+        chunks = [dict(items[i:i + chunk_size]) for i in range(0, len(items), chunk_size)]
+        n_chunks = len(chunks)
+
+        out: dict[str, dict] = {}
+        for ci, chunk_ctx in enumerate(chunks, 1):
+            if n_chunks > 1:
+                log.debug(f"trader_batch sub-batch {ci}/{n_chunks} ({len(chunk_ctx)} simbol)")
+            shared, per = self._split_batch(chunk_ctx)
+            syms_in_chunk = list(chunk_ctx.keys())
+            prompt = (
+                curriculum_prompt(modules=DECISION_MODULES)
+                + "\n\nBANYAK SIMBOL: 'KONTEKS BERSAMA' berlaku untuk SEMUA. Untuk SETIAP simbol di\n"
+                  "array 'symbols', hasilkan keputusan dengan SKEMA OUTPUT yang sama seperti di atas.\n"
+                  "Balas HANYA JSON object, KUNCI = symbol persis (mis. \"BTC/USDC:USDC\"):\n"
+                  '{"<symbol>": {<skema keputusan>}, ...}. Sertakan SEMUA simbol; ragu → flat.\n\n'
+                + "KONTEKS BERSAMA (JSON):\n" + json.dumps(shared, default=str)
+                + "\n\nsymbols (JSON array):\n" + json.dumps(per, default=str))
+            text = self.client.generate(prompt, purpose="trader_batch")
+            if not text:
+                log.warning(f"trader_batch chunk {ci}/{n_chunks} gagal → flat {syms_in_chunk}")
+                for s in syms_in_chunk:
+                    out[s] = {**_FLAT, "rationale": "gemini gagal → flat"}
+                continue
+            try:
+                data = json.loads(text[text.find("{"):text.rfind("}") + 1])
+            except Exception as e:
+                log.warning(f"trader_batch chunk {ci}/{n_chunks} parse gagal → flat: {e}")
+                for s in syms_in_chunk:
+                    out[s] = {**_FLAT, "rationale": "parse gagal → flat"}
+                continue
+            for s in syms_in_chunk:
+                d = data.get(s)
+                out[s] = self._sanitize(d) if isinstance(d, dict) else {
+                    **_FLAT, "rationale": "tak ada di balasan → flat"}
         return out
 
     def _sanitize(self, data: dict) -> dict:

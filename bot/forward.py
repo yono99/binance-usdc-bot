@@ -36,6 +36,7 @@ from .notify import TelegramNotifier
 from .orderflow import cvd_from_series, fetch_taker
 from .settings_store import RuntimeSettings, liquidation_price, load_settings
 from .strategy_lab import decide_v4, precompute_v4
+from .gemini_client import all_keys_dead as _all_keys_dead
 
 _Sig = namedtuple("_Sig", ["side", "atr"])
 
@@ -174,6 +175,11 @@ class ForwardTester:
         self._gemini_decide_used = 0              # reset tiap awal siklus (_on_cycle_store)
         self._last_decide: dict = {}              # throttle keputusan-entry Gemini per simbol
         self._decide_interval = 180               # detik min antar keputusan entry (~3 mnt) — hemat token
+        # Cache harga saat Gemini terakhir memutuskan: {sym → (price, decision)}.
+        # Skip Gemini jika harga belum bergerak melewati threshold (hemat RPD saat pasar stagnan).
+        self._decide_price_cache: dict[str, tuple[float, dict]] = {}
+        # Anti-spam log peringatan RPD habis (log sekali per jam maksimal)
+        self._last_rpd_warn = 0.0
         # KESELAMATAN: Gemini-trader boleh order LIVE hanya bila di-set eksplisit di config.
         self._allow_live_gemini = bool(self.cfg.get("gemini", {}).get("allow_live_trader", False))
 
@@ -223,43 +229,6 @@ class ForwardTester:
         f4 = precompute_v4(df_closed, self.cfg, self.htf_mult, fz, oid, imb, div)
         side = decide_v4(f4, self.params, self.cfg, self.sessions)
         return int(side[-1]), float(f4.v3.v2.base.atr[-1])
-
-    def _gemini_decision(self, sym: str, df_closed: pd.DataFrame):
-        """Arah dari Gemini (teknik 'gemini'). Kembalikan (side, atr, decision, context)."""
-        from .indicators import atr as _atr
-        try:
-            fz, oid, imb, div = self._alt_arrays(sym, df_closed)
-            # Phase 4: evidence terkurasi (funding/OI/order-flow/CVD-divergensi/realized-vol),
-            # bukan OHLCV mentah. RV = stdev return 20-bar (%) — proxy volatilitas realized.
-            ret = df_closed["close"].pct_change().tail(20)
-            rv_pct = float(ret.std() * 100) if len(ret) > 2 else 0.0
-            alt = {"funding_z": round(float(fz[-1]), 3), "oi_delta": round(float(oid[-1]), 4),
-                   "cvd_imb": round(float(imb[-1]), 3), "cvd_divergence": bool(div[-1]),
-                   "realized_vol_pct": round(rv_pct, 3)}
-        except Exception:  # boundary — konteks alt opsional
-            alt = {}
-        pos = self.open.get(sym)
-        posview = {"side": pos["side"], "entry": round(pos["entry"], 6)} if pos else None
-        ctx = self.gtrader.build_context(sym, df_closed, alt=alt, position=posview,
-                                         balance=self.balance_usd, news_note=self._last_news_note,
-                                         portfolio=self._portfolio_view(),
-                                         btc_lead=self._btc_lead())   # MOTHERCOIN → konteks Gemini
-        dec = self.gtrader.decide(ctx)
-        # Phase 4: silang-periksa Devil's Advocate. Bila kritik KUAT (≥ threshold) →
-        # turunkan conviction SATU tier (bukan diabaikan). Fail-open bila devil off/gagal.
-        if dec["side"] in ("long", "short") and self.rs is not None:
-            verdict = self.react.challenge_gemini(sym, dec["side"], dec.get("rationale", ""),
-                                                  ctx.get("market", {}), alt)
-            if verdict and verdict["strength"] >= self.react.devil_threshold:
-                old = dec["conviction"]
-                dec["conviction"] = round(self.rs.downgrade_conf(old), 3)
-                top = verdict["objections"][0] if verdict["objections"] else "objection kuat"
-                dec["rationale"] = (dec.get("rationale", "") +
-                                    f" | DEVIL {verdict['strength']:.2f} "
-                                    f"({old:.2f}→{dec['conviction']:.2f}): {top}")[:200]
-        atr_val = float(_atr(df_closed, self.cfg["signals"]["atr_period"]).iloc[-1])
-        side = 1 if dec["side"] == "long" else (-1 if dec["side"] == "short" else 0)
-        return side, atr_val, dec, ctx
 
     def _btc_lead(self) -> dict:
         """Gerak BTC (pemimpin pasar) pada bar TERTUTUP: 1bar & 3bar % + arah.
@@ -1146,6 +1115,7 @@ class ForwardTester:
                 self._live_close(sym, pos)
             return
         pos = self.open.pop(sym)
+        self._decide_price_cache.pop(sym, None)  # invalidasi cache: state berubah, butuh decide baru
         is_long = pos["side"] == "long"
         exit_fill = price * (1 - self.slippage / 100 if is_long else 1 + self.slippage / 100)
         if reason == "liq":
@@ -1386,6 +1356,23 @@ class ForwardTester:
                      f"(simbol={len(self.symbols)}, cycles={cycles}, cap={self._gemini_decide_cap}"
                      f"{', MENTOK CAP' if need > self._gemini_decide_cap else ''})")
         self._gemini_decide_budget = new_budget
+        # ── RPD FALLBACK ──────────────────────────────────────────────────────────────
+        # Jika SEMUA key habis kuota RPD harian untuk model utama → fallback ke rules-based
+        # trading sementara sehingga bot tidak diam total sampai reset tengah malam UTC.
+        # Cek hanya saat Gemini aktif; model utama diambil dari GeminiTrader.client.models[0].
+        _gemini_rpd_fallback = False
+        if self.use_gemini_trader and self.gtrader is not None and rs.enabled:
+            _primary_model = (self.gtrader.client.models[0]
+                              if self.gtrader.client.models else "gemini-3-flash-preview")
+            if _all_keys_dead(self.gtrader.client.keys, _primary_model):
+                _gemini_rpd_fallback = True
+                now_t = time.time()
+                if now_t - self._last_rpd_warn > 3600:   # log sekali per jam (anti-spam)
+                    log.warning(
+                        f"Semua {len(self.gtrader.client.keys)} key Gemini habis RPD harian "
+                        f"untuk '{_primary_model}' — fallback ke rules-based trading siklus ini.")
+                    self._last_rpd_warn = now_t
+        # ─────────────────────────────────────────────────────────────────────────────
         self._process_close_requests()
         if self.live:
             self._live_reconcile()        # sinkron posisi & saldo nyata dari Binance
@@ -1419,6 +1406,7 @@ class ForwardTester:
         self._refresh_plan(rs)                 # tujuan sesi (planner) → enforce di gerbang entry
         expo = self._exposure_frac()
         label = {1: "LONG", -1: "SHORT", 0: "skip"}
+        gemini_candidates = []
         for sym in self.symbols:
             buf = self._update_buffer(sym)        # refresh DULU → monitor lihat high/low terbaru
             self._monitor_usd(sym, buf)           # cek SL/TP intrabar (tangkap wick antar-poll)
@@ -1446,7 +1434,7 @@ class ForwardTester:
             if bar_closed or free_gemini:
                 if bar_closed:
                     self.last_closed[sym] = df_closed.index[-1]
-                if self.use_gemini_trader and self.gtrader is not None:
+                if self.use_gemini_trader and self.gtrader is not None and not _gemini_rpd_fallback:
                     # Blokir MURAH dulu (tanpa panggil Gemini) — jangan buang token bila
                     # jelas tak akan buka posisi.
                     pre = (None if rs.enabled else "bot OFF")
@@ -1467,6 +1455,20 @@ class ForwardTester:
                     if pre is not None:
                         c["blocked"] = pre
                         continue
+                    # ── PRICE CACHE ───────────────────────────────────────────────────
+                    # Skip Gemini jika harga belum bergerak melewati threshold sejak decide
+                    # terakhir — hemat RPD saat pasar stagnan tanpa melewatkan pergerakan nyata.
+                    _price_cache_pct = float(
+                        self.cfg.get("gemini", {}).get("price_cache_pct", 0.15))
+                    _cached = self._decide_price_cache.get(sym)
+                    if _cached is not None and _price_cache_pct > 0 and c["price"]:
+                        _cached_price, _cached_dec = _cached
+                        _price_delta_pct = abs(c["price"] - _cached_price) / _cached_price * 100
+                        if _price_delta_pct < _price_cache_pct:
+                            log.debug(f"{sym}: skip gemini price cache (Δ={_price_delta_pct:.3f}% < {_price_cache_pct}%)")
+                            c["blocked"] = f"price cache: Δ{_price_delta_pct:.2f}%<{_price_cache_pct}%"
+                            continue
+                    # ─────────────────────────────────────────────────────────────────
                     if self._gemini_decide_used >= self._gemini_decide_budget:
                         # Kuota per-siklus habis — JANGAN set _last_decide (bukan throttle
                         # normal) agar simbol ini tetap prioritas dicoba di siklus BERIKUTNYA,
@@ -1475,25 +1477,119 @@ class ForwardTester:
                         continue
                     self._gemini_decide_used += 1
                     self._last_decide[sym] = now         # throttle: tandai panggilan Gemini
-                    side, atr, gdec, gctx = self._gemini_decision(sym, df_closed)
-                    c["gemini"] = {"dec": gdec, "ctx": gctx}
-                    c["rationale"] = gdec.get("rationale")
-                    c["setup"] = gdec.get("setup")
+                    gemini_candidates.append((sym, df_closed))
                 else:
                     side, atr = self._signal(sym, df_closed)
                     c.pop("gemini", None)
+                    c["side"] = label[side]
+                    c["atr_pct"] = round(atr / c["price"] * 100, 3) if c["price"] else None
+                    blocked = None
+                    if not rs.enabled:
+                        blocked = "bot OFF"
+                    elif news_veto:
+                        blocked = "news veto"   # alasan STABIL → dedup screening jalan;
+                        #                          catatan detail ada di panel Riwayat News Veto
+                    elif vrp_block:
+                        blocked = "vrp brake"
+                    elif ddlock:
+                        blocked = "drawdown lock"   # detail alasan di status.drawdown
+                    elif cb:
+                        blocked = cb
+                    elif sym in self.open:
+                        blocked = "sudah ada posisi"
+                    elif len(self.open) >= self.max_open:
+                        blocked = "slot penuh"
+                    elif side == 0:
+                        blocked = "tak ada sinyal"
+                    elif atr <= 0:
+                        blocked = "ATR nol"
+                    elif (conflict := self._corr_conflict(sym, side)):
+                        blocked = f"korelasi tinggi dgn {conflict.split('/')[0]}"
+                    elif self.use_planner and (pblock := self.planner.enforce(
+                            self._session_plan, "long" if side == 1 else "short",
+                            new_trades=self._session_trades, exposure_frac=expo)):
+                        blocked = pblock                 # tunduk pada tujuan sesi (planner)
+                    # Gerbang ReAct (teknik NON-gemini): keputusan AKTIF + dicatat ke decision_log.
+                    # Hanya dipanggil saat semua cek deterministik lolos → hemat panggilan LLM.
+                    if blocked is None and not self.use_gemini_trader:
+                        permitted, action, reasoning = self._react_gate(sym, side, atr, df_closed, c["price"])
+                        if not permitted:
+                            blocked = f"agent {action}"
+                            c["rationale"] = reasoning
+                    c["blocked"] = blocked
+                    if blocked is None:
+                        self._open_usd(sym, side, atr, rs)
+                        if sym in self.open:             # trade nyata terbuka → hitung utk kuota sesi
+                            self._session_trades += 1
+                            c["blocked"] = "→ posisi dibuka"
+
+        # TAHAP 2: Jika ada kandidat Gemini, lakukan keputusan batch (decide_batch)
+        if gemini_candidates:
+            contexts = {}
+            alt_data = {}
+            for sym, df_closed in gemini_candidates:
+                try:
+                    fz, oid, imb, div = self._alt_arrays(sym, df_closed)
+                    ret = df_closed["close"].pct_change().tail(20)
+                    rv_pct = float(ret.std() * 100) if len(ret) > 2 else 0.0
+                    alt = {"funding_z": round(float(fz[-1]), 3), "oi_delta": round(float(oid[-1]), 4),
+                           "cvd_imb": round(float(imb[-1]), 3), "cvd_divergence": bool(div[-1]),
+                           "realized_vol_pct": round(rv_pct, 3)}
+                except Exception:
+                    alt = {}
+                alt_data[sym] = alt
+                pos = self.open.get(sym)
+                posview = {"side": pos["side"], "entry": round(pos["entry"], 6)} if pos else None
+                ctx = self.gtrader.build_context(sym, df_closed, alt=alt, position=posview,
+                                                 balance=self.balance_usd, news_note=self._last_news_note,
+                                                 portfolio=self._portfolio_view(),
+                                                 btc_lead=self._btc_lead())
+                contexts[sym] = ctx
+
+            decisions = self.gtrader.decide_batch(contexts)
+
+            from .indicators import atr as _atr
+            for sym, df_closed in gemini_candidates:
+                dec = decisions.get(sym)
+                if not dec:
+                    dec = {"setup": "no_trade", "side": "flat", "conviction": 0.0, "rationale": "no decision in batch"}
+                ctx = contexts.get(sym, {})
+                alt = alt_data.get(sym, {})
+
+                # Devil's Advocate
+                if dec["side"] in ("long", "short") and self.rs is not None:
+                    verdict = self.react.challenge_gemini(sym, dec["side"], dec.get("rationale", ""),
+                                                          ctx.get("market", {}), alt)
+                    if verdict and verdict["strength"] >= self.react.devil_threshold:
+                        old = dec["conviction"]
+                        dec["conviction"] = round(self.rs.downgrade_conf(old), 3)
+                        top = verdict["objections"][0] if verdict["objections"] else "objection kuat"
+                        dec["rationale"] = (dec.get("rationale", "") +
+                                            f" | DEVIL {verdict['strength']:.2f} "
+                                            f"({old:.2f}→{dec['conviction']:.2f}): {top}")[:200]
+
+                atr_val = float(_atr(df_closed, self.cfg["signals"]["atr_period"]).iloc[-1])
+                side = 1 if dec["side"] == "long" else (-1 if dec["side"] == "short" else 0)
+
+                c = self.sig_cache.get(sym, {})
+                c["gemini"] = {"dec": dec, "ctx": ctx}
+                c["rationale"] = dec.get("rationale")
+                c["setup"] = dec.get("setup")
                 c["side"] = label[side]
-                c["atr_pct"] = round(atr / c["price"] * 100, 3) if c["price"] else None
+                c["atr_pct"] = round(atr_val / c["price"] * 100, 3) if c["price"] else None
+                # Update price cache: simpan harga & keputusan Gemini untuk siklus berikutnya
+                if c.get("price"):
+                    self._decide_price_cache[sym] = (c["price"], dec)
+
                 blocked = None
                 if not rs.enabled:
                     blocked = "bot OFF"
                 elif news_veto:
-                    blocked = "news veto"   # alasan STABIL → dedup screening jalan;
-                    #                          catatan detail ada di panel Riwayat News Veto
+                    blocked = "news veto"
                 elif vrp_block:
                     blocked = "vrp brake"
                 elif ddlock:
-                    blocked = "drawdown lock"   # detail alasan di status.drawdown
+                    blocked = "drawdown lock"
                 elif cb:
                     blocked = cb
                 elif sym in self.open:
@@ -1502,25 +1598,19 @@ class ForwardTester:
                     blocked = "slot penuh"
                 elif side == 0:
                     blocked = "tak ada sinyal"
-                elif atr <= 0:
+                elif atr_val <= 0:
                     blocked = "ATR nol"
                 elif (conflict := self._corr_conflict(sym, side)):
                     blocked = f"korelasi tinggi dgn {conflict.split('/')[0]}"
                 elif self.use_planner and (pblock := self.planner.enforce(
                         self._session_plan, "long" if side == 1 else "short",
                         new_trades=self._session_trades, exposure_frac=expo)):
-                    blocked = pblock                 # tunduk pada tujuan sesi (planner)
-                # Gerbang ReAct (teknik NON-gemini): keputusan AKTIF + dicatat ke decision_log.
-                # Hanya dipanggil saat semua cek deterministik lolos → hemat panggilan LLM.
-                if blocked is None and not self.use_gemini_trader:
-                    permitted, action, reasoning = self._react_gate(sym, side, atr, df_closed, c["price"])
-                    if not permitted:
-                        blocked = f"agent {action}"
-                        c["rationale"] = reasoning
+                    blocked = pblock
+
                 c["blocked"] = blocked
                 if blocked is None:
-                    self._open_usd(sym, side, atr, rs)
-                    if sym in self.open:             # trade nyata terbuka → hitung utk kuota sesi
+                    self._open_usd(sym, side, atr_val, rs)
+                    if sym in self.open:
                         self._session_trades += 1
                         c["blocked"] = "→ posisi dibuka"
                     # else: _open_usd GAGAL diam-diam (margin habis/SL invalid/abstain/dll) —
