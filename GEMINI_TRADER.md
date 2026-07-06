@@ -161,6 +161,38 @@ mencatat ke SQLite, dan merefleksi tiap 20 trade tertutup.
 5. **Fail-safe**: Gemini gagal/timeout → keputusan default **flat** (tidak buka posisi).
 6. **Demo-first**: tidak ada jalur live sampai track record lolos.
 
+## Anti-beku evidence-gate (grounding `setup_track_record`)
+
+Rekam jejak per-setup yang diumpankan ke `decide` kini bawa **`eff_n`** (sampel efektif,
+koreksi autokorelasi via `bot/stats.py`) + flag **`evidence`**:
+
+- `evidence="adequate"` (eff_n ≥ 30) → setup ber-exp_r negatif boleh dihindari/kurangi conviction.
+- `evidence="insufficient"` (sampel kecil) → exp_r negatifnya **kemungkinan NOISE**, bukan vonis
+  → perlakukan **NETRAL**, kumpulkan data dulu.
+
+**Kenapa:** `setup_stats` menghitung exp_r kumulatif tanpa window. Dengan n kecil (mis. 11–28),
+exp_r ±0.05 tak bisa dibedakan dari nol (std R ≈ 1). Dulu prompt "exp_r negatif = hindari" tanpa
+gerbang sampel → saat SEMUA setup sedikit-negatif, Gemini menolak semua → tak trade → sampel tak
+tumbuh → **beku permanen** (absorbing state). Gerbang `eff_n` memecah jebakan ini **tanpa**
+memaksa trading: begitu sampel cukup & tetap negatif-signifikan, ia mengerem lagi dengan sah.
+(`gemini_trader._track_record`, prompt `trader_curriculum.py`.)
+
+## Efisiensi panggilan — batch decide (hemat RPD/TPM)
+
+Free tier Gemini ketat (≈10 RPM/akun). `decide_batch(contexts)` mengirim **banyak simbol dalam
+SATU panggilan**: kurikulum + grounding global (`setup_track_record`, `calibration`, `btc_lead`,
+`portfolio`, …) dikirim **sekali** (`_split_batch`), per-simbol hanya market/alt/sl_feedback.
+Balas JSON `{symbol: keputusan}`, tiap entry lewat `_sanitize` yang sama; simbol hilang / parse
+gagal → **FLAT** (fail-safe identik `decide` tunggal).
+
+Dampak (batch N=10): **request 10→1**, **token ~39k→~11k** (~3–4× lebih hemat TPM). Lihat juga
+[RELIABILITY.md](RELIABILITY.md) — cooldown RPD kini **per-(key,model)** agar model primary yang
+kuota hariannya habis tak di-retry (429) tiap keputusan.
+
+> Status wiring: primitive `decide_batch` + test SELESAI. Integrasi ke loop `forward.py`
+> (fase A kumpulkan simbol lolos pre-gate → B batch → C terapkan gating+open, budget per-request)
+> = perubahan jalur uang tersendiri, di-`/verify` end-to-end sebelum aktif.
+
 ## Batasan jujur
 - "Berkembang" = playbook tertulis + retrieval, bukan otak berubah.
 - LLM lambat & non-deterministik → cocok untuk keputusan per-bar (15m), bukan tick.

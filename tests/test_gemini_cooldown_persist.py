@@ -15,15 +15,28 @@ def _reset(monkeypatch):
     return kv
 
 
-def test_rate_day_persists_and_survives_restart(monkeypatch):
+def test_rate_day_per_key_model_persists_and_survives_restart(monkeypatch):
     kv = _reset(monkeypatch)
-    key = "AQ.testkey123"
-    gc._mark_bad(key, "rate_day")                       # RPD habis → cooldown panjang → durable
-    assert gc._st(key)["cooldown_until"] > time.time() + 120
+    key, model = "AQ.testkey123", "gemini-3-flash-preview"
+    gc._mark_bad(key, "rate_day", model)                # RPD habis utk (key,model) → durable
+    assert gc._model_dead(key, model)                   # model ini mati
+    assert not gc._model_dead(key, "gemini-3.1-flash-lite-preview")  # model LAIN di key sama tetap hidup
+    assert gc._st(key)["cooldown_until"] <= time.time()  # cooldown PER-KEY tak disetel (key masih boleh)
     assert kv.get(gc._KV_COOLDOWN)                       # tersimpan ke kv
     # SIMULASI RESTART: buang state RAM, paksa muat ulang dari kv
     gc._states.clear(); gc._persisted.clear(); gc._persist_loaded = False
-    assert gc._st(key)["cooldown_until"] > time.time() + 120   # cooldown diwarisi, tak dihajar ulang
+    assert gc._model_dead(key, model)                   # tanda mati diwarisi, tak dihajar ulang
+
+
+def test_fallback_success_does_not_resurrect_dead_model(monkeypatch):
+    """Inti bug: sukses model fallback di key yg sama DULU menghapus tanda RPD-mati primary
+    (_mark_ok reset cooldown per-key) → primary di-retry tiap keputusan (429 sia-sia)."""
+    _reset(monkeypatch)
+    key, dead, alive = "AQ.k9", "gemini-3-flash-preview", "gemini-3.1-flash-lite-preview"
+    gc._mark_bad(key, "rate_day", dead)                 # primary kehabisan kuota harian
+    gc._mark_ok(key)                                    # model fallback sukses di key yg sama
+    assert gc._model_dead(key, dead)                    # primary TETAP mati → tak di-retry lagi
+    assert not gc._model_dead(key, alive)
 
 
 def test_rpm_60s_not_persisted(monkeypatch):

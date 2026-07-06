@@ -1,4 +1,6 @@
 """Fondasi Gemini Trader: skema SQLite, evidence-gate (anti-takhayul), decide fail-safe."""
+import json
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -169,6 +171,43 @@ def test_build_context_grounds_gemini_on_sqlite(db, trader):
     tr = {row["setup"]: row for row in ctx["setup_track_record"]}
     assert "range_fade" in tr and tr["range_fade"]["n"] == 3      # stats dari SQLite
     assert ctx["calibration"]["n"] == 1 and ctx["calibration"]["brier"] is not None
+
+
+def test_split_batch_hoists_global_context(db, trader):
+    """Grounding global (track record, kalibrasi, btc_lead, portfolio) dikirim SEKALI;
+    market/sl_feedback tetap per-simbol → itu inti penghematan token batch."""
+    ctxs = {}
+    for s in ("BTC/USDC:USDC", "ETH/USDC:USDC"):
+        ctxs[s] = trader.build_context(s, _df(), btc_lead={"dir": 1})
+    shared, per = trader._split_batch(ctxs)
+    assert set(shared) == set(trader._SHARED_KEYS)          # semua field global terangkat
+    assert len(per) == 2
+    for p in per:                                           # per-simbol TAK memuat field global
+        assert "market" in p and "symbol" in p
+        assert "setup_track_record" not in p and "btc_lead" not in p
+
+
+def test_decide_batch_keyed_by_symbol_and_fail_safe(db, trader, monkeypatch):
+    """Satu balasan → dict {symbol: decision}; simbol yang hilang / side aneh → FLAT."""
+    reply = {
+        "BTC/USDC:USDC": {"setup": "trend_pullback", "side": "long", "conviction": 0.7,
+                          "sl": 95.0, "tp": 110.0, "rationale": "kuat"},
+        "ETH/USDC:USDC": {"setup": "range_fade", "side": "flat", "conviction": 0.0,
+                          "rationale": "ragu"},
+        # SOL sengaja TIDAK dibalas → harus jadi FLAT (fail-safe)
+    }
+    trader.enabled = True
+    monkeypatch.setattr(trader.client, "generate", lambda *a, **k: json.dumps(reply))
+    ctxs = {s: trader.build_context(s, _df())
+            for s in ("BTC/USDC:USDC", "ETH/USDC:USDC", "SOL/USDC:USDC")}
+    out = trader.decide_batch(ctxs)
+    assert out["BTC/USDC:USDC"]["side"] == "long" and out["BTC/USDC:USDC"]["sl"] == 95.0
+    assert out["ETH/USDC:USDC"]["side"] == "flat"
+    assert out["SOL/USDC:USDC"]["side"] == "flat"           # hilang dari balasan → FLAT
+    # parse gagal → SEMUA flat
+    monkeypatch.setattr(trader.client, "generate", lambda *a, **k: "bukan json")
+    allflat = trader.decide_batch(ctxs)
+    assert all(d["side"] == "flat" for d in allflat.values())
 
 
 def test_track_record_evidence_gate_small_sample_is_noise(db, trader):

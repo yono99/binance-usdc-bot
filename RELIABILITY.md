@@ -58,7 +58,11 @@ trader/news/planner/devil's advocate).
 - **Throttle PER-KEY** (`_MIN_INTERVAL`, default 6.5s) — key dari project berbeda
   jalan paralel → RPM efektif ~N×.
 - **Rotasi LRU** — sebar beban ke key paling lama tak dipakai.
-- **Cooldown adaptif** — RPM 429 → 60s; RPD 429 → sampai reset harian; auth 403 → 5 mnt.
+- **Cooldown adaptif** — RPM 429 → 60s (per-key); auth 403 → 5 mnt (per-key);
+  **RPD 429 → per-(key,MODEL)** sampai reset harian. RPD habis = kuota harian model
+  ITU di key ITU (bukan seluruh key): model fallback di key sama tetap jalan, dan
+  sukses fallback **tak menghapus** tanda mati model primary. (Dulu cooldown RPD per-key
+  di-reset oleh sukses fallback → primary di-retry tiap keputusan = ribuan 429 sia-sia/hari.)
 - **Skip saat semua key cooling** → keputusan deterministik siklus itu (tak ada badai 429).
 - **Circuit breaker global** — gagal beruntun 5× → semua layer mundur 60s.
 

@@ -116,12 +116,14 @@ def test_classify_rpd_vs_rpm():
     assert gc._classify(_Err(status_code=429)) == "rate"      # per-menit (tanpa 'per day')
 
 
-def test_mark_bad_rpd_cools_much_longer_than_rpm():
-    gc._mark_bad("k1", "rate")
-    rpm_cd = gc._st("k1")["cooldown_until"]
-    gc._mark_bad("k2", "rate_day")
-    rpd_cd = gc._st("k2")["cooldown_until"]
-    assert rpd_cd > rpm_cd + 3600           # RPD sampai reset harian (jam), bukan 60 dtk
+def test_mark_bad_rpd_is_per_key_model_not_whole_key():
+    """RPD habis = per (key,model): tandai model itu mati sampai reset harian, TAPI biarkan
+    key tetap hidup untuk model lain (dulu RPD mematikan seluruh key seharian)."""
+    import time
+    gc._mark_bad("k2", "rate_day", "gemini-3-flash-preview")
+    assert gc._model_dead("k2", "gemini-3-flash-preview")            # model ini mati (jam, sampai reset)
+    assert gc._persisted[gc._model_key("k2", "gemini-3-flash-preview")] > time.time() + 3600
+    assert gc._st("k2")["cooldown_until"] <= time.time()            # key TIDAK dimatikan seharian
 
 
 def test_generate_skips_when_all_keys_cooling(monkeypatch):

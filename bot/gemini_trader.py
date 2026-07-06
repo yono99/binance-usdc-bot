@@ -225,6 +225,53 @@ class GeminiTrader:
             return {**_FLAT, "rationale": "parse gagal → flat"}
         return self._sanitize(data)
 
+    # Field GLOBAL (sama utk semua simbol dalam satu siklus) → kirim SEKALI di batch,
+    # bukan diduplikasi per simbol. sl_feedback/recent_decisions/loss_postmortem PER-SIMBOL.
+    _SHARED_KEYS = ("setup_track_record", "exit_track_record", "calibration",
+                    "tested_lessons", "btc_lead", "portfolio", "balance_usd", "news")
+
+    def _split_batch(self, contexts: dict[str, dict]) -> tuple[dict, list[dict]]:
+        """Pisahkan konteks bersama (global) dari data per-simbol → hemat token."""
+        first = next(iter(contexts.values()))
+        shared = {k: first.get(k) for k in self._SHARED_KEYS}
+        per = [{k: v for k, v in ctx.items() if k not in self._SHARED_KEYS}
+               for ctx in contexts.values()]
+        return shared, per
+
+    def decide_batch(self, contexts: dict[str, dict]) -> dict[str, dict]:
+        """Satu panggilan Gemini untuk BANYAK simbol → hemat RPD/TPM: kurikulum + grounding
+        global dikirim SEKALI (bukan per simbol). Balas JSON {symbol: keputusan}. Simbol
+        hilang / parse gagal → FLAT (fail-safe, sama seperti decide tunggal)."""
+        def _all_flat(reason: str) -> dict[str, dict]:
+            return {s: {**_FLAT, "rationale": reason} for s in contexts}
+        if not contexts:
+            return {}
+        if not self.enabled:
+            return _all_flat("gemini off → flat")
+        shared, per = self._split_batch(contexts)
+        prompt = (
+            curriculum_prompt(modules=DECISION_MODULES)
+            + "\n\nBANYAK SIMBOL: 'KONTEKS BERSAMA' berlaku untuk SEMUA. Untuk SETIAP simbol di\n"
+              "array 'symbols', hasilkan keputusan dengan SKEMA OUTPUT yang sama seperti di atas.\n"
+              "Balas HANYA JSON object, KUNCI = symbol persis (mis. \"BTC/USDC:USDC\"):\n"
+              '{"<symbol>": {<skema keputusan>}, ...}. Sertakan SEMUA simbol; ragu → flat.\n\n'
+            + "KONTEKS BERSAMA (JSON):\n" + json.dumps(shared, default=str)
+            + "\n\nsymbols (JSON array):\n" + json.dumps(per, default=str))
+        text = self.client.generate(prompt, purpose="trader_batch")
+        if not text:
+            return _all_flat("gemini gagal → flat")
+        try:
+            data = json.loads(text[text.find("{"):text.rfind("}") + 1])
+        except Exception as e:  # boundary — jangan trading karena parse gagal
+            log.warning(f"trader_batch parse gagal → semua flat: {e}")
+            return _all_flat("parse gagal → flat")
+        out = {}
+        for s in contexts:
+            d = data.get(s)
+            out[s] = self._sanitize(d) if isinstance(d, dict) else {
+                **_FLAT, "rationale": "tak ada di balasan → flat"}
+        return out
+
     def _sanitize(self, data: dict) -> dict:
         """Validasi keras output AI; apa pun aneh → FLAT (fail-safe)."""
         setup = data.get("setup")

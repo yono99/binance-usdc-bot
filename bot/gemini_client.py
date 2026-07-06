@@ -82,6 +82,18 @@ def _key_hash(key: str) -> str:
     return hashlib.sha256(key.encode()).hexdigest()[:16]
 
 
+def _model_key(key: str, model: str) -> str:
+    return f"{_key_hash(key)}|{model}"       # rate_day per (key,model) — beda dari cooldown per-key
+
+
+def _model_dead(key: str, model: str) -> bool:
+    """True bila (key,model) ini kehabisan kuota HARIAN (RPD). Disimpan di _persisted dgn
+    komposit-key (bare-hash utk cooldown per-key tetap terpisah), jadi sukses model fallback
+    di key yg sama TAK menghapusnya (dulu _mark_ok mengulanginya → primary di-retry tiap call)."""
+    _load_persisted()
+    return _persisted.get(_model_key(key, model), 0.0) > time.time()
+
+
 def _load_persisted() -> None:
     global _persist_loaded
     if _persist_loaded:
@@ -196,16 +208,20 @@ def _mark_ok(key: str) -> None:
         _save_persisted()
 
 
-def _mark_bad(key: str, kind: str) -> None:
+def _mark_bad(key: str, kind: str, model: str | None = None) -> None:
     s = _st(key)
     s["fails"] += 1
-    if kind == "rate":
+    if kind == "rate_day" and model:
+        # RPD habis = per (KEY, MODEL): model lain di key ini MASIH boleh jalan, dan sukses
+        # model fallback TAK BOLEH menghapus tanda ini. Durable sampai reset harian.
+        _persisted[_model_key(key, model)] = time.time() + _secs_to_rpd_reset()
+        _save_persisted()
+        return
+    if kind in ("rate", "rate_day"):   # RPM (atau rate_day tanpa info model) → cooldown key singkat
         s["cooldown_until"] = time.time() + COOLDOWN_RATE
-    elif kind == "rate_day":     # RPD habis → key mati sampai reset harian; jgn coba lagi tiap menit
-        s["cooldown_until"] = time.time() + _secs_to_rpd_reset()
     elif kind == "auth":
         s["cooldown_until"] = time.time() + COOLDOWN_AUTH
-    if s["cooldown_until"] - time.time() > _PERSIST_MIN:   # cooldown panjang (rate_day/auth) → durable
+    if s["cooldown_until"] - time.time() > _PERSIST_MIN:   # cooldown panjang (auth) → durable
         _persisted[_key_hash(key)] = s["cooldown_until"]
         _save_persisted()
 
@@ -254,6 +270,8 @@ class GeminiClient:
                 model_down = False
                 for key in _ordered_keys(self.keys):
                     ki = self.keys.index(key)
+                    if _model_dead(key, model):     # (key,model) RPD habis → skip TANPA buang panggilan
+                        continue
                     try:
                         _throttle(key)       # jeda WAJIB per-key → hormati RPM (per-project)
                         resp = _get_client(key).models.generate_content(model=model, contents=prompt)
@@ -282,7 +300,7 @@ class GeminiClient:
                             log.warning(f"Gemini {purpose} request invalid: {last_err[:120]}")
                             return None
                         if kind in ("rate", "rate_day", "auth"):
-                            _mark_bad(key, kind)
+                            _mark_bad(key, kind, model)
                             store.log_gemini_usage(model, purpose, ki, 0, 0, 0, ok=False, error=f"{kind}: {last_err[:140]}")
                             any_transient = True
                             continue
