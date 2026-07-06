@@ -103,26 +103,10 @@ class GeminiTrader:
     def _track_record(self) -> list[dict]:
         """Rekam jejak per-setup DIHITUNG KODE dari SQLite (deterministik, anti-halusinasi):
         win rate, expectancy R, seberapa sering SL tersambar & MAE/MFE-nya. Memberi Gemini
-        BUKTI performa tiap setup-nya sendiri — bukan klaim, bukan ramalan.
-
-        Tambah 'eff_n' (sampel efektif, koreksi autokorelasi) & 'evidence': exp_r negatif
-        pada sampel kecil = NOISE, bukan vonis. Tanpa ini bot membeku permanen (semua setup
-        exp_r sedikit-negatif → hindari semua → tak trade → sampel tak tumbuh → beku)."""
-        from .stats import effective_sample_size
+        BUKTI performa tiap setup-nya sendiri — bukan klaim, bukan ramalan."""
         try:
-            by_setup: dict[str, list[float]] = {}
-            for d in store.settled_decisions():
-                s, r = d.get("setup"), d.get("outcome_r")
-                if s and r is not None:
-                    by_setup.setdefault(s, []).append(float(r))
-            out = []
-            for s in sorted(by_setup):
-                st = store.setup_stats(s)
-                eff = effective_sample_size(by_setup[s])
-                st["eff_n"] = round(eff, 1)                       # ambang 30 = samakan gate PROMISING
-                st["evidence"] = "adequate" if eff >= 30 else "insufficient"
-                out.append(st)
-            return out
+            setups = sorted({d["setup"] for d in store.settled_decisions() if d.get("setup")})
+            return [store.setup_stats(s) for s in setups]
         except Exception:  # boundary — konteks opsional
             return []
 

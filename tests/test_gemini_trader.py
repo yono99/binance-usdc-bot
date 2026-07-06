@@ -173,6 +173,7 @@ def test_build_context_grounds_gemini_on_sqlite(db, trader):
     assert ctx["calibration"]["n"] == 1 and ctx["calibration"]["brier"] is not None
 
 
+<<<<<<< HEAD
 def test_split_batch_hoists_global_context(db, trader):
     """Grounding global (track record, kalibrasi, btc_lead, portfolio) dikirim SEKALI;
     market/sl_feedback tetap per-simbol → itu inti penghematan token batch."""
@@ -229,6 +230,8 @@ def test_track_record_evidence_gate_small_sample_is_noise(db, trader):
     assert tr["range_fade"]["exp_r"] < 0 and tr["range_fade"]["evidence"] == "adequate"
 
 
+=======
+>>>>>>> parent of 3542ce0 (feat: perbaikan entry posisi)
 # ---------- kelola posisi: GUARDRAIL exit-only / tighten tak boleh longgar ----------
 
 def test_valid_tighten_never_loosens():
