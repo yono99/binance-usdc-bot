@@ -233,6 +233,8 @@ def test_track_record_evidence_gate_small_sample_is_noise(db, trader):
 
 =======
 >>>>>>> parent of 3542ce0 (feat: perbaikan entry posisi)
+=======
+>>>>>>> parent of 3542ce0 (feat: perbaikan entry posisi)
 # ---------- kelola posisi: GUARDRAIL exit-only / tighten tak boleh longgar ----------
 
 def test_valid_tighten_never_loosens():
