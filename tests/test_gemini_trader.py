@@ -174,6 +174,7 @@ def test_build_context_grounds_gemini_on_sqlite(db, trader):
 
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 def test_split_batch_hoists_global_context(db, trader):
     """Grounding global (track record, kalibrasi, btc_lead, portfolio) dikirim SEKALI;
     market/sl_feedback tetap per-simbol → itu inti penghematan token batch."""
