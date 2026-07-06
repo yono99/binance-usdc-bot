@@ -171,6 +171,25 @@ def test_build_context_grounds_gemini_on_sqlite(db, trader):
     assert ctx["calibration"]["n"] == 1 and ctx["calibration"]["brier"] is not None
 
 
+def test_track_record_evidence_gate_small_sample_is_noise(db, trader):
+    """Anti-beku: exp_r negatif pada sampel KECIL = 'insufficient' (noise), bukan vonis
+    'hindari'. Baru 'adequate' setelah eff_n cukup (>=30)."""
+    # 5 trade sedikit-negatif → sampel kecil, tak boleh jadi alasan hindari total
+    for _ in range(5):
+        i = db.record_decision("BTC/USDC:USDC", "trend_pullback", "long", 0.6, "", {})
+        db.settle_decision(i, -0.1)
+    tr = {r["setup"]: r for r in trader._track_record()}
+    assert tr["trend_pullback"]["exp_r"] < 0
+    assert tr["trend_pullback"]["evidence"] == "insufficient"     # noise → NETRAL, kumpulkan data
+
+    # 40 trade i.i.d. → eff_n cukup → vonis 'adequate' baru sah
+    for k in range(40):
+        i = db.record_decision("ETH/USDC:USDC", "range_fade", "short", 0.5, "", {})
+        db.settle_decision(i, 1.0 if k % 2 else -1.2)             # exp_r negatif, tak berkorelasi
+    tr = {r["setup"]: r for r in trader._track_record()}
+    assert tr["range_fade"]["exp_r"] < 0 and tr["range_fade"]["evidence"] == "adequate"
+
+
 # ---------- kelola posisi: GUARDRAIL exit-only / tighten tak boleh longgar ----------
 
 def test_valid_tighten_never_loosens():
