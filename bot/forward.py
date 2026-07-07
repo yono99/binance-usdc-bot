@@ -1362,15 +1362,20 @@ class ForwardTester:
         # Cek hanya saat Gemini aktif; model utama diambil dari GeminiTrader.client.models[0].
         _gemini_rpd_fallback = False
         if self.use_gemini_trader and self.gtrader is not None and rs.enabled:
-            _primary_model = (self.gtrader.client.models[0]
-                              if self.gtrader.client.models else "gemini-3-flash-preview")
-            if _all_keys_dead(self.gtrader.client.keys, _primary_model):
+            _all_models = (self.gtrader.client.models
+                          if self.gtrader.client.models else ["gemini-3-flash-preview"])
+            # Fallback ke rules-based HANYA bila SEMUA model (primary + fallback) mati di
+            # SEMUA key — bukan cuma model index-0. Sebelumnya cek [0] saja menyebabkan bot
+            # nyerah ke rules-based walau model fallback (mis. 3.1-flash-lite-preview) masih
+            # segar & bisa dipakai.
+            if all(_all_keys_dead(self.gtrader.client.keys, m) for m in _all_models):
                 _gemini_rpd_fallback = True
                 now_t = time.time()
                 if now_t - self._last_rpd_warn > 3600:   # log sekali per jam (anti-spam)
                     log.warning(
                         f"Semua {len(self.gtrader.client.keys)} key Gemini habis RPD harian "
-                        f"untuk '{_primary_model}' — fallback ke rules-based trading siklus ini.")
+                        f"untuk SEMUA model ({', '.join(_all_models)}) — fallback ke "
+                        "rules-based trading siklus ini.")
                     self._last_rpd_warn = now_t
         # ─────────────────────────────────────────────────────────────────────────────
         self._process_close_requests()
