@@ -90,6 +90,7 @@ export interface Status {
   day_pnl?: number;
   day_trades?: number;
   circuit_breaker?: string | null;
+  drawdown?: { locked: boolean; reason: string | null; peak_balance: number; dd_pct: number };
   corr_threshold?: number;
   news_veto?: { active: boolean; note: string };
   symbols?: PairStatus[];

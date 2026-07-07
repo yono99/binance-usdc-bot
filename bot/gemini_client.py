@@ -25,17 +25,21 @@ try:
 except Exception:  # SDK belum terpasang
     genai = None
 
-# Daftar model + urutan fallback — DISAMAKAN dengan elearning (lib/gemini/client.ts).
-# Model 3.x dicoba dulu; bila tak tersedia utk key → error 'model' → fallback ke 2.5.
-# Urutan = KUOTA-SEHAT dulu. Free tier 2.5/3.5-flash dipangkas Des'25 → 429 masif;
-# model *-preview masih longgar (bukti: 3 Juli, preview 0 gagal vs 2.5-flash ~90% gagal).
-# 2.5/3.5-flash tetap disimpan sbg cadangan bila preview di-deprecate Google.
+# Daftar model + urutan fallback — URUTAN = KUOTA RPD (per-hari) TERLONGGAR dulu.
+# Insiden 2026-07-06: 3.5-flash (RPD 20) & 2.5-flash (RPD 20-250) habis dalam
+# hitungan menit di siklus sibuk → all_keys_dead() jatuh ke rules-based semalaman
+# → rugi besar → drawdown lock. Kuota RPD nyata (free tier, Juli 2026):
+#   3-flash-preview        RPD longgar (bukti empiris 3 Juli, preview 0 gagal)
+#   3.1-flash-lite-preview RPD 500-1000
+#   2.5-flash-lite         RPD 1000 (bukan preview, stabil)
+#   2.5-flash              RPD 20-250 — ketat
+#   3.5-flash              RPD 20 — PALING ketat, last-resort murni
 FALLBACK_MODELS = [
     "gemini-3-flash-preview",        # utama — kuota free longgar
     "gemini-3.1-flash-lite-preview",
-    "gemini-3.5-flash",
+    "gemini-2.5-flash-lite",
     "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",         # last resort
+    "gemini-3.5-flash",              # last resort — RPD 20/hari saja
 ]
 
 COOLDOWN_RATE = 60.0        # 429 RPM (per-menit) → istirahatkan 60 dtk (jendela bergulir)

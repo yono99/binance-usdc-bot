@@ -76,6 +76,7 @@ def _make_ft(make_df, monkeypatch, *, price=100.0, price_cache_pct=0.15,
     ft.news = types.SimpleNamespace(check=lambda: (False, ""))
     ft.vrp = types.SimpleNamespace(check=lambda: (False, None), mode="shadow")
     ft.autonomous = False
+    ft.notify = types.SimpleNamespace(send=lambda *a, **k: None)
 
     df = make_df([price] * 65)
     monkeypatch.setattr(ft, "_apply_settings",

@@ -1371,11 +1371,12 @@ class ForwardTester:
             if all(_all_keys_dead(self.gtrader.client.keys, m) for m in _all_models):
                 _gemini_rpd_fallback = True
                 now_t = time.time()
-                if now_t - self._last_rpd_warn > 3600:   # log sekali per jam (anti-spam)
-                    log.warning(
-                        f"Semua {len(self.gtrader.client.keys)} key Gemini habis RPD harian "
-                        f"untuk SEMUA model ({', '.join(_all_models)}) — fallback ke "
-                        "rules-based trading siklus ini.")
+                if now_t - self._last_rpd_warn > 3600:   # log+notif sekali per jam (anti-spam)
+                    msg = (f"Semua {len(self.gtrader.client.keys)} key Gemini habis RPD harian "
+                           f"untuk SEMUA model ({', '.join(_all_models)}) — fallback ke "
+                           "rules-based trading siklus ini.")
+                    log.warning(msg)
+                    self.notify.send(f"⚠️ <b>GEMINI RPD HABIS</b>\n{msg}")
                     self._last_rpd_warn = now_t
         # ─────────────────────────────────────────────────────────────────────────────
         self._process_close_requests()

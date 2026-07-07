@@ -42,6 +42,14 @@ export function BotStatus({ status, onAction }: { status: Status | null; onActio
     flash(`Permintaan tutup semua (${status.open_count}) dikirim — diproses ≤1 siklus.`);
     onAction();
   };
+  const resetDrawdownLock = async () => {
+    if (!confirm(`Lepas DRAWDOWN LOCK?\n${status.drawdown?.reason ?? ""}\n` +
+                 "Puncak saldo akan di-set ulang ke saldo sekarang."))
+      return;
+    await api.ddReset(status.mode);
+    flash("Permintaan reset drawdown lock dikirim — diproses ≤1 siklus.");
+    onAction();
+  };
 
   type Row = NonNullable<Status["symbols"]>[number];
   const cols: Col<Row>[] = [
@@ -98,6 +106,16 @@ export function BotStatus({ status, onAction }: { status: Status | null; onActio
             <span className="pos">circuit breaker: clear</span>
           )}
         </div>
+        {status.drawdown?.locked && (
+          <div className="line" style={{ marginTop: 8 }}>
+            <span className="neg">
+              🛑 DRAWDOWN LOCK: {status.drawdown.reason ?? `${f(status.drawdown.dd_pct, 1)}% dari puncak`}
+            </span>{" "}
+            <button className="btnsm" onClick={resetDrawdownLock}>
+              Reset Drawdown Lock
+            </button>
+          </div>
+        )}
       </div>
       <div className="panel">
         <h2>

@@ -65,6 +65,8 @@ export const api = {
   clearTrades: () => postJSON<{ ok: boolean; removed: number }>("/api/trades/clear"),
   resetGeminiUsage: () =>
     postJSON<{ ok: boolean; removed: number }>("/api/gemini-usage/reset"),
+  ddReset: (mode?: string) =>
+    postJSON<{ ok: boolean; mode: string; note: string }>("/api/dd-reset", mode ? { mode } : undefined),
 };
 
 export const f = (n: number | null | undefined, d = 2): string =>
