@@ -298,7 +298,7 @@ class ForwardTester:
 
     def _react_settle(self, sym: str, pos: dict, pnl: float, reason: str) -> None:
         """Paper: R dari jarak SL (akuntansi identik backtest)."""
-        risk0 = abs(pos["entry"] - pos["sl"]) * pos["qty"]
+        risk0 = pos.get("risk0") or abs(pos["entry"] - pos["sl"]) * pos["qty"]  # 1R beku saat open
         outcome_r = pnl / risk0 if risk0 else 0.0
         outcome = {"liq": "LIQ", "sl": "SL_HIT", "tp": "TP_HIT"}.get(reason, "CLOSE")
         self._react_link(sym, outcome, outcome_r,
@@ -1084,6 +1084,8 @@ class ForwardTester:
         entry_fee_rate = rs.fee_rate(settle, rs.order_type == "limit")   # kaki ENTRY: maker bila limit
         self.open[sym] = {"side": "long" if is_long else "short", "entry": entry, "qty": qty,
                           "sl": sl, "tp": tp, "liq": liq, "bet": bet,
+                          "risk0": abs(entry - sl) * qty,   # 1R BEKU saat open — SL boleh di-trail, R tidak ikut bergeser
+
                           "entry_fee_rate": entry_fee_rate,   # fee kaki-entry (per-settle); exit selalu taker
                           "opened_ts": pd.Timestamp.utcnow().isoformat(),  # utk marker panah di chart
                           **self.vrp.stamp(),   # stempel regime VRP saat open (A/B shadow)
@@ -1134,7 +1136,10 @@ class ForwardTester:
             pnl = max(pos["qty"] * move - fee - funding, -pos["bet"])  # rugi maks = margin
         self.balance_usd += pnl
         self._day_pnl += pnl                        # untuk circuit breaker harian
-        risk0 = abs(pos["entry"] - pos["sl"]) * pos["qty"]   # R = jarak-SL (identik backtest & _react_settle)
+        # R = jarak-SL AWAL (risk0 dibekukan saat open). Fallback ke SL sekarang hanya
+        # untuk posisi lama tanpa stempel — dengan catatan SL ter-trail (breakeven/tighten)
+        # membuat penyebut ~0 → R meledak (bug PLAY/USDT R=-231).
+        risk0 = pos.get("risk0") or abs(pos["entry"] - pos["sl"]) * pos["qty"]
         r = pnl / risk0 if risk0 else 0.0
         self.trades.append(namedtuple("T", ["r"])(r))
         vrp.log_close(sym, pos, r, mode=self.settings.mode)   # shadow log ber-mode
