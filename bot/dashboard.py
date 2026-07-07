@@ -554,6 +554,18 @@ def api_mtf(mode: str = None, sample: int = 100) -> JSONResponse:
     return JSONResponse(mtf.report(m, sample=max(1, int(sample))))
 
 
+@app.get("/api/flat-shadow")
+def api_flat_shadow(mode: str = None) -> JSONResponse:
+    """Report shadow keputusan FLAT Gemini: miss-rate (gerakan tradeable yang
+    terlewat) keseluruhan / per-regime / per-conviction + verdict pra-registrasi.
+    Tak memblokir apa pun (shadow)."""
+    from . import flat_shadow
+    from .config import load_settings
+    from .settings_store import _env_mode
+    m = mode if mode in ("dry", "test", "live") else (get_active_mode() or _env_mode())
+    return JSONResponse(_json_safe(flat_shadow.report(m, load_settings().raw)))
+
+
 @app.get("/api/mode")
 def api_get_mode() -> JSONResponse:
     """Mode trading AKTIF (dry/test/live) — satu sumber kebenaran dibaca bot &

@@ -29,6 +29,7 @@ from .memory import AgentMemory
 from .news import NewsVeto
 from . import vrp
 from . import mtf
+from . import flat_shadow
 from .planner import SessionPlanner, default_plan
 from .react_agent import ReactAgent
 from .signals import Signal
@@ -467,6 +468,17 @@ class ForwardTester:
                 old = pos["sl"]
                 pos["sl"] = round(float(act["new_sl"]), 6)
                 log.info(f"Gemini tighten SL {sym}: {old:.6f} → {pos['sl']:.6f}")
+
+    @staticmethod
+    def _gemini_score(df, price: float, atr: float, since_decide_s: float) -> float:
+        """Skor "menarik" kandidat kuota Gemini: volatilitas × gerakan terakhir +
+        boost anti-starvation (jam sejak decide terakhir, cap 2j). Murah & deterministik."""
+        try:
+            ret5 = abs(float(df["close"].iloc[-1] / df["close"].iloc[-6] - 1)) * 100
+        except Exception:
+            ret5 = 0.0
+        atr_pct = atr / price * 100 if price else 0.0
+        return atr_pct * (1 + ret5) + min(since_decide_s / 3600, 2.0) * 0.1
 
     @staticmethod
     def _regime_stamp(df, cfg) -> dict:
@@ -1417,7 +1429,7 @@ class ForwardTester:
         self._refresh_plan(rs)                 # tujuan sesi (planner) → enforce di gerbang entry
         expo = self._exposure_frac()
         label = {1: "LONG", -1: "SHORT", 0: "skip"}
-        gemini_candidates = []
+        gemini_pool = []                       # (sym, df, score) — di-ranking setelah loop
         for sym in self.symbols:
             buf = self._update_buffer(sym)        # refresh DULU → monitor lihat high/low terbaru
             self._monitor_usd(sym, buf)           # cek SL/TP intrabar (tangkap wick antar-poll)
@@ -1480,15 +1492,12 @@ class ForwardTester:
                             c["blocked"] = f"price cache: Δ{_price_delta_pct:.2f}%<{_price_cache_pct}%"
                             continue
                     # ─────────────────────────────────────────────────────────────────
-                    if self._gemini_decide_used >= self._gemini_decide_budget:
-                        # Kuota per-siklus habis — JANGAN set _last_decide (bukan throttle
-                        # normal) agar simbol ini tetap prioritas dicoba di siklus BERIKUTNYA,
-                        # bukan menunggu penuh _decide_interval lagi.
-                        c["blocked"] = "kuota gemini per-siklus habis"
-                        continue
-                    self._gemini_decide_used += 1
-                    self._last_decide[sym] = now         # throttle: tandai panggilan Gemini
-                    gemini_candidates.append((sym, df_closed))
+                    # Kumpulkan SEMUA yang lolos pre-gate dgn skor "menarik" — kuota
+                    # dialokasikan by-ranking setelah loop (bukan first-come-first-served,
+                    # yang membuat simbol ekor daftar kelaparan permanen).
+                    score = self._gemini_score(df_closed, c["price"], gate_atr,
+                                               now - self._last_decide.get(sym, 0))
+                    gemini_pool.append((sym, df_closed, score))
                 else:
                     side, atr = self._signal(sym, df_closed)
                     c.pop("gemini", None)
@@ -1533,6 +1542,19 @@ class ForwardTester:
                         if sym in self.open:             # trade nyata terbuka → hitung utk kuota sesi
                             self._session_trades += 1
                             c["blocked"] = "→ posisi dibuka"
+
+        # RANKING: kuota decide dialokasikan ke kandidat paling "hidup" (skor), bukan
+        # urutan daftar. Sisa slot dari siklus ini (budget dikurangi pemakaian manage dll).
+        gemini_pool.sort(key=lambda t: (-t[2], t[0]))    # skor desc, tie-break nama (deterministik)
+        slots = max(self._gemini_decide_budget - self._gemini_decide_used, 0)
+        gemini_candidates = [(sym, df) for sym, df, _ in gemini_pool[:slots]]
+        for sym, df, _ in gemini_pool[slots:]:
+            # JANGAN set _last_decide (bukan throttle normal) — tetap ikut ranking siklus depan.
+            self.sig_cache.setdefault(sym, {})["blocked"] = "prioritas rendah siklus ini"
+        _now_rank = time.time()
+        for sym, _df in gemini_candidates:
+            self._gemini_decide_used += 1
+            self._last_decide[sym] = _now_rank           # throttle: tandai panggilan Gemini
 
         # TAHAP 2: Jika ada kandidat Gemini, lakukan keputusan batch (decide_batch)
         if gemini_candidates:
@@ -1609,6 +1631,11 @@ class ForwardTester:
                     blocked = "slot penuh"
                 elif side == 0:
                     blocked = "tak ada sinyal"
+                    # Shadow: catat flat ASLI Gemini (semua blokir murah sudah lolos) →
+                    # nanti diukur apakah ada gerakan tradeable yang terlewat (miss).
+                    flat_shadow.record_flat(self.settings.mode, sym, c.get("price"), atr_val,
+                                            dec, self._regime_stamp(df_closed, self.cfg)["regime"],
+                                            df_closed.index[-1], self.cfg)
                 elif atr_val <= 0:
                     blocked = "ATR nol"
                 elif (conflict := self._corr_conflict(sym, side)):
@@ -1628,6 +1655,8 @@ class ForwardTester:
                     # JANGAN timpa. _open_usd SUDAH menulis alasan gagal yang akurat ke
                     # sig_cache[sym]['blocked'] di titik early-return-nya sendiri; menimpanya
                     # dgn "posisi dibuka" di sini membuat UI klaim sukses padahal gagal.
+        flat_shadow.settle_pending(self.settings.mode, getattr(self, "buffers", {}) or {},
+                                   self.cfg)   # shadow: nilai flat yang horizonnya lewat
         self._agent_portfolio_review(rs)   # POINT 2: agen otonom kelola portofolio (REDUCE_RISK/FLAT)
         self._write_status(rs, news_veto, note)
         self._persist_state()        # saldo+posisi durable -> tahan restart

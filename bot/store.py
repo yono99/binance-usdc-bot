@@ -105,6 +105,25 @@ CREATE TABLE IF NOT EXISTS gemini_reflections (
     metrics TEXT
 );
 
+-- ===== Flat shadow: keputusan FLAT Gemini + evaluasi forward (miss = ada gerakan
+-- tradeable ≥ k×ATR dalam horizon yang dilewatkan). Dua fase pending→settled. =====
+CREATE TABLE IF NOT EXISTS flat_shadow (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts         TEXT NOT NULL,
+    mode       TEXT NOT NULL,          -- dry | test | live (isolasi per-mode)
+    symbol     TEXT NOT NULL,
+    price      REAL NOT NULL,          -- harga saat decide
+    atr        REAL NOT NULL,          -- ATR saat decide (basis 1R hipotetis)
+    conviction REAL,
+    rationale  TEXT,
+    regime     TEXT,                   -- json _regime_stamp
+    bar_ts     TEXT NOT NULL,          -- index bar terakhir saat decide
+    status     TEXT DEFAULT 'pending', -- pending | settled
+    mfe_up_pct REAL, mfe_dn_pct REAL,
+    miss       INTEGER, miss_dir TEXT  -- diisi saat settle
+);
+CREATE INDEX IF NOT EXISTS idx_flat_status ON flat_shadow(status, ts);
+
 -- ===== Kalibrasi confidence: Brier score per trade (per mode, diisi saat close) =====
 CREATE TABLE IF NOT EXISTS calibration_log (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,

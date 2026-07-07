@@ -177,3 +177,15 @@ mtf:
   mode: shadow
   mults: [8, 16]        # 15m×8=2h, 15m×16=4h (di luar HTF 1h base signal)
   sample: 100           # ambang sampel sebelum report bermakna
+
+# Shadow keputusan FLAT Gemini (pola VRP/MTF): catat tiap flat asli, lalu ukur
+# apakah ada gerakan tradeable >= k_atr*ATR dalam horizon yang terlewat (miss).
+# Verdict PRA-REGISTRASI: FLAT_BIAS_TOO_EXPENSIVE butuh n>=sample, miss_rate >
+# miss_threshold, DAN >=1 regime (n>=50) melewatinya. Alat ukur, bukan gerbang.
+flat_shadow:
+  mode: shadow          # off | shadow
+  horizon_bars: 16      # 16 bar 15m = 4 jam
+  k_atr: 1.0            # ambang gerakan ~1R
+  sample: 200
+  miss_threshold: 0.35
+  retention_days: 90

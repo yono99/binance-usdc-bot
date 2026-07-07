@@ -99,8 +99,8 @@ def test_budget_caps_gemini_calls_this_cycle(ft):
     over_budget = [s for s in ft.symbols if s not in ft._gemini_calls]
     assert len(over_budget) == 3
     for s in over_budget:
-        assert ft.sig_cache[s]["blocked"] == "kuota gemini per-siklus habis"
-        assert s not in ft._last_decide                        # TAK di-throttle → prioritas siklus berikutnya
+        assert ft.sig_cache[s]["blocked"] == "prioritas rendah siklus ini"
+        assert s not in ft._last_decide                        # TAK di-throttle → ikut ranking siklus berikutnya
 
 
 def test_next_cycle_picks_up_the_rest(ft):
