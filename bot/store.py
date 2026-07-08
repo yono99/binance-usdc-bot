@@ -350,15 +350,27 @@ def record_decision(symbol: str, setup: str, side: str, conviction: float,
         return cur.lastrowid
 
 
+_R_SANE = 20.0  # ponytail: 1 trade |R|>20 non-fisik (sizing risk-first ~1R) → bug hitung,
+                # bukan hasil nyata. Clamp di chokepoint settle agar tak meracuni AVG(outcome_r)
+                # yang disuntik ke prompt (biang zero-entry PLAY R=-231). Naikkan bila sizing berubah.
+
+
 def settle_decision(decision_id: int, outcome_r: float, mae_pct: float | None = None,
                     mfe_pct: float | None = None, exit_reason: str | None = None) -> bool:
     init_db()
     _migrate()
+    r = float(outcome_r)
+    if abs(r) > _R_SANE:
+        import logging
+        logging.getLogger("bot").warning(
+            f"outcome_r={r:.2f} di luar batas waras (±{_R_SANE}) untuk decision {decision_id} "
+            f"— di-clamp; cek risk0/entry (kemungkinan SL ter-trail ke ~breakeven).")
+        r = max(-_R_SANE, min(_R_SANE, r))
     with _conn() as c:
         return c.execute(
             "UPDATE gemini_decisions SET status='settled', outcome_r=?, mae_pct=?, "
             "mfe_pct=?, exit_reason=? WHERE id=?",
-            (float(outcome_r), mae_pct, mfe_pct, exit_reason, decision_id)).rowcount > 0
+            (r, mae_pct, mfe_pct, exit_reason, decision_id)).rowcount > 0
 
 
 def recent_decisions(symbol: str | None = None, limit: int = 20) -> list[dict]:
