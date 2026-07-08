@@ -1033,7 +1033,9 @@ class ForwardTester:
             c["blocked"] = f"SKIPPED: low_confidence ({gem_conv:.2f} < {rs.conf_min:.2f})"
             journal("forward_skip", {"symbol": sym, "reason": "low_confidence",
                                      "conviction": round(gem_conv, 3),
-                                     "conf_min": rs.conf_min})
+                                     "conf_min": rs.conf_min,
+                                     "side": "long" if side == 1 else "short" if side == -1 else None,
+                                     "setup": (gem["dec"].get("setup") if gem else None)})
             log.info(f"SKIP {sym}: confidence {gem_conv:.2f} < {rs.conf_min:.2f} (abstain)")
             return
         bet = self._adaptive_bet(self.balance_usd, rs.bet_usd, rs.bet_pct, self.open, size_mult)
