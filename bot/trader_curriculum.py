@@ -103,6 +103,14 @@ STRUKTUR PASAR & PRICE ACTION (lebih penting dari pola hafalan):
   diuji berulang & ditembus → sering bertukar peran (resisten jadi support).
 - Pullback vs reversal: koreksi dangkal yang menghormati struktur = pullback (peluang searah);
   struktur rusak = reversal (jangan lawan).
+- CHASING vs PULLBACK VALID (definisi eksplisit, jangan disamakan): "chasing" HANYA berlaku
+  kalau harga sudah extend jauh dari EMA20 TANPA pullback recent (≥3 candle sejak breakdown/
+  breakout terakhir, tak ada reaksi di level kunci). Kalau ADA bukti bounce-lalu-ditolak (wick
+  berlawanan arah + close di sisi tren dalam 1-3 candle terakhir, di dekat EMA/resisten-dinamis/
+  level bekas support-jadi-resisten) — itu BUKAN chasing, itu entry pullback yang sah: bear
+  flag/pennant, retest-reject EMA, lower-high rejection, retest VWAP, atau retest support-lama-
+  jadi-resisten. Jangan turunkan conviction hanya karena tren sudah berjalan jauh — nilai lokasi
+  entry relatif terhadap pullback terakhir, bukan relatif terhadap titik awal tren.
 - Likuiditas & stop-hunt: harga sering menyapu di atas swing-high / bawah swing-low (memicu
   stop) lalu berbalik. Sapuan + penolakan cepat = sinyal jebakan, bukan breakout sejati.
 - Volume/dorongan: gerakan sehat didukung partisipasi; breakout tanpa dorongan rentan gagal.
