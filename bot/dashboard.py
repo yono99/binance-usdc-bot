@@ -225,10 +225,10 @@ def api_account() -> JSONResponse:
     if s.mode == "live" and os.getenv("BINANCE_LIVE_KEY"):
         try:
             from .exchange import Exchange
-            bal = Exchange(s).client.fetch_balance()
-            total = bal.get("total", {})
-            usdc = float(total.get("USDC") or total.get("USDT") or 0)
-            data = {"mode": "live", "api_valid": True, "balance_usdc": round(usdc, 2),
+            b = Exchange(s).balances(0.0)
+            data = {"mode": "live", "api_valid": True,
+                    "balance_usdc": round(b["USDC"], 2), "balance_usdt": round(b["USDT"], 2),
+                    "balance_total": round(b["USDC"] + b["USDT"], 2),
                     "gemini_enabled": s.gemini_enabled, "gemini_keys": len(s.gemini_keys)}
         except Exception as e:  # boundary
             data = {"mode": "live", "api_valid": False, "error": str(e)[:140],
@@ -368,10 +368,11 @@ def api_validate_key(payload: dict) -> JSONResponse:
         import ccxt
         c = ccxt.binanceusdm({"apiKey": key, "secret": secret, "enableRateLimit": True,
                               "options": {"defaultType": "future"}})
-        bal = c.fetch_balance()
-        total = bal.get("total", {})
-        usdc = float(total.get("USDC") or total.get("USDT") or 0)
-        return JSONResponse({"valid": True, "balance_usdc": round(usdc, 2)})
+        total = c.fetch_balance().get("total", {})
+        usdc, usdt = float(total.get("USDC") or 0), float(total.get("USDT") or 0)
+        return JSONResponse({"valid": True, "balance_usdc": round(usdc, 2),
+                             "balance_usdt": round(usdt, 2),
+                             "balance_total": round(usdc + usdt, 2)})
     except Exception as e:  # boundary
         return JSONResponse({"valid": False, "error": str(e)[:160]})
 

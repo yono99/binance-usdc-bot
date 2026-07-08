@@ -65,16 +65,26 @@ class Exchange:
         return (ask - bid) / ((ask + bid) / 2) * 100
 
     # ---------- akun (butuh key; di dry pakai fallback) ----------
+    def balances(self, fallback: float = 1000.0) -> dict[str, float]:
+        """Saldo margin TERPISAH per-quote (USDC-M & USDT-M dompet berbeda di Binance).
+        Pair BTC/USDC butuh margin USDC, BTC/USDT butuh USDT → sizing per-quote (#1)."""
+        if self.settings.is_dry:
+            return {"USDC": fallback, "USDT": 0.0}
+        try:
+            total = self.client.fetch_balance().get("total", {})
+            return {"USDC": float(total.get("USDC") or 0.0),
+                    "USDT": float(total.get("USDT") or 0.0)}
+        except Exception as e:  # boundary
+            log.error(f"saldo fetch gagal: {e}")
+            return {"USDC": fallback, "USDT": 0.0}
+
     def equity_usdc(self, fallback: float = 1000.0) -> float:
+        """Equity TOTAL (USDC+USDT) — angka informatif/sizing global. Sizing per-quote
+        yang benar-secara-margin ambil dari balances() (dikerjakan di #1)."""
         if self.settings.is_dry:
             return fallback
-        try:
-            bal = self.client.fetch_balance()
-            total = bal.get("total", {})
-            return float(total.get("USDC") or total.get("USDT") or fallback)
-        except Exception as e:  # boundary
-            log.error(f"equity fetch gagal: {e}")
-            return fallback
+        b = self.balances(fallback)
+        return b["USDC"] + b["USDT"]
 
     def positions(self) -> list[dict]:
         if self.settings.is_dry:
