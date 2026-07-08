@@ -283,6 +283,10 @@ class GeminiTrader:
                 for s in syms_in_chunk:
                     out[s] = {**_FLAT, "rationale": "parse gagal → flat"}
                 continue
+            missing = [s for s in syms_in_chunk if not isinstance(data.get(s), dict)]
+            if missing:  # jaring pengaman: batch drop = entry hilang diam-diam (spt zero-entry PLAY)
+                log.warning(f"trader_batch chunk {ci}/{n_chunks}: {len(missing)}/"
+                            f"{len(syms_in_chunk)} simbol HILANG dari balasan → flat: {missing}")
             for s in syms_in_chunk:
                 d = data.get(s)
                 out[s] = self._sanitize(d) if isinstance(d, dict) else {
