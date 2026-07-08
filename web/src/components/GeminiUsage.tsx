@@ -5,7 +5,12 @@ import { Table, type Col } from "./Table";
 import { PaginatedTable } from "./PaginatedTable";
 
 const n = (x: number) => x.toLocaleString("id-ID");
-const ts = (s: string) => (s || "").slice(0, 19).replace("T", " ");
+const ts = (s: string) => {
+  if (!s) return "";
+  const d = new Date(s.includes("Z") || s.includes("+") ? s : s + "Z");
+  if (isNaN(d.getTime())) return s.slice(0, 19).replace("T", " ");
+  return d.toLocaleString("id-ID", { timeZone: "Asia/Jakarta", hour12: false }) + " WIB";
+};
 
 function Card({ lbl, val, c = "" }: { lbl: string; val: string | number; c?: string }) {
   return (
