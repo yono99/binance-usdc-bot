@@ -45,6 +45,9 @@ class RuntimeSettings:
     bet_usd: float = 12.0                       # margin per posisi (dipakai bila bet_pct=0)
     bet_pct: float = 0.0                         # ADAPTIF: >0 → margin = %saldo (auto-scale $10→naik)
     balance_usd: float = 12.0                   # saldo akun (paper)
+    dry_quote_split_usdc: float = -1.0          # DRY: porsi saldo kertas utk pool USDC (0..1);
+    #                                             sisanya USDT. -1 = auto (proporsi jumlah pair USDC
+    #                                             di universe). LIVE abaikan ini — pool dari saldo asli.
     target_profit_pct: float = 0.0              # 0 = pakai TP dari ATR; >0 = TP = entry×(1+ini%)
     max_open_positions: int = 2                 # slot posisi paralel maksimum
     daily_max_loss_pct: float = 3.0             # circuit breaker: stop buka posisi bila rugi harian ≥ % saldo awal hari (0 = nonaktif)

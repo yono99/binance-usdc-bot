@@ -999,17 +999,27 @@ class ForwardTester:
             return None
         return min(sl, cap)                            # clamp turun bila terlalu dekat likuidasi
 
+    def _quote_pool(self, quote: str) -> float:
+        """Saldo margin untuk satu quote (USDC/USDT). LIVE: dompet asli terpisah (balances()).
+        DRY: bagi saldo kertas total per rasio (config dry_quote_split_usdc, -1=proporsi pair)."""
+        if self.live:
+            return self.ex.balances(self.balance_usd).get(quote, 0.0)
+        frac = getattr(getattr(self, "rs", None), "dry_quote_split_usdc", -1.0)
+        if not 0.0 <= frac <= 1.0:                # auto: proporsi jumlah pair USDC di universe
+            n_usdc = sum(1 for s in self.symbols if s.endswith(":USDC"))
+            frac = n_usdc / len(self.symbols) if self.symbols else 0.5
+        return self.balance_usd * (frac if quote == "USDC" else 1.0 - frac)
+
     @staticmethod
-    def _adaptive_bet(balance: float, bet_usd: float, bet_pct: float,
-                      open_positions: dict, gem_conv: float | None = None) -> float:
-        """Ukuran margin ADAPTIF: bet_pct>0 → %saldo (auto-scale $10→naik), else bet_usd tetap.
-        Skala conviction Gemini (lantai 20%), lalu CAP ke margin BEBAS (saldo − terkunci) agar
-        akun modal-minim tak pernah 'diam total'. Kembalikan 0.0 bila tak ada margin bebas."""
-        bet = balance * (bet_pct / 100.0) if bet_pct > 0 else bet_usd
+    def _adaptive_bet(pool: float, bet_usd: float, bet_pct: float,
+                      locked: float, gem_conv: float | None = None) -> float:
+        """Ukuran margin ADAPTIF: bet_pct>0 → %pool (auto-scale $10→naik), else bet_usd tetap.
+        Skala conviction Gemini (lantai 20%), lalu CAP ke margin BEBAS pool (pool − terkunci
+        di quote yang SAMA) agar akun modal-minim tak 'diam total'. 0.0 bila pool habis."""
+        bet = pool * (bet_pct / 100.0) if bet_pct > 0 else bet_usd
         if gem_conv is not None:
             bet = max(bet * gem_conv, bet * 0.2)
-        locked = sum((p.get("bet") or 0) for p in open_positions.values())
-        avail = balance - locked
+        avail = pool - locked
         if avail < 0.10:
             return 0.0
         return min(bet, avail)
@@ -1038,10 +1048,15 @@ class ForwardTester:
                                      "setup": (gem["dec"].get("setup") if gem else None)})
             log.info(f"SKIP {sym}: confidence {gem_conv:.2f} < {rs.conf_min:.2f} (abstain)")
             return
-        bet = self._adaptive_bet(self.balance_usd, rs.bet_usd, rs.bet_pct, self.open, size_mult)
+        quote = "USDC" if sym.endswith(":USDC") else "USDT"
+        pool = self._quote_pool(quote)            # margin per-quote (dompet terpisah di live)
+        locked_q = sum((p.get("bet") or 0) for s, p in self.open.items()
+                       if (s.endswith(":USDC") and quote == "USDC")
+                       or (not s.endswith(":USDC") and quote == "USDT"))
+        bet = self._adaptive_bet(pool, rs.bet_usd, rs.bet_pct, locked_q, size_mult)
         if bet <= 0:
             c = self.sig_cache.setdefault(sym, {})
-            c["blocked"] = "margin bebas habis"
+            c["blocked"] = f"margin {quote} habis (pool ${pool:.2f})"
             return
         price = float(self.ex.ticker(sym)["last"])
         is_long = side == 1

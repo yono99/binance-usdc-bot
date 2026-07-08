@@ -77,7 +77,7 @@ def test_failed_open_keeps_accurate_reason_not_fake_success(make_df):
     ft._on_cycle_store()
 
     assert "BTC/USDC:USDC" not in ft.open                       # posisi memang TAK terbuka
-    assert ft.sig_cache["BTC/USDC:USDC"]["blocked"] == "margin bebas habis"   # alasan AKURAT
+    assert ft.sig_cache["BTC/USDC:USDC"]["blocked"].startswith("margin USDC habis")  # alasan AKURAT per-quote
     assert ft.sig_cache["BTC/USDC:USDC"]["blocked"] != "→ posisi dibuka"       # bukan klaim palsu
 
 
