@@ -17,7 +17,7 @@ def _self(equity_after, *, open_pos, monkeypatch):
         client=types.SimpleNamespace(cancel_all_orders=lambda s: None),
     )
     self = types.SimpleNamespace(
-        ex=ex, open=open_pos, balance_usd=100.0,
+        ex=ex, open=open_pos, pending={}, balance_usd=100.0,
         _day_pnl=0.0, _day_start_balance=100.0,
         gtrader=types.SimpleNamespace(settle=lambda did, r: settled.append((did, r)),
                                       reflect=lambda: {"active_lessons": 0}),

@@ -127,6 +127,12 @@ class ForwardTester:
         self._day_start_balance = 0.0
         self._eff_mode = self.settings.mode          # mode efektif berjalan
         self.live = (self.settings.mode == "live")   # True = order UANG NYATA
+        # LIMIT entry resting (post-only/GTX) belum terisi: ditelusuri sbg PENDING, BUKAN posisi.
+        # Reconcile tiap siklus via fetch_open_orders: filled → pasang SL/TP + pindah ke self.open;
+        # cancel/expire/timeout → dibuang. self.open HANYA posisi BENAR-BENAR terisi (uang masuk).
+        self.pending: dict[str, dict] = {}
+        self._pending_timeout_s = int(
+            (self.cfg.get("execution") or {}).get("pending_timeout_s", 300) or 0)
         # Kill-switch drawdown TOTAL (P1 tujuan compounding): puncak saldo per mode,
         # kunci permanen sampai reset manual — CB harian saja tak menangkap bleed pelan.
         self._peak_balance = 0.0
@@ -758,6 +764,7 @@ class ForwardTester:
         if abs(st.get("cfg_balance", self._last_cfg_balance) - self._last_cfg_balance) < 1e-9:
             self.balance_usd = float(st.get("balance", self.balance_usd))
         self.open = st.get("open", {}) or {}
+        self.pending = st.get("pending", {}) or {}           # LIMIT resting pulih dari restart
         self.agent_memory.restore(st.get("agent_memory"))   # memori lintas-tick tahan restart
         # pulihkan state circuit breaker harian bila masih hari yang sama (UTC)
         if st.get("day") == str(pd.Timestamp.utcnow().date()):
@@ -797,6 +804,7 @@ class ForwardTester:
             from .store import set_kv
             set_kv(self._state_key, {"balance": round(self.balance_usd, 6),
                                 "open": self.open,
+                                "pending": self.pending,            # LIMIT resting tahan restart
                                 "cfg_balance": self._last_cfg_balance,
                                 "day": str(self._day), "day_pnl": round(self._day_pnl, 4),
                                 "day_trades": self._day_trades,
@@ -822,6 +830,7 @@ class ForwardTester:
             self.settings = new
             self.live = (eff == "live")
             self.open = {}                      # posisi lama (paper/mode lain) tak valid
+            self.pending = {}                   # pending order lama tak valid
             # Isolasi per-mode HARUS ikut pindah di sini — tanpa ini, _persist_state()
             # & journal terus menulis ke bucket mode LAMA setelah switch runtime,
             # mencampur saldo/riwayat lintas mode (insiden 2026-07-02).
@@ -870,14 +879,17 @@ class ForwardTester:
         except Exception as e:  # boundary
             log.error(f"sync posisi live gagal: {e}")
 
-    def _live_open(self, sym, is_long, qty, entry, sl, tp, rs) -> tuple[bool, float]:
-        """Tempatkan order ENTRY nyata + SL/TP sisi-exchange. Return (ok, fill_price).
-        KRITIS: entry & SL/TP di try/except TERPISAH. Bila entry terisi (uang REAL sudah
-        masuk) tapi SL/TP gagal ditempatkan (mis. harga sudah lewat trigger dlm hitungan
-        ms), JANGAN klaim gagal total (posisi_open=False) — itu membuat posisi TELANJANG
-        (tanpa proteksi) HILANG TOTAL dari self.open (live: _monitor_usd tak enforce SL/TP
-        sendiri, percaya penuh ke order exchange). Coba emergency-close dulu; kalau itu
-        JUGA gagal, tetap lacak (return ok=True) drpd bot buta total thd eksposur nyata."""
+    def _live_open(self, sym, is_long, qty, entry, sl, tp, rs) -> tuple[bool, float | None, dict | None]:
+        """Tempatkan order ENTRY nyata. Return (ok, fill_price|None, pending|None).
+        - LIMIT + GTX (post-only): hampir selalu RESTING (status 'open'/'new') → JANGAN
+          pasang SL/TP atau daftar self.open. Kembalikan pending={order_id,...} agar
+          caller menelusurinya; reconcile akan pasang SL/TP & pindah ke self.open saat terisi.
+        - MARKET / limit yang langsung terisi: pasang SL/TP sisi-exchange → (True, fill, None).
+        - Lengkapnya krn KRITIS: entry & SL/TP di try/except TERPISAH. Bila entry TERISI
+          (uang REAL sudah masuk) tapi SL/TP gagal ditempatkan, JANGAN klaim gagal total
+          (posisi_open=False) — itu membuat posisi TELANJANG hilang dari self.open (live:
+          _monitor_usd tak enforce SL/TP sendiri, percaya penuh ke order exchange). Coba
+          emergency-close; kalau JUGA gagal, tetap lacak (ok=True) drpd bot buta thd eksposur."""
         try:
             self.ex.set_leverage(sym, rs.leverage)
             side_str = "buy" if is_long else "sell"
@@ -885,11 +897,21 @@ class ForwardTester:
                 order = self.ex.client.create_order(sym, "limit", side_str, qty, entry, {"timeInForce": "GTX"})
             else:
                 order = self.ex.client.create_order(sym, "market", side_str, qty)
-            fill = float(order.get("average") or entry)
         except Exception as e:  # boundary — entry sendiri gagal → aman, tak ada eksposur
             log.error(f"LIVE OPEN {sym} gagal (entry): {e}")
             self.notify.send(f"❌ <b>LIVE OPEN GAGAL</b> {sym}\n{str(e)[:140]}")
-            return False, entry
+            return False, entry, None
+        status = str(order.get("status") or "").lower()
+        order_id = order.get("id")
+        # LIMIT post-only RESTING (tak langsung terisi) → telusuri sbg pending, BUKAN posisi.
+        # Tanda: status 'open'/'new'/'untriggered' DAN average kosong (= belum ada fill).
+        if rs.order_type == "limit" and status in ("open", "new", "untriggered") and not order.get("average"):
+            log.info(f"LIVE LIMIT {sym} RESTING (order_id={order_id}) — telusuri sbg pending, "
+                     f"SL/TP belum dipasang sampai terisi")
+            return True, None, {"order_id": order_id, "qty": qty, "entry": entry,
+                                "sl": sl, "tp": tp, "is_long": is_long,
+                                "placed_ts": pd.Timestamp.utcnow().isoformat()}
+        fill = float(order.get("average") or entry)
         try:
             close_side = "sell" if is_long else "buy"
             # SL/TP dijaga exchange (tetap aktif walau bot mati)
@@ -897,7 +919,7 @@ class ForwardTester:
                                         {"stopPrice": sl, "reduceOnly": True})
             self.ex.client.create_order(sym, "TAKE_PROFIT_MARKET", close_side, qty, None,
                                         {"stopPrice": tp, "reduceOnly": True})
-            return True, fill
+            return True, fill, None
         except Exception as e:  # boundary — entry SUDAH terisi, SL/TP gagal → posisi telanjang
             log.error(f"LIVE OPEN {sym}: entry terisi TAPI SL/TP gagal ({e}) — emergency close")
             try:
@@ -905,27 +927,30 @@ class ForwardTester:
                 self.ex.client.cancel_all_orders(sym)
                 self.notify.send(f"⚠️ <b>LIVE OPEN {sym}</b>: SL/TP gagal dipasang → "
                                  f"emergency-close berhasil. Tak ada posisi tersisa.\n{str(e)[:140]}")
-                return False, fill                       # posisi sudah ditutup lagi → aman
+                return False, fill, None                  # posisi sudah ditutup lagi → aman
             except Exception as e2:  # boundary — emergency close JUGA gagal: posisi telanjang NYATA
                 self.notify.send(
                     f"🚨 <b>DARURAT</b> {sym}: entry live terisi, SL/TP GAGAL, emergency-close "
                     f"JUGA GAGAL — posisi TELANJANG tanpa proteksi!\nTutup MANUAL segera di exchange.\n"
                     f"{str(e)[:100]} | {str(e2)[:100]}")
                 log.error(f"{sym}: posisi telanjang tak terlindungi — intervensi manual WAJIB")
-                return True, fill                        # WAJIB tetap dilacak — jangan hilang total
+                return True, fill, None                   # WAJIB tetap dilacak — jangan hilang total
 
     def _live_close(self, sym: str, pos: dict) -> None:
-        """Tutup posisi nyata (reduceOnly market) + batalkan SL/TP tersisa."""
+        """Tutup posisi nyata (reduceOnly market) + batalkan SL/TP + pending tersisa."""
         try:
             close_side = "sell" if pos["side"] == "long" else "buy"
             self.ex.client.create_order(sym, "market", close_side, pos["qty"], None, {"reduceOnly": True})
             self.ex.client.cancel_all_orders(sym)
         except Exception as e:  # boundary
             log.error(f"LIVE CLOSE {sym} gagal: {e}")
+        self.pending.pop(sym, None)               # bersihkan pending bila ada
 
     def _live_reconcile(self) -> None:
         """Sinkron posisi nyata dari Binance: deteksi yang sudah tertutup (SL/TP/liq),
-        update saldo dari equity nyata, bersihkan order yatim."""
+        update saldo dari equity nyata, bersihkan order yatim.
+        JUGA: reconcile LIMIT entry yang masih RESTING (self.pending → self.open bila
+        terisi, atau dibuang bila cancel/expire/timeout)."""
         try:
             real = {}
             for p in self.ex.positions():
@@ -934,6 +959,106 @@ class ForwardTester:
         except Exception as e:  # boundary
             log.error(f"reconcile live gagal: {e}")
             return
+        # --- RECONCILE PENDING: LIMIT resting → filled / canceled / timeout ---
+        if self.pending:
+            try:
+                oo_by_id = {}
+                for o in self.ex.open_orders():
+                    oid = o.get("id")
+                    if oid:
+                        oo_by_id[oid] = o
+            except Exception as e:  # boundary
+                log.warning(f"fetch open_orders untuk reconcile gagal: {e}")
+                oo_by_id = {}
+            now = pd.Timestamp.utcnow()
+            for sym, pend in list(self.pending.items()):
+                oid = pend.get("order_id")
+                odata = oo_by_id.get(oid)
+                # Terisi: posisi muncul di real ATAU order sudah closed/filled
+                is_filled = sym in real or (odata is None and not odata)
+                if sym in real:
+                    is_filled = True
+                if odata is not None:
+                    ost = str(odata.get("status") or "").lower()
+                    if ost in ("closed", "filled", "expired"):
+                        is_filled = True if ost in ("closed", "filled") else False
+                    else:
+                        is_filled = False
+                # Timeout: pending terlalu lama resting → cancel order & skip
+                is_timeout = False
+                if self._pending_timeout_s > 0 and not is_filled:
+                    try:
+                        placed = pd.Timestamp(pend.get("placed_ts"))
+                        elapsed = (now - placed).total_seconds()
+                        if elapsed > self._pending_timeout_s:
+                            is_timeout = True
+                    except Exception:
+                        pass
+                if is_timeout:
+                    log.warning(f"LIMIT PENDING TIMEOUT {sym} ({oid}) — cancel")
+                    try:
+                        self.ex.client.cancel_order(oid, sym)
+                    except Exception:
+                        pass
+                    self.pending.pop(sym, None)
+                    journal("forward_pending_timeout", {"symbol": sym, "order_id": oid})
+                    self.notify.send(f"⏰ <b>LIMIT TIMEOUT</b> {sym} — dibatalkan (terlalu lama)")
+                elif is_filled:
+                    # Pindah pending → open: pasang SL/TP sekarang
+                    fill_price = float(real[sym].get("entryPrice") or pend["entry"]) if sym in real else float(odata.get("average") or pend["entry"]) if odata else pend["entry"]
+                    sl, tp = pend["sl"], pend["tp"]
+                    qty = pend["qty"]
+                    is_long = pend["is_long"]
+                    close_side = "sell" if is_long else "buy"
+                    sl_tp_ok = True
+                    try:
+                        self.ex.client.create_order(sym, "STOP_MARKET", close_side, qty, None,
+                                                    {"stopPrice": sl, "reduceOnly": True})
+                        self.ex.client.create_order(sym, "TAKE_PROFIT_MARKET", close_side, qty, None,
+                                                    {"stopPrice": tp, "reduceOnly": True})
+                    except Exception as e:  # boundary — SL/TP gagal setelah fill
+                        log.error(f"LIMIT FILLED {sym} tapi SL/TP gagal ({e}) — emergency close")
+                        sl_tp_ok = False
+                        try:
+                            self.ex.client.create_order(sym, "market", close_side, qty, None,
+                                                        {"reduceOnly": True})
+                            self.ex.client.cancel_all_orders(sym)
+                            self.notify.send(f"⚠️ <b>LIMIT FILLED {sym}</b> tapi SL/TP gagal → "
+                                             f"emergency close\n{str(e)[:140]}")
+                        except Exception as e2:
+                            self.notify.send(f"🚨 <b>DARURAT</b> {sym}: limit terisi, SL/TP gagal, "
+                                             f"emergency close JUGA gagal — tutup MANUAL\n{str(e)[:100]}")
+                    self.pending.pop(sym, None)
+                    if sl_tp_ok:
+                        # Daftar sebagai posisi terisi
+                        self.open[sym] = {
+                            "side": "long" if is_long else "short",
+                            "entry": fill_price, "qty": qty, "sl": sl, "tp": tp,
+                            "liq": pend.get("liq", 0.0), "bet": pend.get("bet", 0.0),
+                            "risk0": pend.get("risk0", 0.0),
+                            "entry_fee_rate": pend.get("entry_fee_rate", 0.0),
+                            "opened_ts": pend.get("placed_ts"),
+                            **self.vrp.stamp(), **self._regime_stamp(None, self.cfg)}
+                        # Gemini data
+                        for k in ("gdecision", "setup", "conviction"):
+                            if k in pend:
+                                self.open[sym][k] = pend[k]
+                        journal("forward_open_filled", {"symbol": sym, "side": self.open[sym]["side"],
+                                                         "entry": fill_price, "sl": sl, "tp": tp,
+                                                         "liq": pend.get("liq"), "order_id": oid})
+                        log.info(f"LIMIT FILLED {sym} @ {fill_price:.4f} SL={sl:.4f} TP={tp:.4f}")
+                        self.notify.send(
+                            f"✅ <b>LIMIT FILLED</b> {sym}\n"
+                            f"Entry {fill_price:.4f} · SL {sl:.4f} · TP {tp:.4f}")
+                else:
+                    # Masih resting — cek jika posisi TIDAK ada di real DAN order TIDAK ada di oo
+                    # → berarti cancel/expire manual
+                    if odata is None and sym not in real:
+                        self.pending.pop(sym, None)
+                        journal("forward_pending_cancel", {"symbol": sym, "order_id": oid})
+                        log.info(f"LIMIT PENDING BATAL {sym} (cancel/expire) — dibuang")
+                        self.notify.send(f"❌ <b>LIMIT BATAL</b> {sym} — cancel/expire")
+        # --- RECONCILE POSISI: deteksi close (SL/TP/liq/manual) ---
         prev_balance = self.balance_usd
         closed = [(sym, self.open[sym]) for sym in list(self.open) if sym not in real]
         for sym, _pos in closed:
@@ -1101,10 +1226,39 @@ class ForwardTester:
                 c = self.sig_cache.setdefault(sym, {})
                 c["blocked"] = "qty live nol setelah presisi → skip"
                 return
-            ok, entry = self._live_open(sym, is_long, qty, entry, sl, tp, rs)
+            ok, entry, pending = self._live_open(sym, is_long, qty, entry, sl, tp, rs)
             if not ok:
                 c = self.sig_cache.setdefault(sym, {})
                 c["blocked"] = "order live gagal → skip"
+                return
+            if pending:                          # LIMIT resting: telusuri, BUKAN posisi
+                self.pending[sym] = {
+                    **pending,                   # order_id, qty, entry, sl, tp, is_long, placed_ts
+                    "bet": bet, "liq": liq, "risk0": abs(entry - sl) * qty,
+                    "opened_ts": pending["placed_ts"],
+                    "entry_fee_rate": entry_fee_rate, "leverage": rs.leverage,
+                    **self.vrp.stamp(), **self._regime_stamp(self.buffers.get(sym), self.cfg),
+                    **(mtf_stamp := (self.mtf.stamp(self.buffers.get(sym), self.tf, side)
+                                     if self.buffers.get(sym) is not None else {}))}
+                if gem:
+                    self.pending[sym].update(conviction=gem_conv)
+                    try:
+                        self.pending[sym]["gdecision"] = self.gtrader.commit(sym, gem["dec"], gem["ctx"])
+                        self.pending[sym]["setup"] = gem["dec"].get("setup")
+                    except Exception as e:  # boundary
+                        log.warning(f"commit keputusan gemini {sym} (pending) gagal: {e}")
+                self._day_trades += 1
+                journal("forward_open_pending", {"symbol": sym, "side": "long" if is_long else "short",
+                                                  "entry": entry, "sl": sl, "tp": tp, "liq": liq,
+                                                  "order_id": pending.get("order_id"), "bet": bet,
+                                                  "conviction": gem_conv})
+                log.info(f"LIMIT RESTING {sym} bet=${bet:.2f} @ {entry:.4f} "
+                         f"(order_id={pending.get('order_id')}) — menunggu terisi")
+                self.notify.send(
+                    f"⏳ <b>LIMIT RESTING</b> {sym}\n"
+                    f"@ {entry:.4f} · SL {sl:.4f} · TP {tp:.4f} (menunggu terisi)")
+                c = self.sig_cache.setdefault(sym, {})
+                c["blocked"] = "→ limit order resting (menunggu terisi)"
                 return
         buf_full = self.buffers.get(sym)
         mtf_stamp = (self.mtf.stamp(buf_full, self.tf, side)
@@ -1724,6 +1878,11 @@ class ForwardTester:
                                                         100.0)[1], 2)},
             "corr_threshold": self.corr_threshold,
             "news_veto": {"active": news_active, "note": news_note},
+            "pending_orders": [{"symbol": s, "side": "buy" if p["is_long"] else "sell",
+                                 "type": "LIMIT", "price": p["entry"], "qty": p["qty"],
+                                 "order_id": p.get("order_id"),
+                                 "opened_ts": p.get("placed_ts")}
+                                for s, p in self.pending.items()],
             "symbols": syms,
         }
         try:

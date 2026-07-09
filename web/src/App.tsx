@@ -22,6 +22,7 @@ export default function App() {
   const { data: status, refetch: refetchStatus } = usePoll(api.status, 10000);
   const { data: account } = usePoll(api.account, 10000);
   const { data: symbolsResp } = usePoll(api.symbols, 600000);
+  const { data: ordersResp, refetch: refetchOrders } = usePoll(api.openOrders, 10000);
   const available = symbolsResp?.symbols ?? [];
   const [tick, setTick] = useState(0);
   const [updated, setUpdated] = useState("");
@@ -37,7 +38,9 @@ export default function App() {
   const refreshAll = () => {
     refetchStats();
     refetchStatus();
+    refetchOrders();
   };
+  const isLive = (account?.mode === "live" || status?.mode === "live") ?? false;
 
   return (
     <>
@@ -58,7 +61,7 @@ export default function App() {
         <GeminiUsage />
         <BotStatus status={status} onAction={refreshAll} />
         <GeminiTraderPanel />
-        <PositionsPanel status={status} onAction={refreshAll} />
+        <PositionsPanel status={status} orders={ordersResp?.orders ?? []} isLive={isLive} onAction={refreshAll} />
         <PriceChart status={status} available={available} />
         {stats && <StatsCards s={stats} />}
         {stats && <EquityChart s={stats} />}

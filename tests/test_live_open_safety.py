@@ -27,8 +27,9 @@ def test_entry_itself_fails_reports_false_no_position_exists():
         calls.append(typ)
         raise RuntimeError("insufficient margin")
     ft, sent = _ft(create_order)
-    ok, fill = ft._live_open("BTC/USDC:USDC", True, 1.0, 100.0, 95.0, 110.0, _rs())
+    ok, fill, pending = ft._live_open("BTC/USDC:USDC", True, 1.0, 100.0, 95.0, 110.0, _rs())
     assert ok is False and calls == ["market"]           # HANYA entry dicoba, tak ada SL/TP
+    assert pending is None
     assert "GAGAL" in sent[0]
 
 
@@ -37,13 +38,14 @@ def test_sl_tp_fails_after_fill_emergency_close_succeeds():
     def create_order(sym, typ, side, qty, price=None, params=None):
         calls.append(typ)
         if typ == "market" and len(calls) == 1:
-            return {"average": 100.0}                    # entry berhasil
+            return {"status": "closed", "average": 100.0}   # entry berhasil (terisi)
         if typ == "STOP_MARKET":
             raise RuntimeError("stop price invalid")      # SL gagal
         return {"average": 100.0}                        # emergency-close (market ke-2) berhasil
     ft, sent = _ft(create_order)
-    ok, fill = ft._live_open("BTC/USDC:USDC", True, 1.0, 100.0, 95.0, 110.0, _rs())
+    ok, fill, pending = ft._live_open("BTC/USDC:USDC", True, 1.0, 100.0, 95.0, 110.0, _rs())
     assert ok is False and fill == 100.0                  # emergency-close sukses -> tak ada posisi tersisa
+    assert pending is None
     assert calls == ["market", "STOP_MARKET", "market"]   # entry, SL(gagal), emergency-close
     assert "emergency-close berhasil" in sent[0]
     assert "DARURAT" not in sent[0]
@@ -54,9 +56,10 @@ def test_sl_tp_and_emergency_close_both_fail_must_stay_tracked():
     def create_order(sym, typ, side, qty, price=None, params=None):
         calls.append(typ)
         if typ == "market" and len(calls) == 1:
-            return {"average": 100.0}                    # entry berhasil
+            return {"status": "closed", "average": 100.0}   # entry berhasil (terisi)
         raise RuntimeError("exchange down")                # SL gagal DAN emergency-close gagal
     ft, sent = _ft(create_order)
-    ok, fill = ft._live_open("BTC/USDC:USDC", True, 1.0, 100.0, 95.0, 110.0, _rs())
+    ok, fill, pending = ft._live_open("BTC/USDC:USDC", True, 1.0, 100.0, 95.0, 110.0, _rs())
     assert ok is True and fill == 100.0                   # WAJIB tetap ok=True -> caller isi self.open
+    assert pending is None
     assert "DARURAT" in sent[0] and "TELANJANG" in sent[0]

@@ -71,6 +71,19 @@ export interface PairStatus {
   position: Position | null;
 }
 
+export interface OpenOrder {
+  symbol: string;
+  type: string;
+  side: string;
+  price: number;
+  qty: number;
+  filled?: number;
+  status?: string;
+  reduce_only?: boolean;
+  order_id?: string;
+  opened_ts?: string | null;
+}
+
 export interface Status {
   ts?: string;
   mode?: string;
@@ -93,6 +106,7 @@ export interface Status {
   drawdown?: { locked: boolean; reason: string | null; peak_balance: number; dd_pct: number };
   corr_threshold?: number;
   news_veto?: { active: boolean; note: string };
+  pending_orders?: OpenOrder[];
   symbols?: PairStatus[];
 }
 

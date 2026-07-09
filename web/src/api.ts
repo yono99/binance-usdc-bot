@@ -7,6 +7,7 @@ import type {
   GeminiTrader,
   GeminiUsage,
   NewsLogEntry,
+  OpenOrder,
   Ohlcv,
   ScreenLogEntry,
   Settings,
@@ -34,6 +35,9 @@ export const api = {
   stats: () => getJSON<Stats>("/api/stats"),
   status: () => getJSON<Status>("/api/status"),
   account: () => getJSON<Account>("/api/account"),
+  openOrders: () => getJSON<{ orders: OpenOrder[]; paper?: boolean; error?: string }>("/api/open-orders"),
+  cancelOrder: (symbol: string, order_id: string) =>
+    postJSON<{ ok: boolean; error?: string }>("/api/cancel-order", { symbol, order_id }),
   settings: (mode?: string) =>
     getJSON<Settings>(`/api/settings${mode != null ? "?mode=" + encodeURIComponent(mode) : ""}`),
   symbols: () => getJSON<{ symbols: string[]; error?: string }>("/api/symbols"),

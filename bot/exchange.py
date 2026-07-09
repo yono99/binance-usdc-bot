@@ -95,6 +95,17 @@ class Exchange:
             log.error(f"positions fetch gagal: {e}")
             return []
 
+    def open_orders(self, symbol: str | None = None) -> list[dict]:
+        """Open order nyata dari Binance: LIMIT entry yang masih RESTING (post-only/GTX belum
+        terisi) + SL/TP STOP_MARKET/TAKE_PROFIT_MARKET yang aktif. Dry → []."""
+        if self.settings.is_dry:
+            return []
+        try:
+            return self.client.fetch_open_orders(symbol) if symbol else self.client.fetch_open_orders()
+        except Exception as e:  # boundary
+            log.error(f"open_orders fetch gagal: {e}")
+            return []
+
     def set_leverage(self, symbol: str, leverage: int) -> None:
         if self.settings.is_dry:
             return

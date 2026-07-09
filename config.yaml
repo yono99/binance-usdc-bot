@@ -71,6 +71,11 @@ risk:
 execution:
   order_type: limit         # default maker (limit, post-only) | market (taker)
   post_only: true           # limit: tolak bila langsung jadi taker (jamin fee maker)
+  # LIMIT + post-only (GTX) hampir selalu jadi RESTING order (belum terisi). Bot menelusurinya
+  # sbg PENDING (bukan posisi) & reconcile tiap siklus via fetch_open_orders: terisi → pasang
+  # SL/TP + daftar posisi; batal/expire → dibuang. pending_timeout_s: limit resting lebih dari
+  # ini (detik) → dibatalkan & skip (jangan tunggu selamanya). 0 = tanpa timeout.
+  pending_timeout_s: 300
 
 strategy:
   # enhancement (dipakai optimize --strategy v2; live menyusul bila OOS positif)

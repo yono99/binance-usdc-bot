@@ -129,6 +129,7 @@ def test_status_position_view_includes_opened_ts():
     ft.pin_mode = True
     ft.tf = "15m"
     ft.max_open = 10
+    ft.pending = {}                      # state baru untuk limit resting
     from unittest.mock import patch
     with patch("bot.store.set_kv") as m:
         ft._write_status(rs_obj, False, "")

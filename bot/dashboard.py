@@ -408,6 +408,83 @@ def api_close_all() -> JSONResponse:
     return JSONResponse({"ok": True})
 
 
+_open_orders_cache: dict = {"ts": 0.0, "data": None}
+
+
+def _normalize_open_order(o: dict) -> dict:
+    """Standarkan field order Binance → ringkas utk dashboard."""
+    try:
+        info = o.get("info") or {}
+        otype = o.get("type") or info.get("type") or ""
+        # STOP_MARKET / TAKE_PROFIT_MARKET punya stopPrice; LIMIT punya price biasa
+        trigger = o.get("stopPrice") or info.get("stopPrice") or o.get("price") or 0.0
+        reduce_only = bool(o.get("reduceOnly") or info.get("reduceOnly"))
+        return {
+            "symbol": o.get("symbol"),
+            "order_id": o.get("id"),
+            "type": str(otype).upper(),
+            "side": str(o.get("side") or "").upper(),
+            "price": float(trigger or 0.0),
+            "qty": float(o.get("amount") or o.get("contracts") or 0.0),
+            "filled": float(o.get("filled") or 0.0),
+            "status": str(o.get("status") or "").lower(),
+            "reduce_only": reduce_only,
+            "timestamp": o.get("timestamp"),
+        }
+    except Exception:
+        return {"symbol": o.get("symbol"), "order_id": o.get("id"),
+                "type": str(o.get("type") or ""), "side": str(o.get("side") or ""),
+                "price": 0.0, "qty": 0.0, "filled": 0.0, "status": "",
+                "reduce_only": False, "timestamp": o.get("timestamp")}
+
+
+@app.get("/api/open-orders")
+def api_open_orders() -> JSONResponse:
+    """Order aktif nyata dari Binance (LIMIT resting entry + SL/TP reduce-only).
+    LIVE: fetch_open_orders langsung. DRY: tak ada order exchange → baca pending_orders
+    dari status kv (limit resting yang ditelusuri engine paper). Cache 8 dtk."""
+    import os
+    import time as _t
+    if _open_orders_cache["data"] and _t.time() - _open_orders_cache["ts"] < 8:
+        return JSONResponse(_open_orders_cache["data"])
+    from .config import load_settings
+    s = load_settings()
+    if s.is_live and os.environ.get("BINANCE_LIVE_KEY"):
+        try:
+            raw = _get_ex().open_orders()
+            orders = [_normalize_open_order(o) for o in raw]
+            data = {"orders": orders}
+        except Exception as e:  # boundary
+            data = {"orders": [], "error": str(e)[:140]}
+    else:
+        # DRY/paper: ambil pending_orders dari status kv (ditulis engine tiap siklus)
+        m = get_active_mode() or "dry"
+        st = store.get_kv(f"status:{m}") or store.get_kv("status") or {}
+        data = {"orders": st.get("pending_orders") or [], "paper": True}
+    _open_orders_cache.update(ts=_t.time(), data=data)
+    return JSONResponse(data)
+
+
+@app.post("/api/cancel-order")
+def api_cancel_order(payload: dict) -> JSONResponse:
+    """Batalkan SATU order di Binance (live). {symbol, order_id}. Dry → tolak."""
+    sym = payload.get("symbol")
+    oid = payload.get("order_id")
+    if not sym or not oid:
+        return JSONResponse({"ok": False, "error": "symbol & order_id wajib"})
+    import os
+    from .config import load_settings
+    s = load_settings()
+    if not s.is_live or not os.environ.get("BINANCE_LIVE_KEY"):
+        return JSONResponse({"ok": False, "error": "cancel-order hanya berlaku di mode live"})
+    try:
+        _get_ex().client.cancel_order(oid, sym)
+        _open_orders_cache["ts"] = 0.0          # invalidate cache agar UI segera segar
+        return JSONResponse({"ok": True, "symbol": sym, "order_id": oid})
+    except Exception as e:  # boundary
+        return JSONResponse({"ok": False, "error": str(e)[:140]})
+
+
 @app.get("/api/news-log")
 def api_news_log(limit: int = 100) -> JSONResponse:
     """Histori keputusan news veto (hanya saat berubah)."""
