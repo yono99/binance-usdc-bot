@@ -54,7 +54,7 @@ _MIN_INTERVAL = float(os.getenv("GEMINI_MIN_INTERVAL_S", "6.5"))
 # Timeout HTTP per panggilan (ms) — batasi satu call yang hang agar tak membekukan siklus
 # (loop entry kini bisa banyak call/siklus krn budget dinamis). Timeout → error transien →
 # generate() merotasi key/model seperti error lain. Knob: GEMINI_TIMEOUT_S.
-_TIMEOUT_MS = int(float(os.getenv("GEMINI_TIMEOUT_S", "20")) * 1000)
+_TIMEOUT_MS = int(float(os.getenv("GEMINI_TIMEOUT_S", "8")) * 1000)
 _throttle_lock = threading.Lock()
 _last_call: dict[str, float] = {}      # per-key: ts panggilan terakhir
 
@@ -186,7 +186,9 @@ def _classify(err: Exception) -> str:
         if "perday" in msg.replace(" ", "").replace("_", "") or "per day" in msg or "daily" in msg:
             return "rate_day"
         return "rate"
-    if status in (500, 502, 503, 504, 404) or "overloaded" in msg or "unavailable" in msg or "not found" in msg:
+    if status == 504:
+        return "overload"                     # server sibuk: rotasi key+model cepat
+    if status in (500, 502, 503, 404) or "overloaded" in msg or "unavailable" in msg or "not found" in msg:
         return "model"
     if status == 400 or "invalid argument" in msg:
         return "request"
@@ -322,6 +324,11 @@ class GeminiClient:
                             store.log_gemini_usage(model, purpose, ki, 0, 0, 0, ok=False, error=f"{kind}: {last_err[:140]}")
                             any_transient = True
                             continue
+                        if kind == "overload":  # 504: server sibuk → cooldown key + ganti model
+                            _mark_bad(key, "rate")   # istirahatkan key 60s, coba key lain
+                            model_down = True
+                            any_transient = True
+                            break
                         if kind == "model":     # model down/unavailable → coba model lain
                             model_down = True
                             any_transient = True

@@ -87,9 +87,22 @@ def _market_summary(df: pd.DataFrame, cfg: dict) -> dict:
         regime = "range"
     else:
         regime = "mixed"
-    return {"price": round(price, 6), "ret_5bar_pct": round(ret_5, 3),
+    summary = {"price": round(price, 6), "ret_5bar_pct": round(ret_5, 3),
             "ema_align": trend, "adx": round(adx_v, 1), "rsi": round(rsi_v, 1),
             "atr_pct": round(atr_pct, 3), "regime": regime}
+    if len(df) >= 20:
+        window = min(20, len(df))
+        swing_hi = round(float(df["high"].iloc[-window:].max()), 6)
+        swing_lo = round(float(df["low"].iloc[-window:].min()), 6)
+        range_width_pct = (swing_hi - swing_lo) / price * 100 if price else 0.0
+        pos_in_range = (price - swing_lo) / max(swing_hi - swing_lo, 1e-9)
+        summary["swing_high"] = swing_hi
+        summary["swing_low"] = swing_lo
+        summary["range_width_pct"] = round(range_width_pct, 3)
+        summary["pos_in_range"] = round(pos_in_range, 2)
+        if atr_v > 0:
+            summary["range_in_atr"] = round((swing_hi - swing_lo) / atr_v, 1)
+    return summary
 
 
 class GeminiTrader:

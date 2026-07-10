@@ -9,12 +9,13 @@ from bot.trader_curriculum import DECISION_MODULES, curriculum_prompt
 # ---------- penurunan tier (Phase 4 <-> Phase 2 tiers) ----------
 
 def test_downgrade_conf_one_tier():
-    s = RuntimeSettings()                              # full 0.75, min 0.55, reduced 0.5x
+    s = RuntimeSettings()                              # full 0.75, min 0.30, reduced 0.5x
     assert s.downgrade_conf(0.90) == s.conf_min        # full → reduced (tepat ambang)
     assert s.conf_size_mult(s.downgrade_conf(0.90)) == s.conf_reduced_mult
     assert s.downgrade_conf(0.60) == 0.0               # reduced → abstain
     assert s.conf_size_mult(s.downgrade_conf(0.60)) is None
-    assert s.downgrade_conf(0.40) == 0.40              # sudah abstain → tetap
+    assert s.downgrade_conf(0.40) == 0.0               # reduced (0.30≤0.40<0.75) → abstain
+    assert s.downgrade_conf(0.20) == 0.20              # sudah abstain → tetap
 
 
 # ---------- prompt keputusan = evidence-based (buang hafalan pola harga) ----------

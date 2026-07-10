@@ -15,6 +15,7 @@ import argparse
 from bot.config import load_settings
 from bot.forward import ForwardTester, default_params
 from bot.logger import log
+from bot.settings_store import reset_all_enabled
 
 
 def parse_args():
@@ -41,6 +42,8 @@ def parse_args():
 
 def main() -> None:
     args = parse_args()
+    reset_all_enabled()
+    log.info("Startup: SEMUA mode di-reset ke OFF — nyalakan dari dashboard.")
     settings = load_settings()
     if args.mode:
         import os

@@ -21,7 +21,9 @@ screener:
                                     # spread adalah biaya pasti tiap trade; 0.03% masih
                                     # meloloskan majors (BTC/ETH/SOL/XRP <0.015%), membuang
                                     # pair mahal (CRV/BOME/PNUT ~0.10-0.15% terukur 2026-07)
-  min_atr_pct: 0.25                 # volatilitas minimum (ATR/price %)
+  min_atr_pct: 0.05                 # volatilitas minimum (ATR/price %) — turunkan dari 0.25
+                                     # agar pair sideways (ATR 0.05-0.25%) lolos screener ke Gemini.
+                                     # Scalp_range butuh ATR rendah; pre-gate Gemini (0.08%) yang saring.
   max_atr_pct: 6.0                  # buang yang terlalu liar
 
 signals:
@@ -123,8 +125,13 @@ gemini:
   #   → cukup agar SEMUA simbol dapat giliran sekali per decide-interval, TAPI tak melampaui cap.
   #   Cap menjaga wall-clock serial: cap × ~2dtk latensi harus < poll_seconds (SL/TP tak tertunda).
   #   Universe besar/kecil atau poll berubah → budget menyesuaikan sendiri, tanpa setel manual.
-  pregate_atr_pct: 0.25     # lantai pre-gate: tanya Gemini hanya bila ATR% >= ini (pasar hidup).
-  #                           Naikkan bila token boros; turunkan bila sinyal langka. ARAH tetap milik Gemini.
+  pregate_atr_pct: 0.08     # lantai pre-gate: tanya Gemini hanya bila ATR% >= ini (pasar hidup).
+  #                           Turunkan ke 0.08 agar sideways market (ATR 0.10-0.25%) tetap dievaluasi.
+  #                           Setup `range_fade`/`scalp_range` butuh ATR rendah — jangan blok!
+  price_cache_pct: 0.03     # skip Gemini bila harga belum bergerak >= ini sejak decide terakhir.
+  #                           Turunkan ke 0.03 agar sideways market (harga diam) tetap ditanya tiap
+  #                           siklus. 0.15% terlalu tinggi untuk timeframe 15m di pasar sepi.
+  #                           0 = nonaktifkan (tanya Gemini tiap siklus bila lolos pre-gate).
   # Devil's Advocate (adaptasi debat Bull/Bear TradingAgents): pass LLM kedua yang HANYA
   # mencari alasan MENOLAK entry yang diajukan → mengurangi percaya-diri sepihak/halusinasi.
   # Hanya menantang aksi ENTER; gagal/timeout = fail-open (proceed). Rem, bukan penentu.

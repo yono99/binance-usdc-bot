@@ -43,6 +43,7 @@ button:disabled { opacity: .5; cursor: default; }
 .line b { color: var(--fg); }
 .btnsm { background: var(--red); padding: 4px 10px; font-size: 12px; border-radius: 6px; }
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--green); margin-right: 6px; animation: p 2s infinite; }
+.dot.off { background: var(--red, #e44); animation: none; opacity: .6; }
 @keyframes p { 50% { opacity: .3; } }
 a { color: var(--accent); }
 

@@ -241,6 +241,14 @@ python forwardtest.py --poll 30 --use-store   # terminal 1: bot (diatur dari UI)
 python dashboard.py --host 0.0.0.0             # terminal 2: http://<host>:8000
 ```
 
+> ⚠️ **Default startup = OFF.** Setiap kali `forwardtest.py` atau `dashboard.py`
+> dijalankan, saklar `Status` SEMUA mode (dry/test/live) di-reset ke **OFF** di
+> SQLite (`bot/settings_store.reset_all_enabled()`). Bot tidak akan membuka
+> posisi sampai kamu **menyalakan ON dari dashboard** secara sadar. Ini
+> mencegah bot auto-aktif pakai state `enabled=True` dari sesi sebelumnya
+> (risiko paper/live jalan tanpa pengawasan setelah restart). Field lain
+> (leverage, bet, pair, dll) tak di-reset — hanya saklar ON/OFF.
+
 Fitur (auto-refresh 10 dtk):
 - **Kartu**: trades · liquidations · win% · expectancy R · profit factor · equity · return
 - **Kurva equity** (dot merah di titik likuidasi) + **trade terakhir** (baris likuidasi merah)

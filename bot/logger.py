@@ -57,3 +57,14 @@ def journal(event: str, payload: dict) -> None:
         insert_event(event, payload, ts=rec["ts"])
     except Exception as e:  # boundary — jangan ganggu hot-path trading
         log.warning(f"store insert gagal (JSONL tetap aman): {e}")
+    # push real-time ke dashboard SSE (fire-and-forget; gak blok)
+    try:
+        from .notify_sse import notify
+        # map event trade → tipe SSE yang dimengerti frontend
+        kind = ("trade" if event in ("forward_open", "forward_close",
+                                     "forward_open_filled", "forward_open_pending")
+                else "screen" if event == "forward_skip"
+                else "event")
+        notify(kind, rec)
+    except Exception:
+        pass   # dashboard SSE opsional — jangan ganggu hot-path

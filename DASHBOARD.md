@@ -75,7 +75,7 @@ Disimpan ke `kv['runtime']`; bot membacanya tiap siklus. Field:
 
 | Field | Arti | Default |
 |---|---|---|
-| Status | ON/OFF buka posisi | OFF |
+| Status | ON/OFF buka posisi | **OFF** (di-reset tiap startup — lihat [Default startup](#default-startup--off-preventif) di bawah) |
 | Teknik | `scalping` (5m) · `swing` (1h) · `auto` (15m autopilot) | auto |
 | **Pair** | multi-select + pencarian. **Kosong = screening SEMUA pair USDC** | (kosong = semua) |
 | Leverage | x1–125 | 100 |
@@ -138,6 +138,24 @@ Tiap mode menyimpan **setting sendiri** (terpisah di kv `runtime:<mode>`): `dry`
 → form otomatis memuat setting milik mode itu (`GET /api/settings?mode=<m>`). Mode
 aktif disimpan di kv `active_mode`; bot membaca setting mode aktif tiap heartbeat.
 Saldo **live** selalu diambil dari Binance (equity nyata), bukan nilai tersimpan.
+
+### Default startup = OFF (preventif)
+
+Saat `forwardtest.py` atau `dashboard.py` dijalankan, fungsi
+`bot/settings_store.reset_all_enabled()` me-reset `enabled=False` untuk **semua**
+mode (dry/test/live) di SQLite. Bot tidak akan membuka posisi sampai kamu
+**menyalakan ON dari dashboard** secara sadar.
+
+**Mencegah risiko:** tanpa reset ini, bila user menyalakan ON di sesi sebelumnya
+lalu bot di-restart/crash, bot akan langsung aktif trading pakai state lama —
+bisa paper jalan diam-diam atau bahkan **live tanpa pengawasan**. Dengan reset
+startup, tiap kali aplikasi dinyalakan, user wajib konfirmasi ON.
+
+- **Hanya `enabled` yang di-reset** — field lain (leverage, bet, pair, teknik, dll)
+  tetap dari nilai tersimpan (tahan restart).
+- **Tidak otomatis ON** walau sebelumnya ON — user harus klik ON di UI tiap startup.
+- **Dua titik reset:** `forwardtest.py:main()` dan `dashboard.py:main()` → keduanya
+  memanggil `reset_all_enabled()` di awal, sebelum `load_settings()`/`uvicorn.run()`.
 
 ## Panel Positions / Open Orders
 

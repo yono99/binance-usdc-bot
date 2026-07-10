@@ -38,6 +38,11 @@ ReAct aktif di **kedua loop** (jalankan **salah satu** — keduanya menulis `dec
 Gerbang ReAct dipanggil **hanya saat semua cek deterministik lolos** (news/circuit-breaker/
 slot/korelasi) → hemat panggilan LLM.
 
+> **Default startup = OFF.** `forwardtest.py` dan `dashboard.py` memanggil
+> `bot/settings_store.reset_all_enabled()` di awal `main()` → `rs.enabled=False`
+> untuk semua mode (dry/test/live). Bot tak akan jalan trading sampai ON
+> dinyalakan dari dashboard. Mencegah auto-aktif pakai state sesi sebelumnya.
+
 ## Artefak (runtime, di-`.gitignore`)
 
 | Berkas | Isi |

@@ -408,7 +408,18 @@ class ForwardTester:
                 "balance_usd": round(self.balance_usd, 2), "max_open": self.max_open}
 
     def _gemini_manage(self, sym: str, df_closed: pd.DataFrame) -> None:
-        """Review posisi terbuka Gemini (~1 menit). Hanya boleh KURANGI risiko."""
+        """Review posisi terbuka Gemini (~1 menit). Hanya boleh KURANGI risiko.
+
+        Lapis 1 — Hard gate progress (lihat fix_exit_gemini.md):
+        GEMINI_EXIT terbukti -EV (exp_R=-0.253, n=11, sum_R=-2.785 dari 67 trade
+        live per 2026-07-09). Sumbang lebih dari total kerugian seluruh sistem.
+        Gate ini memastikan Gemini exit-review HANYA dipanggil saat posisi PERNAH
+        mencapai >=50% ke TP DAN reversal signifikan >=15pp dari puncak.
+        """
+        # ── Konstanta gate progress (tunable) ────────────────────────────────
+        MIN_PEAK_TO_ASK = 0.5    # progress ke TP minimal PERNAH tercapai
+        REVERSAL_BUFFER = 0.15   # turun ≥15pp dari puncak = reversal signifikan
+        # ─────────────────────────────────────────────────────────────────────
         pos = self.open.get(sym)
         if not pos or not pos.get("gdecision") or self.gtrader is None:
             return
@@ -434,8 +445,27 @@ class ForwardTester:
         risk = abs(pos["entry"] - pos["sl"]) or 1e-9
         unreal_r = ((price - pos["entry"]) if is_long else (pos["entry"] - price)) / risk
         prog = self._tp_progress(pos, price)            # fraksi perjalanan ke TP (bisa <0)
-        if prog is not None:                            # jaga puncak juga di jalur live (monitor exit lebih dulu di paper)
+        if prog is not None:
             pos["peak_tp_prog"] = max(pos.get("peak_tp_prog", prog), prog)
+        # ── Micro-profit lock: jika sudah capai >=30% TP, kunci SL ke breakeven ──
+        peak = pos.get("peak_tp_prog")
+        if peak is not None and peak >= 0.3:
+            _be = pos["entry"]
+            _long = pos["side"] == "long"
+            _tighter = _be > pos["sl"] if _long else _be < pos["sl"]
+            if _tighter:
+                pos["sl"] = _be
+                log.info(f"Micro-profit lock {sym}: SL→breakeven (peak_prog={peak:.2f})")
+        # ── Lapis 1: Hard gate progress (bukti: gemini_exit exp_R=-0.253) ──
+        peak = pos.get("peak_tp_prog")
+        if prog is not None and peak is not None:
+            if peak < MIN_PEAK_TO_ASK:
+                # Belum pernah mencapai ≥50% TP → skip Gemini exit-review
+                return
+            if peak - prog < REVERSAL_BUFFER:
+                # Reversal belum cukup signifikan → skip
+                return
+        # ────────────────────────────────────────────────────────────────────
         ctx = {
             "position": {"symbol": sym, "side": pos["side"], "entry": round(pos["entry"], 6),
                          "sl": round(pos["sl"], 6), "tp": round(pos["tp"], 6),
@@ -467,6 +497,24 @@ class ForwardTester:
             return
         action = act.get("action")
         if action == "exit":
+            # ── Lapis 2: Kill-switch empiris gemini_exit (bukti: exp_R=-0.253,n=11) ──
+            # Ambil exit_track_record terbaru; cari entry "gemini_exit".
+            # Bila n≥10 dan exp_r<0 → blokir eksekusi, biarkan SL/TP native jalan.
+            _blocked = False
+            try:
+                _records = self.gtrader._exit_track_record() if self.gtrader else []
+                for _r in _records:
+                    if _r.get("reason") == "gemini_exit" and _r.get("n", 0) >= 10 and _r.get("exp_r", 0.0) < 0:
+                        log.warning(f"GEMINI_EXIT DIBLOKIR (kill-switch empiris): "
+                                    f"exp_r={_r['exp_r']:.3f} n={_r['n']} — "
+                                    f"SL/TP native yang tentukan nasib {sym}")
+                        _blocked = True
+                        break
+            except Exception as _e:
+                log.debug(f"exit_track_record {sym}: {_e}")   # opsional, jangan blokir
+            if _blocked:
+                return
+            # ──────────────────────────────────────────────────────────────────────
             log.info(f"Gemini EXIT {sym} @ {price:.6f} — {act.get('reason', '')[:80]}")
             self._close_usd(sym, price, "gemini_exit")
         elif action == "tighten_stop" and not self.live:   # live = exit-only (jaga proteksi)
@@ -1188,11 +1236,23 @@ class ForwardTester:
         slip = 1 + self.slippage / 100 if is_long else 1 - self.slippage / 100
         entry = price * slip
         qty = (bet * rs.leverage) / entry
-        sl = entry - atr * self.bt.sl_mult if is_long else entry + atr * self.bt.sl_mult
+        # Regime-adaptive SL/TP: range (ADX<18) → tight multipliers for small-target fades
+        _sl_mult = self.bt.sl_mult
+        _tp_mult = self.bt.tp_mult
+        _rb = self.buffers.get(sym)
+        if _rb is not None and len(_rb) >= 60:
+            try:
+                from .gemini_trader import _market_summary
+                if _market_summary(_rb.iloc[:-1], self.cfg).get("regime") == "range":
+                    _sl_mult = 1.0
+                    _tp_mult = 1.2
+            except Exception:
+                pass
+        sl = entry - atr * _sl_mult if is_long else entry + atr * _sl_mult
         if rs.target_profit_pct > 0:
             tp = entry * (1 + rs.target_profit_pct / 100) if is_long else entry * (1 - rs.target_profit_pct / 100)
         else:
-            tp = entry + atr * self.bt.tp_mult if is_long else entry - atr * self.bt.tp_mult
+            tp = entry + atr * _tp_mult if is_long else entry - atr * _tp_mult
         liq = liquidation_price(entry, is_long, rs.liquidation_frac())
         # Gemini trader penuh: SL/TP dari Gemini menggantikan ATR — TAPI divalidasi KODE.
         # Guardrail: SL wajib di sisi benar & DI DALAM likuidasi (di-clamp bila perlu); TP sisi benar.
@@ -1209,12 +1269,22 @@ class ForwardTester:
             if isinstance(g_tp, (int, float)) and ((is_long and g_tp > entry) or
                                                    (not is_long and g_tp < entry)):
                 tp = float(g_tp)                    # TP Gemini valid; selain itu pakai TP ATR
-        # Fix A: LANTAI jarak SL (berlaku utk SL rule-based & usulan Gemini) —
-        # lalu jaga tetap DI DALAM likuidasi bila pelebaran menabraknya.
+        # Fix A: LANTAI jarak SL — SKIP bila regime=range (SL ketat 1×ATR sengaja pendek;
+        # lantai 1.75×ATR akan melebarkan kembali, membatalkan ketatnya range scalping).
+        # Lantai Kalibrasi untuk TREND/mixed (anti-SL-kemepet setelah candle raksasa).
         buf = self.buffers.get(sym)
         last_range = (float(buf["high"].iloc[-2] - buf["low"].iloc[-2])
                       if buf is not None and len(buf) >= 2 else 0.0)
-        sl = self._sl_floor(entry, is_long, sl, atr, last_range)
+        _skip_floor = False
+        if buf is not None and len(buf) >= 60:
+            try:
+                from .gemini_trader import _market_summary
+                if _market_summary(buf.iloc[:-1], self.cfg).get("regime") == "range":
+                    _skip_floor = True
+            except Exception:
+                pass
+        if not _skip_floor:
+            sl = self._sl_floor(entry, is_long, sl, atr, last_range)
         if (is_long and sl <= liq) or (not is_long and sl >= liq):
             sl = (entry + liq) / 2                  # kompromi: selebar mungkin, tetap aman
         if self.live:                               # UANG NYATA: order asli + SL/TP exchange
@@ -1890,6 +1960,9 @@ class ForwardTester:
             set_kv(f"status:{self.settings.mode}", status)   # per-mode (multi-proses paralel)
             if not self.pin_mode:
                 set_kv("status", status)                     # kompat: proses tunggal lama
+            # push real-time ke dashboard SSE (fire-and-forget)
+            from .notify_sse import notify
+            notify("status", status)
         except Exception as e:  # boundary
             log.warning(f"tulis status gagal: {e}")
 

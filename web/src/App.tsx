@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, cls, f } from "./api";
-import { usePoll } from "./hooks";
-import type { Stats } from "./types";
+import { useEventSource, usePoll } from "./hooks";
+import type { Account, OpenOrder, Stats, Status } from "./types";
 import { StatsCards } from "./components/StatsCards";
 import { ControlPanel } from "./components/ControlPanel";
 import { AgentControls } from "./components/AgentControls";
@@ -18,15 +18,50 @@ import { type Col } from "./components/Table";
 import { PaginatedTable } from "./components/PaginatedTable";
 
 export default function App() {
-  const { data: stats, refetch: refetchStats } = usePoll(api.stats, 10000);
-  const { data: status, refetch: refetchStatus } = usePoll(api.status, 10000);
+  // ===== SSE: satu koneksi multiplex untuk stats/status/trades =====
+  const { status: sseStatus, subscribe } = useEventSource("/api/stream");
+
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [status, setStatus] = useState<Status | null>(null);
+  const [updated, setUpdated] = useState("");
+
+  // ===== polling fallback untuk data exchange-backed (jarang berubah) =====
   const { data: account } = usePoll(api.account, 10000);
   const { data: symbolsResp } = usePoll(api.symbols, 600000);
   const { data: ordersResp, refetch: refetchOrders } = usePoll(api.openOrders, 10000);
   const available = symbolsResp?.symbols ?? [];
   const [tick, setTick] = useState(0);
-  const [updated, setUpdated] = useState("");
 
+  // subscribe SSE — sekali saat mount, handler stabil via ref
+  useEffect(() => {
+    // snapshot awal: backend kirim {status, stats, mode} saat connect
+    const unsubs = [
+      subscribe("snapshot", (e) => {
+        const snap = e.data as { status?: Status; stats?: Stats; mode?: string };
+        if (snap.status) setStatus(snap.status);
+        if (snap.stats) setStats(snap.stats);
+        setUpdated(new Date().toLocaleTimeString());
+      }),
+      subscribe("status", (e) => {
+        setStatus(e.data as Status);
+        setUpdated(new Date().toLocaleTimeString());
+      }),
+      subscribe("stats", (e) => {
+        setStats(e.data as Stats);
+        setUpdated(new Date().toLocaleTimeString());
+      }),
+      subscribe("trade", () => {
+        // trade baru → refetch stats (exp_R/win berubah) + bump tick (trade history)
+        setTick((t) => t + 1);
+        api.stats().then(setStats).catch(() => {});
+        setUpdated(new Date().toLocaleTimeString());
+      }),
+      subscribe("ping", () => {/* keep-alive, no-op */}),
+    ];
+    return () => unsubs.forEach((u) => u());
+  }, [subscribe]);
+
+  // tick untuk komponen yang masih poll internal (TradeHistory, dll)
   useEffect(() => {
     const id = setInterval(() => {
       setTick((t) => t + 1);
@@ -35,12 +70,16 @@ export default function App() {
     return () => clearInterval(id);
   }, []);
 
-  const refreshAll = () => {
-    refetchStats();
-    refetchStatus();
+  const refreshAll = useCallback(() => {
+    // action user (close/cancel) → refetch immediate
+    api.stats().then(setStats).catch(() => {});
+    api.status().then(setStatus).catch(() => {});
     refetchOrders();
-  };
+  }, [refetchOrders]);
+
   const isLive = (account?.mode === "live" || status?.mode === "live") ?? false;
+
+  const sseLabel = sseStatus === "open" ? "● live" : sseStatus === "connecting" ? "● menyambung" : "● putus";
 
   return (
     <>
@@ -50,8 +89,8 @@ export default function App() {
           <div className="sub">Forward-test (paper) · data live · React/Vite</div>
         </div>
         <div className="sub">
-          <span className="dot" />
-          <span>{updated ? `diperbarui ${updated}` : "memuat…"}</span>
+          <span className={`dot ${sseStatus === "open" ? "" : "off"}`} />
+          <span>{updated ? `${sseLabel} · ${updated}` : `${sseLabel} · memuat…`}</span>
         </div>
       </header>
       <div className="wrap">

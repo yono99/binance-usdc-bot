@@ -31,12 +31,13 @@ def test_predicted_prob_clamped_to_unit_interval(tmp_path, monkeypatch):
 # ---------- Phase 2: tier confidence -> ukuran / abstain ----------
 
 def test_conf_size_mult_tiers():
-    s = RuntimeSettings()                                       # 0.75 / 0.55 / 0.5x
+    s = RuntimeSettings()                                       # 0.75 / 0.30 / 0.5x
     assert s.conf_size_mult(None) == 1.0                        # rule-based: tak digerbang
     assert s.conf_size_mult(0.80) == 1.0                        # penuh
     assert s.conf_size_mult(0.75) == 1.0                        # batas inklusif
     assert s.conf_size_mult(0.60) == 0.5                        # reduced
-    assert s.conf_size_mult(0.54) is None                       # abstain
+    assert s.conf_size_mult(0.30) == 0.5                        # reduced (batas bawah)
+    assert s.conf_size_mult(0.29) is None                       # abstain
 
 
 def test_conf_tier_clamp_keeps_min_below_full():

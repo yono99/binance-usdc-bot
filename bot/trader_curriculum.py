@@ -23,6 +23,7 @@ SETUPS = {
     "trend_pullback": "Ikut tren: masuk saat koreksi dangkal ke nilai (EMA/level) di tren kuat.",
     "breakout_continuation": "Lanjutan: harga tembus level penting dengan dorongan & volume.",
     "range_fade": "Sideways: fade tepi range (jual resisten, beli support) saat ADX rendah.",
+    "scalp_range": "Sideways scalping: entry kecil-kecil di dalam range sempit (ATR<0.3%), SL ketat (1×ATR), TP kecil (1.2×ATR). Ambil profit cepat dari osilasi harga, jangan hold.",
     "exhaustion_reversal": "Pembalikan: kapitulasi/ekstrem dengan tanda kehabisan tenaga + konfirmasi.",
     "no_trade": "Tak ada setup berkualitas → FLAT. Keputusan sah & paling sering benar.",
 }
@@ -31,7 +32,7 @@ SETUPS = {
 # harga. chart_patterns/candlesticks/indicators SENGAJA dibuang dari prompt keputusan —
 # pola resolusi-bar dari OHLCV mentah sudah diarbitrase (breakeven di riset v1-v4).
 # Yang disisakan menekankan PROSES, RISIKO, STRUKTUR, META (klasifikasi regime > ramalan).
-DECISION_MODULES = ["decision_process", "risk", "psychology", "market_structure", "meta"]
+DECISION_MODULES = ["decision_process", "risk", "psychology", "market_structure", "scalp_range", "meta"]
 
 # ---------------------------------------------------------------------------
 # Inti: identitas & prinsip (paling menentukan).
@@ -158,6 +159,21 @@ INDIKATOR (LAGGING & sendirian sudah diarbitrase — pakai sebagai KONTEKS, buka
 JANGAN bertindak atas SATU indikator. Mereka mengonfirmasi tesis, tidak menciptakannya.
 """
 
+KNOWLEDGE["scalp_range"] = """\
+SCALP RANGE (khusus range/sideways ATR rendah <0.3%):
+- ADX < 18 = range → mode scalping (bukan trend-follow). Entry kecil, exit cepat.
+- KONTEKS PASAR punya: swing_high, swing_low, range_width_pct, pos_in_range (0=bawah, 1=atas).
+  gunakan: pos_in_range < 0.2 = dekat support → long; > 0.8 = dekat resisten → short.
+  range_width_pct kecil (<1%) = range sempit → scalp paling cocok, TP cepat.
+  range_in_atr = lebar range dalam satuan ATR; <3 = range sangat sempit (ideal scalp).
+- CARI overextensi: harga sentuh/mendekati tepi range (pos_in_range ekstrem)
+  LALU balik dengan candle penolakan (wick/doji/engulfing kecil) = trigger fade.
+- TP kecil: cukup 0.2-0.5% (1.2xATR). Jangan greed — di range, gerak terbatas.
+- SL ketat: 1xATR, taruh di BALIK swing terdekat. Range sering sapu stop lalu balik.
+- JANGAN hold lewat 2-3 bar tanpa profit — range tak punya momentum, harga akan kembali.
+- KONTEKS: range dengan ADX <10 = super-sideways → scalping paling cocok.
+  Range dengan ADX 10-18 = masih bisa fade tapi waspada breakout palsu."""
+
 KNOWLEDGE["meta"] = """\
 META (kebijaksanaan yang membedakan trader bertahan):
 - Edge itu langka & meluruh. Jika "terlalu jelas", kemungkinan sudah diarbitrase.
@@ -214,7 +230,10 @@ def curriculum_prompt(modules: list[str] | None = None) -> str:
         "  Long: sl < harga sekarang. Short: sl > harga sekarang. Letakkan di BALIK struktur\n"
         "  (swing-low/high atau level), bukan angka asal. Tanpa 'sl' valid → dianggap flat.\n"
         "- 'tp' = target realistis di level/struktur berikutnya. Long: tp > harga; Short: tp < harga.\n"
-        "- Pastikan imbalan:risiko = |tp−harga| : |harga−sl| MASUK AKAL (idealnya ≥ 1.5).\n"
+        "- RR ATURAN REGIME: trend/breakout → |tp−harga|:|harga−sl| ≥ 1.5 (tigtena kualitas).\n"
+        "  range/scalp_range → RR ≥ 1.0 cukup (gerak terbatas; ambil profit kecil cepat).\n"
+        "  Jangan tolak setup range valid hanya karena RR < 1.5 — di sideways, profit 0.01-0.3%\n"
+        "  adalah SAH dan KONSISTEN bila SL ketat (1×ATR) dan TP cepat (1.2×ATR).\n"
         "- 'price' ada di KONTEKS PASAR (market.price) — pakai itu sebagai acuan harga sekarang.\n"
         "Jika ragu / sinyal bertabrakan / tak ada setup → side=\"flat\", setup=\"no_trade\" (sl/tp diabaikan).\n"
         "Bila ada PELAJARAN TERUJI di konteks (sudah lolos bukti), patuhi — itu hasil belajarmu.\n"

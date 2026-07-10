@@ -86,7 +86,7 @@ class RuntimeSettings:
     news_veto: bool = True                       # veto entry saat berita high-impact (toggle UI)
     # --- Gerbang SIZE berbasis confidence (kalibrasi, Phase 2): tier hot-reload ---
     conf_full: float = 0.75                      # ≥ ini → ukuran penuh
-    conf_min: float = 0.55                       # < ini → ABSTAIN (tak buka posisi)
+    conf_min: float = 0.30                       # < ini → ABSTAIN (tak buka posisi)
     conf_reduced_mult: float = 0.5               # di antaranya → pengali ukuran
     # --- Phase 6: pemantau drift kalibrasi (ALARM saja, TANPA auto-ubah threshold) ---
     calib_drift_margin: float = 0.05             # Brier terkini − baseline 14h > ini → drift
@@ -233,3 +233,22 @@ def save_settings(s: RuntimeSettings, set_active: bool = True) -> None:
     store.set_kv("runtime:" + _eff_mode(s.mode), asdict(s))
     if set_active:
         set_active_mode(s.mode)
+
+
+def reset_all_enabled() -> None:
+    """Reset rs.enabled=False untuk SEMUA mode (dry/test/live) di SQLite.
+
+    Dipanggil saat startup forwardtest.py & dashboard.py agar setiap kali aplikasi
+    dijalankan, bot default dalam keadaan OFF — user wajib menyalakan ON secara
+    sadar dari dashboard. Mencegah bot auto-aktif pakai state enabled=True dari
+    sesi sebelumnya (risiko: paper/live jalan tanpa pengawasan setelah restart).
+    Field lain (leverage, bet, symbols, dll) tak direset — hanya saklar ON/OFF.
+    """
+    for m in ("dry", "test", "live"):
+        try:
+            rs = load_settings(m)
+            if rs.enabled:
+                rs.enabled = False
+                save_settings(rs, set_active=False)
+        except Exception:
+            pass

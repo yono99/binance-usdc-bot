@@ -6,7 +6,9 @@ Terpisah dari bot: ForwardTester menulis logs/trades.jsonl, dashboard membacanya
 """
 from __future__ import annotations
 
+import asyncio
 import json
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dataclasses import asdict
@@ -14,13 +16,14 @@ from dataclasses import asdict
 import csv as csvmod
 import io
 
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from .settings_store import (PRESETS, RuntimeSettings, get_active_mode, load_settings,
                              save_settings, set_active_mode)
 from . import store
+from .eventhub import hub, KEEPALIVE_S
 
 ROOT = Path(__file__).resolve().parent.parent
 JOURNAL = ROOT / "logs" / "trades.jsonl"
@@ -161,7 +164,18 @@ _TRADE_COLS = ["close_ts", "symbol", "side", "reason", "r", "pnl_usd", "entry", 
                "sl", "tp", "liq", "lev", "bet", "equity", "open_ts"]
 
 
-app = FastAPI(title="Bot Monitor")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup: jalankan EventHub (ZMQ + WS + SQLite watcher).
+    Shutdown: hentikan bersih."""
+    hub.start()
+    try:
+        yield
+    finally:
+        await hub.stop()
+
+
+app = FastAPI(title="Bot Monitor", lifespan=lifespan)
 
 
 @app.get("/api/trades")
@@ -209,6 +223,57 @@ def api_bot_status(mode: str = None) -> JSONResponse:
     from .settings_store import _env_mode
     m = mode if mode in ("dry", "test", "live") else (get_active_mode() or _env_mode())
     return JSONResponse(store.get_kv(f"status:{m}") or store.get_kv("status") or {})
+
+
+# ---------- SSE: real-time push ----------
+def _sse_snapshot() -> dict:
+    """Snapshot awal saat client connect — state lengkap (stats/status/orders).
+    Tanpa ini client hanya lihat delta dari titik connect, bukan state sekarang."""
+    from .settings_store import _env_mode
+    m = get_active_mode() or _env_mode()
+    status = store.get_kv(f"status:{m}") or store.get_kv("status") or {}
+    try:
+        stats = _json_safe(compute_stats(mode=m))
+    except Exception:
+        stats = {}
+    return {"status": status, "stats": stats, "mode": m}
+
+
+@app.get("/api/stream")
+async def sse_stream(request: Request):
+    """SSE multiplex: satu koneksi untuk semua event type.
+    Event: snapshot, status, stats, trade, order_update, account_update,
+           candle, balance, ping. Keep-alive 25s (bawah proxy idle timeout)."""
+    async def gen():
+        q = hub.subscribe()
+        try:
+            # 1) snapshot awal (client perlu state lengkap saat connect)
+            yield f"event: snapshot\ndata: {json.dumps(_sse_snapshot(), default=str)}\n\n"
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    frame = await asyncio.wait_for(q.get(), timeout=KEEPALIVE_S)
+                    yield f"data: {frame}\n\n"
+                except asyncio.TimeoutError:
+                    yield f"event: ping\ndata: {{}}\n\n"   # keep-alive
+        finally:
+            hub.unsubscribe(q)
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache, transform",
+                                      "X-Accel-Buffering": "no",   # disable nginx buffering
+                                      "Connection": "keep-alive"})
+
+
+@app.post("/internal/notify")
+async def internal_notify(payload: dict):
+    """Webhook dari forward.py setelah set_kv/insert_event.
+    Payload: {kind: 'status'|'trade'|'balance', data: {...}}.
+    Dipanggil loopback (bot→dashboard) untuk push real-time tanpa poll SQLite."""
+    kind = payload.get("kind", "update")
+    data = payload.get("data", payload)
+    await hub.broadcast(kind, data)
+    return {"ok": True}
 
 
 _acct = {"ts": 0.0, "data": None}
