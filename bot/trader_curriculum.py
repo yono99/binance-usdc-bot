@@ -20,10 +20,12 @@ from __future__ import annotations
 # Taksonomi setup (controlled enum) — dasar pengelompokan statistik & evidence-gate.
 # ---------------------------------------------------------------------------
 SETUPS = {
-    "trend_pullback": "Ikut tren: masuk saat koreksi dangkal ke nilai (EMA/level) di tren kuat.",
+    "trend_continuation": "Ikut tren: masuk saat pullback SELESAI & momentum searah resume (bukan saat pullback masih jalan). Konfirmasi: candle searah tren + volume. (PREFERRED — trend_pullback terbukti -EV)",
+    "trend_pullback": "(DEPRECATED — terbukti -1.25R) Ikut tren: masuk saat koreksi dangkal. Hanya bila konfirmasi momentum searah sudah ada.",
     "breakout_continuation": "Lanjutan: harga tembus level penting dengan dorongan & volume.",
     "range_fade": "Sideways: fade tepi range (jual resisten, beli support) saat ADX rendah.",
     "scalp_range": "Sideways scalping: entry kecil-kecil di dalam range sempit (ATR<0.3%), SL ketat (1×ATR), TP kecil (1.2×ATR). Ambil profit cepat dari osilasi harga, jangan hold.",
+    "btc_dominance_short": "Risk-off asymmetry: BTC dump >=2% 3-bar (dump_flag=True) → alt beta>1 turun LEBIH DALAM. SHORT alt prioritas (edge struktural).",
     "exhaustion_reversal": "Pembalikan: kapitulasi/ekstrem dengan tanda kehabisan tenaga + konfirmasi.",
     "no_trade": "Tak ada setup berkualitas → FLAT. Keputusan sah & paling sering benar.",
 }
@@ -32,7 +34,7 @@ SETUPS = {
 # harga. chart_patterns/candlesticks/indicators SENGAJA dibuang dari prompt keputusan —
 # pola resolusi-bar dari OHLCV mentah sudah diarbitrase (breakeven di riset v1-v4).
 # Yang disisakan menekankan PROSES, RISIKO, STRUKTUR, META (klasifikasi regime > ramalan).
-DECISION_MODULES = ["decision_process", "risk", "psychology", "market_structure", "scalp_range", "meta"]
+DECISION_MODULES = ["decision_process", "risk", "psychology", "market_structure", "scalp_range", "btc_dominance", "halving_cycle", "meta"]
 
 # ---------------------------------------------------------------------------
 # Inti: identitas & prinsip (paling menentukan).
@@ -65,6 +67,8 @@ PROSES KEPUTUSAN (top-down, jalankan tiap bar — ini SKILL terpenting):
 1. REGIME: trend / range / chaos? (ADX, susunan EMA, ATR%). Tanpa regime jelas → cenderung flat.
 2. BIAS: arah dominan di timeframe lebih tinggi. Jangan lawan tanpa alasan kuat.
 3. SETUP: apakah ada pola valid yang COCOK dengan regime? (lihat SETUPS). Jika tidak → flat.
+   PREFERRED: 'trend_continuation' (pullback SELESAI + momentum resume), BUKAN 'trend_pullback'
+   (yang terbukti -1.25R — sering false signal saat pullback belum selesai).
 4. LOKASI: apakah harga di lokasi bernilai (dekat support/resisten/EMA), bukan mengejar
    di tengah gerakan? Entry buruk = lokasi buruk.
 5. TRIGGER: ada konfirmasi (mis. candle reversal di level, breakout dengan dorongan)?
@@ -116,11 +120,54 @@ STRUKTUR PASAR & PRICE ACTION (lebih penting dari pola hafalan):
   stop) lalu berbalik. Sapuan + penolakan cepat = sinyal jebakan, bukan breakout sejati.
 - Volume/dorongan: gerakan sehat didukung partisipasi; breakout tanpa dorongan rentan gagal.
 - MOTHERCOIN (BTC pemimpin pasar): konteks berisi `btc_lead` = gerak BTC {ret_1bar_pct,
-  ret_3bar_pct, dir (1=naik,-1=turun)}. Alt ber-beta lebih tinggi → saat BTC turun 1-4%+ ,
-  alt lain sering IKUT jatuh
-  (diperbesar/diperpanjang). ATURAN KONTEKS (bukan ramalan): JANGAN long alt saat BTC jelas
+  ret_3bar_pct, dir (1=naik,-1=turun), dump_flag (True=leleh >=2% 3bar), dominance_dir
+  (+1=risk-off BTC.D naik, -1=alt outperform)}. Alt ber-beta lebih tinggi → saat BTC turun 1-4%+ ,
+  alt lain sering IKUT jatuh (diperbesar/diperpanjang). ATURAN KONTEKS (bukan ramalan): JANGAN long alt saat BTC jelas
   jatuh, JANGAN short alt saat BTC melonjak keras — melawan mothercoin = turunkan conviction
   atau flat. Ini filter ARAH/RISIKO (kapan tak melawan pasar), tetap harus lolos evidence-gate.
+- TREND CONTINUATION (pengganti trend_pullback yang terbukti -EV): jangan masuk saat pullback masih
+  berjalan (harga masih menyentuh EMA & belum ada konfirmasi searah). MASUK saat pullback SELESAI:
+  harga bounce dari EMA/support + candle searah tren (bullish di uptrend, bearish di downtrend) +
+  volume naik. Trigger = konfirmasi momentum resume (bukan tebakan dasar).
+"""
+
+KNOWLEDGE["btc_dominance"] = """\
+BTC DOMINANCE ASYMMETRY — SHORT-PRIORITY saat BTC DUMP (edge struktural):
+- Logika struktural: BTC turun 2-5% (btc_lead.dump_flag=True) → investor pencari aman pindah ke BTC
+  → BTC.D (dominance) naik → ALT KELUAR dana + beta>1 → alt TURUN LEBIH DALAM (1.5-3× BTC move).
+- Ini ASYMMETRY yang nyata: saat BTC pump, alt ikut (tapi tak selalu lebih, bisa seedulu juga);
+  saat BTC DUMP, alt SELALU turun lebih dalam (beta amplified + outflow darurat). Short alt saat
+  BTC dump = edge struktural, bukan noise bar.
+- ATURAN PAKAI (saat btc_lead.dump_flag=True):
+  1. Conviction SHORT alt = BOOST 1.5× (risk-off asymmetry, bukan spekulasi).
+  2. Conviction LONG alt = REDUCE 0.5× (melawan outflow = bahaya).
+  3. Setup label = "btc_dominance_short" (tag untuk evidence-gate pelacakan).
+- SAAT dump_flag=False & dominance_dir=+1 (BTC menguat halus): alt tak dump, long BTC langsung
+  = lebih sahih daripada long alt (BTC lead dengan clean beta).
+- SAAT dominance_dir=-1 (alt outperform BTC): risk-on altseason — LONG alt lebih bagus dari BTC,
+  terutama DPI/fundamental kuat. Ini fase "alt piggy" — alt dengan beta tinggiUntuk naik lebih.
+- HINDARI: saat dump_flag=True TAPI alt sudah oversold ekstrem (RSI<15 + kapitulasi 3-bar) →
+  bounce risk. Tunggu bounce ke support dulu lalu short (don't catch falling knife di bottom).
+"""
+
+KNOWLEDGE["halving_cycle"] = """\
+HALVING CYCLE MACRO — fase 4-tahun BTC (macro regime awareness):
+- Tanggal halving historis: 2012-11-28, 2016-07-09, 2020-05-11, 2024-04-19. ~4 tahun sekali
+  reward penambang turun 50% → suplai baru berkurang → secara historis Bull market 12-18 bulan
+  setelah halving, diikuti Bear 12-18 bulan, lalu Accumulation 12-18 bulan menuju halving berikutnya.
+- Konteks berisi `halving_phase`: accumulation | pre-halving | post-halving | bull | blow-off | bear
+- ATURAN CALIBRASI CONVICTION (bukan pengganti keputusan, tapi prioritas arah):
+  - 'bull' (1 tahun setelah halving): TREND-FOLLOWING LONG lebih sahih. breakout_continuation LONG
+    conviction boost 1.3×. Hindari SHORT trend (tak melawan arus bull macro).
+  - 'blow-off' (1.5-2 tahun setelah): waspada pembalikan. LONG hanya dengan konfirmasi kuat,
+    prefer range/scalp (konsisten), atau exhaustion_reversal SHORT di blow-off top.
+  - 'bear' (2-3 tahun setelah): SHORT trend lebih sahih. trend_continuation SHORT conviction boost
+    1.3×. LONG hanya scalp/oversold bounce.
+  - 'accumulation' (3-4 tahun, menuju halving): range/sideways dominan. scalp_range + range_fade
+    optimum. conviction LONG sedikit boost (akumulasi gradual).
+  - 'pre-halving' (6 bulan sebelum): LONG conviction boost (antisipasi supply shock).
+- INI KONTEKS MACRO, bukan sinyal entry tunggal. Tetap lolos regime mikro (ADX/registr 15m) +
+  konfluensi struktur. Jangan paksa trade melawan phase karena micro-setup tampak "bagus".
 """
 
 KNOWLEDGE["chart_patterns"] = """\

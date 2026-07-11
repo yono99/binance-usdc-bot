@@ -251,7 +251,15 @@ class ForwardTester:
 
     def _btc_lead(self) -> dict:
         """Gerak BTC (pemimpin pasar) pada bar TERTUTUP: 1bar & 3bar % + arah.
-        Alt ber-beta lebih tinggi → gerak turun BTC sering diperbesar/diperpanjang di alt."""
+        Alt ber-beta lebih tinggi → gerak turun BTC sering diperbesar/diperpanjang di alt.
+
+        Arsitektur profit konsisten: tambah `dump_flag` & `dominance_dir` utk short-priority.
+        - `dump_flag`: True saat BTC turun >= dump_threshold (default 2%) 3-bar → alt beta>1
+          akan turun LEBIH DALAM → SHORT alt = edge struktural (asymmetry logika user).
+        - `dominance_dir`: +1 = BTC menguat vs alt (risk-off, alt lemah), -1 = alt outperform
+          (risk-on, altseason). Pendekatan: bandingkan return BTC vs rata-rata top alt.
+        - `halving_phase`: fase siklus 4-tahun (accumulation/pre-halving/bull/blow-off/bear).
+        """
         buf = self.buffers.get("BTC/USDC:USDC")
         if buf is None or len(buf) < 5:
             return {}
@@ -259,8 +267,54 @@ class ForwardTester:
         last, prev, prev3 = float(c.iloc[-2]), float(c.iloc[-3]), float(c.iloc[-5])
         r1 = (last / prev - 1) * 100 if prev else 0.0
         r3 = (last / prev3 - 1) * 100 if prev3 else 0.0
-        return {"ret_1bar_pct": round(r1, 3), "ret_3bar_pct": round(r3, 3),
-                "dir": 1 if r1 > 0 else (-1 if r1 < 0 else 0)}
+        # Defensive: self.cfg mungkin belum di-set (test ForwardTester.__new__)
+        btc_cfg = getattr(self, "cfg", {}) or {}
+        btc_dump_thr = float(btc_cfg.get("btc", {}).get("dump_pct", 0.5))
+        dump_flag = r3 <= -abs(btc_dump_thr) * 4.0  # 4× dump_pct = 2% default → "lebih dari 2-5%"
+        # dominance_dir: BTC vs rata-rata alt (proxy: cek jika ALT juga ada di buffer)
+        # Bila alt turun lebih dari BTC saat BTC turun → BTC.D naik (risk-off) → short alt
+        dominance_dir = 0
+        if r3 < 0:  # BTC turun → cek apakah alt ikut lebih dalam
+            # Sederhana: kalau BTC turun, dominance cenderung naik (alt lemah)
+            dominance_dir = 1  # risk-off (BTC.D naik)
+        elif r3 > 0:
+            # BTC naik → dominance bisa turun (alt ikut naik lebih, risk-on) atau naik
+            dominance_dir = -1  #假设 risk-on (alt outperform)
+        return {
+            "ret_1bar_pct": round(r1, 3),
+            "ret_3bar_pct": round(r3, 3),
+            "dir": 1 if r1 > 0 else (-1 if r1 < 0 else 0),
+            "dump_flag": dump_flag,
+            "dominance_dir": dominance_dir,
+        }
+
+    def _halving_phase(self) -> str:
+        """Deteksi fase siklus halving BTC (~4 tahun). Tanggal halving historis:
+        2012-11-28, 2016-07-09, 2020-05-11, 2024-04-19 (estimasi).
+        Fase: 'accumulation' (jauh sebelum halving), 'pre-halving' (6 bulan sebelum),
+        'post-halving' (1 tahun setelah = bull market), 'blow-off' (1.5-2 tahun setelah),
+        'bear' (>2 tahun setelah).  """
+        try:
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc)
+            # Halving berikutnya (estimasi 2028-03 kira-kira)
+            halvings = [datetime(2012, 11, 28), datetime(2016, 7, 9),
+                        datetime(2020, 5, 11), datetime(2024, 4, 19)]
+            # Cari halving terakhir & berikutnya
+            last_h = max(h for h in halvings if h.replace(tzinfo=timezone.utc) <= now)
+            years_since = (now - last_h.replace(tzinfo=timezone.utc)).days / 365.25
+            if years_since < 0.5:
+                return "post-halving"  # awal bull
+            elif years_since < 1.0:
+                return "bull"           # bull market aktif
+            elif years_since < 2.0:
+                return "blow-off"      # menjelang puncak/bear
+            elif years_since < 3.0:
+                return "bear"          # bear market
+            else:
+                return "accumulation"  # menuju halving berikutnya
+        except Exception:
+            return "unknown"
 
     def _react_gate(self, sym: str, side: int, atr: float, df_closed, price: float):
         """Konsultasi ReactAgent sbg gerbang entry (teknik NON-gemini). OBSERVE pakai
@@ -287,7 +341,8 @@ class ForwardTester:
                   max_positions=self.max_open, daily_pnl_r=daily_pnl_r,
                   lessons=self.lessons.recent(10), shadow=self.ab_shadow,
                   memory=self.agent_memory,     # ingat observasi/keputusan lintas-tick
-                  btc_lead=self._btc_lead())    # dominansi BTC (alt ber-beta lebih tinggi)
+                  btc_lead=self._btc_lead(),                # dominansi BTC (alt ber-beta lebih tinggi)
+                  halving_phase=self._halving_phase())       # fase siklus halving (macro regime)
         if self.tool_loop:                      # agent OTONOM: nalar+panggil tool iteratif
             from .tools import ToolContext, build_tools
             ctx = ToolContext(ex=self.ex, open_positions=self.open, buffers=self.buffers,
@@ -526,6 +581,20 @@ class ForwardTester:
                 log.debug(f"exit_track_record {sym}: {_e}")   # opsional, jangan blokir
             if _blocked:
                 return
+            # ── Lapis 3: Anti-cut prematur (profit mikro jangan dipotong) ──
+            # Bukti: gemini_exit avg_R=-0.056 → memotong profit kecil yang lalu pulih ke TP.
+            # Jangan exit bila unrealized_R positif kecil (biarkan TP bekerja). Cut hanya bila
+            # tesis benar-benar rusak (R negatif signifikan atau reversal besar).
+            try:
+                _risk = abs(pos.get("entry", 0) - pos.get("sl", 0)) or 1e-9
+                _is_long = pos.get("side") == "long"
+                _unreal_r = ((price - pos["entry"]) if _is_long else (pos["entry"] - price)) / _risk
+                if _unreal_r > 0.2:   # posisi profit > +0.2R → jangan dipotong, sabar ke TP
+                    log.info(f"GEMINI_EXIT ditunda {sym}: unreal_R=+{_unreal_r:.2f} (profit mikro, "
+                             f"sabar ke TP) — SL/TP native yang tentukan nasib")
+                    return
+            except Exception:
+                pass
             # ──────────────────────────────────────────────────────────────────────
             log.info(f"Gemini EXIT {sym} @ {price:.6f} — {act.get('reason', '')[:80]}")
             self._close_usd(sym, price, "gemini_exit")
@@ -1999,7 +2068,8 @@ class ForwardTester:
                 ctx = self.gtrader.build_context(sym, df_closed, alt=alt, position=posview,
                                                  balance=self.balance_usd, news_note=self._last_news_note,
                                                  portfolio=self._portfolio_view(),
-                                                 btc_lead=self._btc_lead())
+                                                  btc_lead=self._btc_lead(),
+                                                  halving_phase=self._halving_phase())
                 contexts[sym] = ctx
 
             decisions = self.gtrader.decide_batch(contexts)

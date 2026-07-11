@@ -145,14 +145,18 @@ class GeminiTrader:
     def build_context(self, symbol: str, df: pd.DataFrame, *, alt: dict | None = None,
                       position: dict | None = None, balance: float | None = None,
                       news_note: str = "", portfolio: dict | None = None,
-                      btc_lead: dict | None = None) -> dict:
+                      btc_lead: dict | None = None, halving_phase: str = "") -> dict:
         ctx = {
             "symbol": symbol,
             "market": _market_summary(df, self.cfg),
             "alt": alt or {},                       # funding_z, oi_delta, cvd_imb, basis_z (skalar)
             "btc_lead": btc_lead or {},             # MOTHERCOIN: gerak BTC 1bar/3bar % + arah.
             #   Alt ber-beta lebih tinggi → BTC turun 1-4%+ sering diperbesar/diperpanjang di alt.
-            #   Gemini pakai ini utk hindari LONG alt saat BTC jatuh (konteks arah pasar).
+            #   dump_flag=True saat BTC turun >=2% 3-bar → SHORT alt = edge struktural (beta>1).
+            #   dominance_dir=+1 = risk-off (BTC.D naik), -1 = risk-on (alt outperform).
+            "halving_phase": halving_phase or "unknown",  # fase siklus 4-tahun: macro regime.
+            #   'accumulation' / 'pre-halving' / 'post-halving' / 'bull' / 'blow-off' / 'bear'
+            #   Bull/bear kalibrasi conviction: trend-following LONG saat bull, SHORT saat bear.
             "position": position,                   # posisi terbuka di simbol INI (atau None)
             "portfolio": portfolio,                 # SEMUA posisi terbuka + eksposur (korelasi/risiko)
             "balance_usd": round(balance, 2) if balance is not None else None,
@@ -235,7 +239,7 @@ class GeminiTrader:
     # Field GLOBAL (sama utk semua simbol dalam satu siklus) → kirim SEKALI di batch,
     # bukan diduplikasi per simbol. sl_feedback/recent_decisions/loss_postmortem PER-SIMBOL.
     _SHARED_KEYS = ("setup_track_record", "exit_track_record", "calibration",
-                    "tested_lessons", "btc_lead", "portfolio", "balance_usd", "news")
+                    "tested_lessons", "btc_lead", "halving_phase", "portfolio", "balance_usd", "news")
 
     def _split_batch(self, contexts: dict[str, dict]) -> tuple[dict, list[dict]]:
         """Pisahkan konteks bersama (global) dari data per-simbol → hemat token."""
