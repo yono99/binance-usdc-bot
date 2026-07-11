@@ -47,10 +47,10 @@ COOLDOWN_AUTH = 5 * 60.0    # 403 / key invalid → 5 menit
 
 # THROTTLE PER-KEY: jeda WAJIB antar-request UNTUK KEY YANG SAMA (batas RPM Google
 # = per PROJECT, bukan per key → key dari project BERBEDA punya kuota terpisah dan
-# boleh jalan paralel). Free tier ~10 RPM/project → ≥6 dtk/key. Dgn N key beda-project
-# → RPM efektif ~N×. Knob env: GEMINI_MIN_INTERVAL_S (set "0" utk paid tier RPM tinggi).
-# ponytail: spacing per-key = rate-limiter cukup; tak perlu token-bucket penuh.
-_MIN_INTERVAL = float(os.getenv("GEMINI_MIN_INTERVAL_S", "6.5"))
+# boleh jalan paralel). Arsitektur 26-key: default 1.0s (RPM efektif ~N×10 = 260 dgn
+# 26 key beda-project). Knob env: GEMINI_MIN_INTERVAL_S (set "6.5" utk single-key/tradisional,
+# "0" utk paid tier RPM tinggi). Catatan: 1.0s mensyaratkan 26 key dari 26 project berbeda.
+_MIN_INTERVAL = float(os.getenv("GEMINI_MIN_INTERVAL_S", "1.0"))
 # Timeout HTTP per panggilan (ms) — batasi satu call yang hang agar tak membekukan siklus
 # (loop entry kini bisa banyak call/siklus krn budget dinamis). Timeout → error transien →
 # generate() merotasi key/model seperti error lain. Knob: GEMINI_TIMEOUT_S.
@@ -133,50 +133,64 @@ def _st(key: str) -> dict:
     return s
 
 
-# Circuit-breaker GLOBAL: hentikan panggil Gemini saat gagal beruntun (anti-spiral 429).
-# Module-level → SEMUA layer (news/react/planner/trader/dst) ikut mundur bersama.
-_breaker = {"fails": 0, "open_until": 0.0}
-BREAKER_FAILS = 5          # kegagalan penuh beruntun sebelum breaker TERBUKA
-BREAKER_COOLDOWN = 60.0    # detik breaker terbuka (skip semua panggilan → fallback deterministik)
+# Circuit-breaker PER-KEY (arsitektur 26-key): 1 key gagal → cooldown key itu saja,
+# 25 key lain tetap jalan. Dulu global (5 fail → kill ALL) → throughput jatuh ke 0 walau
+# cuma 1 key bermasalah. Knob: BREAKER_FAILS_PER_KEY & BREAKER_COOLDOWN_PER_KEY.
+# Catatan: _st(key) sudah punya field "fails" + "cooldown_until" → kita reuse sbg breaker
+# key-level (fails ≥ ambang → cooldown jangka pendek). Lihat _breaker_record_for(key).
+BREAKER_FAILS_PER_KEY = 8       # gagal beruntun per-key sebelum cooldown paksa (tahan noise)
+BREAKER_COOLDOWN_PER_KEY = 30.0 # dtk cooldown breaker per-key (lebih singkat dr cooldown 429=60s)
 
-# Model health tracking — sliding window sukses/gagal per model. Dipakai untuk
-# rotasi CERDAS saat 504/overload: prefer model dengan success rate tertinggi
-# dalam N panggilan terakhir (bukan urutan FALLBACK_MODELS tetap).
+# Model health tracking — sliding window sukses/gagal PER (KEY, MODEL). Dipakai untuk
+# rotasi CERDAS saat 504/overload: prefer kombinasi (key,model) dengan success rate
+# tertinggi dalam N panggilan terakhir (bukan urutan FALLBACK_MODELS tetap). Per-key:model
+# agar 1 key yg overload di model A tak menurunkan skor model A di key lain.
 _MODEL_HEALTH_WINDOW = 20
-_model_health: dict[str, list[bool]] = {}   # model → [True=sukses, False=gagal] terbaru
+_model_health: dict[str, list[bool]] = {}   # _model_key(key,model) → [True=sukses, False=gagal]
 
 
-def _record_model_health(model: str, success: bool) -> None:
-    h = _model_health.setdefault(model, [])
+def _record_model_health(key: str, model: str, success: bool) -> None:
+    h = _model_health.setdefault(_model_key(key, model), [])
     h.append(success)
     if len(h) > _MODEL_HEALTH_WINDOW:
         h.pop(0)
 
 
-def _model_health_score(model: str) -> float:
-    """Skor kesehatan model 0-1 (success rate), dengan penalti sampel kecil."""
-    h = _model_health.get(model, [])
+def _model_health_score(key: str, model: str) -> float:
+    """Skor kesehatan (key,model) 0-1 (success rate), dgn penalti sampel kecil.
+    Skor netral 0.5 utk kombination baru → tidak lebih tinggi dari yg terbukti OK."""
+    h = _model_health.get(_model_key(key, model), [])
     if not h:
-        return 0.5               # model baru = skor netral (lebih rendah dari model terbukti OK)
+        return 0.5
     rate = sum(h) / len(h)
     n_penalty = max(0, 1.0 - (_MODEL_HEALTH_WINDOW - len(h)) / _MODEL_HEALTH_WINDOW)
-    return rate * (0.5 + 0.5 * n_penalty)   # skor rendah bila sampel sedikit
+    return rate * (0.5 + 0.5 * n_penalty)
 
 
-def _breaker_open() -> bool:
-    return time.time() < _breaker["open_until"]
+def _breaker_open(keys: list[str]) -> bool:
+    """True bila SEMUA key sedang dalam cooldown breaker → tak ada key sehat → fail-open.
+    (Arsitektur 26-key: breaker global hanya efektif bila SEMUA key mati, bukan 5 fail.)"""
+    if not keys:
+        return True
+    now = time.time()
+    return all(_st(k)["cooldown_until"] > now for k in keys)
 
 
-def _breaker_record(ok: bool) -> None:
+def _breaker_record_for(key: str, ok: bool) -> None:
+    """Catat hasil panggilan untuk key ini. Gagal beruntun ≥ ambang → cooldown key itu 30s."""
+    s = _st(key)
     if ok:
-        _breaker["fails"] = 0
+        s["fails"] = 0
         return
-    _breaker["fails"] += 1
-    if _breaker["fails"] >= BREAKER_FAILS:
-        _breaker["open_until"] = time.time() + BREAKER_COOLDOWN
-        _breaker["fails"] = 0
-        log.warning(f"Gemini circuit-breaker TERBUKA {BREAKER_COOLDOWN:.0f}s — "
-                    "hentikan panggilan (anti-spiral 429); pakai fallback deterministik.")
+    s["fails"] += 1
+    if s["fails"] >= BREAKER_FAILS_PER_KEY:
+        #Cooldown breaker (30s) HANYA bila belum ada cooldown lebih lama (mis. 429=60s/auth=5m).
+        breaker_cd = time.time() + BREAKER_COOLDOWN_PER_KEY
+        if breaker_cd > s["cooldown_until"]:
+            s["cooldown_until"] = breaker_cd
+        log.warning(f"Gemini key {_key_hash(key)[:8]} breaker: {s['fails']} fail beruntun "
+                    f"→ cooldown {BREAKER_COOLDOWN_PER_KEY:.0f}s (key-level, 25 key lain tetap jalan).")
+        s["fails"] = 0
 
 
 def _get_client(key: str):
@@ -303,19 +317,26 @@ class GeminiClient:
         """Teks respons, atau None bila semua key/model gagal (fail-open)."""
         if not self.available:
             return None
-        if _breaker_open():                 # breaker terbuka → jangan panggil (putus spiral 429)
+        if _breaker_open(self.keys):         # SEMUA key breaker-cooldown → jangan tembak (fail-open)
             return None
-        now = time.time()                   # semua key masih cooling (429) → jangan tembak
+        now = time.time()                    # semua key masih cooling (429/auth/breaker) → jangan tembak
         if self.keys and not any(_st(k)["cooldown_until"] <= now for k in self.keys):
             return None                     # → pakai fallback deterministik siklus ini
         last_err = ""
         # Urutan model: primary pertama, lalu fallback diurutkan oleh kesehatan
-        # (success rate) descending — prefer model yang sedang sehat.
+        # (success rate) descending — prefer model yang sedang sehat di key ini.
+        # Skor PER (key,model) — 1 key overload di model A tak menurunkan model A di key lain.
+        def _rank_key_model(k: str, m: str) -> float:
+            return _model_health_score(k, m)
+
+        # Untuk pemilihan model fallback, pakai skor rata-rata cross-key > aggregat global
+        primary = self.models[0]
         if len(self.models) > 1:
-            primary = self.models[0]
-            fallbacks = sorted(self.models[1:],
-                               key=lambda m: _model_health_score(m),
-                               reverse=True)
+            fallbacks = sorted(
+                self.models[1:],
+                key=lambda m: sum(_rank_key_model(k, m) for k in self.keys) / max(1, len(self.keys)),
+                reverse=True,
+            )
             ordered_models = [primary] + fallbacks
         else:
             ordered_models = list(self.models)
@@ -323,10 +344,12 @@ class GeminiClient:
             any_transient = False
             for model in ordered_models:
                 model_down = False
-                for key in _ordered_keys(self.keys):
+                # Urut key berdasarkan kesehatan model ini di key tersebut (healthiest first).
+                healthy_keys = [k for k in _ordered_keys(self.keys)
+                                if not _model_dead(k, model)]
+                healthy_keys.sort(key=lambda k: _rank_key_model(k, model), reverse=True)
+                for key in healthy_keys:
                     ki = self.keys.index(key)
-                    if _model_dead(key, model):     # (key,model) RPD habis → skip TANPA buang panggilan
-                        continue
                     try:
                         _throttle(key)       # jeda WAJIB per-key → hormati RPM (per-project)
                         resp = _get_client(key).models.generate_content(model=model, contents=prompt)
@@ -341,8 +364,8 @@ class GeminiClient:
                         ot = int(getattr(u, "candidates_token_count", 0) or 0)
                         tt = int(getattr(u, "total_token_count", 0) or (pt + ot))
                         store.log_gemini_usage(model, purpose, ki, pt, ot, tt, ok=True)
-                        _record_model_health(model, True)          # catat sukses untuk ranking
-                        _breaker_record(True)          # sukses → reset breaker
+                        _record_model_health(key, model, True)   # catat sukses utk ranking per-key:model
+                        _breaker_record_for(key, True)           # sukses → reset fail counter key
                         return txt
                     except Exception as e:  # boundary
                         last_err = str(e)
@@ -354,23 +377,26 @@ class GeminiClient:
                         if kind == "request":   # 400 = prompt salah, percuma rotasi
                             store.log_gemini_usage(model, purpose, ki, 0, 0, 0, ok=False, error=last_err[:160])
                             log.warning(f"Gemini {purpose} request invalid: {last_err[:120]}")
+                            _breaker_record_for(key, False)
                             return None
                         if kind in ("rate", "rate_day", "auth"):
                             _mark_bad(key, kind, model)
+                            _breaker_record_for(key, False)   # 429/auth juga hitung ke breaker key
                             store.log_gemini_usage(model, purpose, ki, 0, 0, 0, ok=False, error=f"{kind}: {last_err[:140]}")
                             any_transient = True
                             continue
                         if kind == "overload":  # 504: server sibuk → cooldown key + ganti model
                             _mark_bad(key, "rate")   # istirahatkan key 60s, coba key lain
-                            _record_model_health(model, False)  # 504 = model sedang sibuk
+                            _record_model_health(key, model, False)  # 504 = model sibuk di key ini
                             model_down = True
                             any_transient = True
                             break
                         if kind == "model":     # model down/unavailable → coba model lain
-                            _record_model_health(model, False)  # model down/unavailable
+                            _record_model_health(key, model, False)  # model down di key ini
                             model_down = True
                             any_transient = True
                             break
+                        _breaker_record_for(key, False)  # other transien → tetap catat ke breaker key
                         any_transient = True
                 if model_down:
                     continue
@@ -380,5 +406,4 @@ class GeminiClient:
             else:
                 break
         log.warning(f"Gemini {purpose} gagal semua key/model: {last_err[:160]}")
-        _breaker_record(False)             # gagal penuh → dekati/buka breaker (anti-spiral)
         return None

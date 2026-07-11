@@ -120,11 +120,15 @@ gemini:
   planner_min_trades: 3     # lantai kuota trade sesi: planner tak boleh cekik di bawah ini (kecuali risk_off).
   giveback_tp_frac: 0.5     # posisi sempat >= ini (fraksi jarak entry->TP) menuju TP ...
   giveback_margin: 0.2      # ... lalu balik >= ini -> PAKSA Gemini review (kunci profit / exit)
-  gemini_decide_cap: 24     # CAP budget keputusan Gemini/siklus. Budget dihitung DINAMIS tiap
+  gemini_decide_cap: 100    # CAP budget keputusan Gemini/siklus. Budget dihitung DINAMIS tiap
   #   siklus = min(ceil(jumlah_simbol / cycles), cap), cycles = gemini_decide_seconds // poll_seconds
   #   -> cukup agar SEMUA simbol dapat giliran sekali per decide-interval, TAPI tak melampaui cap.
   #   Cap menjaga wall-clock serial: cap × ~2dtk latensi harus < poll_seconds (SL/TP tak tertunda).
   #   Universe besar/kecil atau poll berubah -> budget menyesuaikan sendiri, tanpa setel manual.
+  #   26-key (RPM efektif ~260) aman melipat kuota → cap 100 dr 24 (sideways sniper agresif).
+  batch_chunk_size: 12     # simbol per panggilan batch Gemini (decide_batch). 12 dr 4 — kurikulum
+  #   + grounding global dikirim SEKALI per sub-batch → token turun ~3-4×. Batch besar hemat RPD/TPM
+  #   TAPI terlalu besar → Gemini "lupa" simbol awal (attention drop) → parse gagal. 12 sweet spot.
   # ── SIDWAYS SNIPER (profit konsisten walau sideways, target micro) ─────────────
   # Saat regime=range (ADX<15, ATR rendah), bot AGRESIF mengevaluasi setup `scalp_range`:
   # bypass pre-gate ATR & price-cache (Gemini tetap ditanya tiap siklus), budget bonus,

@@ -54,12 +54,12 @@ def test_sideways_defaults_from_config(cfg):
     assert ss.get("micro_tp_pct_min", 0.01) >= 0.001
 
 
-# ── Model health tracking (gemini_client) ─────────────────────────────────────
+# ── Model health tracking per (key, model) (gemini_client) ────────────────────
 
 def test_model_health_starts_neutral():
     from bot.gemini_client import _model_health_score as score
-    # model tanpa riwayat → skor netral 0.5
-    assert 0.3 <= score("nonexistent-model") <= 0.7
+    # (key, model) tanpa riwayat → skor netral 0.5
+    assert 0.3 <= score("k1", "nonexistent-model") <= 0.7
 
 
 def test_model_health_improves_with_successes():
@@ -67,10 +67,10 @@ def test_model_health_improves_with_successes():
     from bot.gemini_client import _model_health_score as score
     import bot.gemini_client as gc
     gc._model_health.clear()
-    m = "gemini-health-test"
+    k, m = "k1", "gemini-health-test"
     for _ in range(10):
-        rec(m, True)
-    assert score(m) > 0.7
+        rec(k, m, True)
+    assert score(k, m) > 0.7
 
 
 def test_model_health_drops_with_failures():
@@ -78,10 +78,10 @@ def test_model_health_drops_with_failures():
     from bot.gemini_client import _model_health_score as score
     import bot.gemini_client as gc
     gc._model_health.clear()
-    m = "gemini-health-fail-test"
+    k, m = "k1", "gemini-health-fail-test"
     for _ in range(10):
-        rec(m, False)
-    assert score(m) < 0.4
+        rec(k, m, False)
+    assert score(k, m) < 0.4
 
 
 def test_health_favors_successful_model():
@@ -89,11 +89,23 @@ def test_health_favors_successful_model():
     from bot.gemini_client import _model_health_score as score
     import bot.gemini_client as gc
     gc._model_health.clear()
-    m_ok = "flash-success"
-    m_bad = "flash-overload"
+    k, m_ok, m_bad = "k1", "flash-success", "flash-overload"
     for _ in range(10):
-        rec(m_ok, True)
-        rec(m_bad, False)
-    ok_s = score(m_ok)
-    bad_s = score(m_bad)
+        rec(k, m_ok, True)
+        rec(k, m_bad, False)
+    ok_s = score(k, m_ok)
+    bad_s = score(k, m_bad)
     assert ok_s > bad_s, f"expected ok>{bad_s}, got {ok_s:.3f} <= {bad_s:.3f}"
+
+
+def test_health_isolates_per_key():
+    """1 key overload di model A tak menurunkan model A di key lain (per-key: model)."""
+    from bot.gemini_client import _record_model_health as rec
+    from bot.gemini_client import _model_health_score as score
+    import bot.gemini_client as gc
+    gc._model_health.clear()
+    for _ in range(10):
+        rec("k1", "flash", False)       # k1: flash overload
+        rec("k2", "flash", True)        # k2: flash sehat
+    assert score("k1", "flash") < 0.4
+    assert score("k2", "flash") > 0.7

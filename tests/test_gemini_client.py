@@ -18,7 +18,7 @@ def _reset_states(monkeypatch, tmp_path):
     gc._last_call.clear()
     gc._persisted.clear()
     gc._persist_loaded = False
-    gc._breaker.update({"fails": 0, "open_until": 0.0})
+    gc._breaker = {"fails": 0, "open_until": 0.0}  # legacy compat (tak dipakai 26-key)
     yield
     gc._states.clear()
     gc._last_call.clear()

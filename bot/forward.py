@@ -199,6 +199,8 @@ class ForwardTester:
         self._sniper_micro_tp_max = float(_sniper.get("micro_tp_pct_max", 0.30))
         self._sniper_scalp_exit_bars = int(_sniper.get("scalp_exit_bars", 3))
         self._sniper_require_scalp = bool(_sniper.get("require_setup_scalp_range", True))
+        self._sniper_range_bonus_mult = float(_sniper.get("range_bonus_mult", 3.0))
+        self._sniper_devil_advocate_for_scalp = bool(_sniper.get("devil_advocate_for_scalp", False))
 
     def seed(self) -> None:
         for sym in self.symbols:
@@ -534,15 +536,22 @@ class ForwardTester:
                 log.info(f"Gemini tighten SL {sym}: {old:.6f} → {pos['sl']:.6f}")
 
     @staticmethod
-    def _gemini_score(df, price: float, atr: float, since_decide_s: float) -> float:
+    def _gemini_score(df, price: float, atr: float, since_decide_s: float,
+                      range_bonus_mult: float = 1.0) -> float:
         """Skor "menarik" kandidat kuota Gemini: volatilitas × gerakan terakhir +
-        boost anti-starvation (jam sejak decide terakhir, cap 2j). Murah & deterministik."""
+        boost anti-starvation (jam sejak decide terakhir, cap 2j). Murah & deterministik.
+
+        Sideways sniper (arsitektur 26-key): bila regime=range (ADX ≤ adx_range, default 15),
+        kalikan skor dgn range_bonus_mult (default 1.0 = sunyi; 3.0 = 3× boost agar range
+        tak kalah bersaing dgn simbol trend di ranking budget). ATR rendah di range → skor
+        kecil tanpa boost → budget habis di simbol trend → scalp_range tak pernah dapat giliran."""
         try:
             ret5 = abs(float(df["close"].iloc[-1] / df["close"].iloc[-6] - 1)) * 100
         except Exception:
             ret5 = 0.0
         atr_pct = atr / price * 100 if price else 0.0
-        return atr_pct * (1 + ret5) + min(since_decide_s / 3600, 2.0) * 0.1
+        base = atr_pct * (1 + ret5) + min(since_decide_s / 3600, 2.0) * 0.1
+        return base * range_bonus_mult
 
     @staticmethod
     def _regime_stamp(df, cfg) -> dict:
@@ -566,6 +575,36 @@ class ForwardTester:
             return adx_v <= st.get("adx_range", 18)
         except Exception:  # boundary — tak yakin regime = tak sideways sniper
             return False
+
+    @staticmethod
+    def _swing_range_tp(df, entry: float, is_long: bool) -> float | None:
+        """TP dinamis berbasis swing range untuk scalp_range:
+        - LONG (pos_in_range < 0.5 = support) → TP ke swing_high (resisten)
+        - SHORT (pos_in_range > 0.5 = resisten) → TP ke swing_low (support)
+        Mengambil seluruh osilasi range yang tersedia.
+        Return None bila swing terlalu dekat / tidak valid (fallback ke micro-TP config)."""
+        try:
+            from .indicators import atr as _atr
+            lookback = min(50, len(df) - 1)
+            if lookback < 20:
+                return None
+            recent = df.iloc[-lookback:]
+            high = recent["high"].max()
+            low = recent["low"].min()
+            if high <= low:
+                return None
+            pos_in_range = (entry - low) / (high - low) if high > low else 0.5
+            if is_long:
+                # LONG di support (pos < 0.5) → target resisten
+                if pos_in_range < 0.5:
+                    return high
+            else:
+                # SHORT di resisten (pos > 0.5) → target support
+                if pos_in_range > 0.5:
+                    return low
+            return None
+        except Exception:
+            return None
 
     @staticmethod
     def _sniper_cache_add(cache: dict, sym: str, is_range: bool) -> None:
@@ -1279,7 +1318,7 @@ class ForwardTester:
         sl = entry - atr * _sl_mult if is_long else entry + atr * _sl_mult
         # ── SIDEWAYS SNIPER: micro-TP override untuk setup scalp_range di regime=range.
         # Saat gemini setup='scalp_range' & sideways_sniper aktif → override target_profit_pct
-        # ke nilai mikro (config: 0.01-0.30%) WALAU tanpa target_profit_pct runtime. Tujuan:
+        # ke nilai mikro (config: 0.005-0.30%) WALAU tanpa target_profit_pct runtime. Tujuan:
         # profit konsisten walau kecil — jangan tunggu RR 1.2×ATR (lambat di sideways tipis).
         _sniper_setup = (gem and self._sideways_sniper and self._sniper_require_scalp
                          and gem["dec"].get("setup") == "scalp_range")
@@ -1288,11 +1327,27 @@ class ForwardTester:
         if _sniper_setup and _rb2 is not None and len(_rb2) >= 30:
             _sniper_rng = self._is_range(_rb2.iloc[:-1], self.cfg)
         if _sniper_setup and _sniper_rng:
-            # Ambil target_profit_pct runtime bila ada; selain itu pakai micro-TP config.
-            _user_tp = rs.target_profit_pct if rs.target_profit_pct > 0 else self._sniper_micro_tp_max
-            _micro_tp = max(self._sniper_micro_tp_min, min(_user_tp, self._sniper_micro_tp_max))
-            tp = entry * (1 + _micro_tp / 100) if is_long else entry * (1 - _micro_tp / 100)
-            log.info(f"SIDEWAYS SNIPER {sym}: micro-TP {_micro_tp:.3f}% (scalp_range regime=range)")
+            # TP DINAMIS berbasis pos_in_range: entry di support (pos<0.5) → TP ke swing_high
+            # (resisten); entry di resisten (pos>0.5) → TP ke swing_low. Mengambil seluruh
+            # osilasi range yang tersedia — lebih konsisten daripada TP fixed ATR-based.
+            # Jika swing terlalu dekat (< micro_tp_min) → fallback micro-TP config.
+            _micro_tp_pct = None
+            try:
+                _swing_tp = self._swing_range_tp(_rb2, entry, is_long)
+                if _swing_tp is not None:
+                    _swing_pct = abs(_swing_tp - entry) / entry * 100
+                    if _swing_pct >= self._sniper_micro_tp_min:
+                        tp = _swing_tp
+                        _micro_tp_pct = _swing_pct
+                        log.info(f"SIDEWAYS SNIPER {sym}: swing-TP {_swing_pct:.3f}% "
+                                 f"(scalp_range, pos_in_range dinamis)")
+            except Exception:
+                pass
+            if _micro_tp_pct is None:   # fallback: micro-TP config statis
+                _user_tp = rs.target_profit_pct if rs.target_profit_pct > 0 else self._sniper_micro_tp_max
+                _micro_tp = max(self._sniper_micro_tp_min, min(_user_tp, self._sniper_micro_tp_max))
+                tp = entry * (1 + _micro_tp / 100) if is_long else entry * (1 - _micro_tp / 100)
+                log.info(f"SIDEWAYS SNIPER {sym}: micro-TP {_micro_tp:.3f}% (scalp_range regime=range)")
         elif rs.target_profit_pct > 0:
             tp = entry * (1 + rs.target_profit_pct / 100) if is_long else entry * (1 - rs.target_profit_pct / 100)
         else:
@@ -1681,6 +1736,8 @@ class ForwardTester:
             self._sniper_micro_tp_max = 0.30
             self._sniper_scalp_exit_bars = 3
             self._sniper_require_scalp = True
+            self._sniper_range_bonus_mult = 3.0
+            self._sniper_devil_advocate_for_scalp = False
 
         rs = self._apply_settings()
         self._gemini_decide_used = 0      # kuota panggilan Gemini per-siklus, reset tiap cycle
@@ -1836,8 +1893,14 @@ class ForwardTester:
                     # Kumpulkan SEMUA yang lolos pre-gate dgn skor "menarik" — kuota
                     # dialokasikan by-ranking setelah loop (bukan first-come-first-served,
                     # yang membuat simbol ekor daftar kelaparan permanen).
+                    # SIDEWAYS SNIPER: boost 3× skor saat regime=range (ADX ≤ adx_range) agar
+                    # simbol range (ATR rendah = base score kecil) tak kalah bersaing dgn
+                    # simbol trend. Tanpa boost, budget habis di trend → scalp_range kelaparan.
+                    _range_bonus = self._sniper_range_bonus_mult if (
+                        self._sideways_sniper and _is_rng) else 1.0
                     score = self._gemini_score(df_closed, c["price"], gate_atr,
-                                               now - self._last_decide.get(sym, 0))
+                                               now - self._last_decide.get(sym, 0),
+                                               range_bonus_mult=_range_bonus)
                     gemini_pool.append((sym, df_closed, score))
                 else:
                     side, atr = self._signal(sym, df_closed)
@@ -1949,17 +2012,22 @@ class ForwardTester:
                 ctx = contexts.get(sym, {})
                 alt = alt_data.get(sym, {})
 
-                # Devil's Advocate
+                # Devil's Advocate (arsitektur 26-key: hemat RPD, Devil di-skip utk scalp_range)
                 if dec["side"] in ("long", "short") and self.rs is not None:
-                    verdict = self.react.challenge_gemini(sym, dec["side"], dec.get("rationale", ""),
-                                                          ctx.get("market", {}), alt)
-                    if verdict and verdict["strength"] >= self.react.devil_threshold:
-                        old = dec["conviction"]
-                        dec["conviction"] = round(self.rs.downgrade_conf(old), 3)
-                        top = verdict["objections"][0] if verdict["objections"] else "objection kuat"
-                        dec["rationale"] = (dec.get("rationale", "") +
-                                            f" | DEVIL {verdict['strength']:.2f} "
-                                            f"({old:.2f}→{dec['conviction']:.2f}): {top}")[:200]
+                    _skip_devil = (self._sniper_devil_advocate_for_scalp is False
+                                   and dec.get("setup") == "scalp_range")
+                    if not _skip_devil:
+                        verdict = self.react.challenge_gemini(sym, dec["side"], dec.get("rationale", ""),
+                                                              ctx.get("market", {}), alt)
+                        if verdict and verdict["strength"] >= self.react.devil_threshold:
+                            old = dec["conviction"]
+                            dec["conviction"] = round(self.rs.downgrade_conf(old), 3)
+                            top = verdict["objections"][0] if verdict["objections"] else "objection kuat"
+                            dec["rationale"] = (dec.get("rationale", "") +
+                                                f" | DEVIL {verdict['strength']:.2f} "
+                                                f"({old:.2f}→{dec['conviction']:.2f}): {top}")[:200]
+                    else:
+                        log.debug(f"{sym}: Devil's Advocate di-skip (scalp_range, hemat RPD)")
 
                 atr_val = float(_atr(df_closed, self.cfg["signals"]["atr_period"]).iloc[-1])
                 side = 1 if dec["side"] == "long" else (-1 if dec["side"] == "short" else 0)
