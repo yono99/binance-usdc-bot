@@ -59,6 +59,16 @@ def ft(make_df, monkeypatch):
     ft._last_rpd_warn = 0.0
     ft.news = types.SimpleNamespace(check=lambda: (False, ""))
     ft.vrp = types.SimpleNamespace(check=lambda: (False, None), mode="shadow")
+    # ── Sideways sniper (default OFF untuk test murni budget) ──
+    ft._sideways_sniper = False
+    ft._sniper_pregate_atr_range = 0.02
+    ft._sniper_price_cache_range = 0.0
+    ft._sniper_budget_boost_pct = 0.0
+    ft._sniper_micro_tp_min = 0.01
+    ft._sniper_micro_tp_max = 0.30
+    ft._sniper_scalp_exit_bars = 3
+    ft._sniper_require_scalp = True
+    ft._sniper_devil_advocate_for_scalp = False
 
     df = make_df([100.0] * 65)
     monkeypatch.setattr(ft, "_apply_settings",

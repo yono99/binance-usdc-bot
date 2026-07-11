@@ -198,3 +198,71 @@ kuota hariannya habis tak di-retry (429) tiap keputusan.
 - LLM lambat & non-deterministik → cocok untuk keputusan per-bar (15m), bukan tick.
 - Refleksi bisa bias; evidence-gate + statistik-kode adalah penangkalnya, bukan jaminan.
 - Tidak ada jaminan profit. Sistem ini menemukan kebenaran (termasuk "tidak ada edge").
+
+---
+
+## Horizontal Scaling — 26 API Keys untuk Sideways Sniper Profit Konsisten
+
+**Tujuan**: profit mikro (0.005–0.30%) di **setiap osilasi range**, tanpa menunggu tren. Range punya peluang tiap 15m bar (3–5×/sesi), jadi 26 key harus dirotasi efisien agar Gemini dipanggil **setiap siklus** untuk simbol `scalp_range`.
+
+### Arsitektur 26 Key (gemini_client.py)
+
+| Fitur | Sebelum (2 key) | Sekarang (26 key) |
+|-------|-----------------|-------------------|
+| Circuit breaker | Global (5 fail → kill ALL) | **Per-key** (8 fail → 30s cooldown key itu saja) |
+| Throttle/key | 6.5s | **1.0s** (`GEMINI_MIN_INTERVAL_S=1.0`) |
+| Effective RPM | 10 | **260** (26×10 RPM/project) |
+| Model health | Global | **Per (key,model)** |
+
+**Mengapa per-key?** Dengan 26 project terpisah, satu key kena 429 tidak boleh bunuh 25 key lain. Breaker per-key memastikan throughput tetap tinggi walau beberapa key cooldown.
+
+### Budget & Chunking (config.yaml)
+
+```yaml
+gemini:
+  gemini_decide_cap: 100        # dari 24 — max calls/siklus
+  batch_chunk_size: 12          # dari 4 — simbol per batch call
+  sideways_sniper:
+    budget_boost_pct: 300       # +300% bila >50% simbol range
+    micro_tp_pct_min: 0.005     # ambil 0.005% profit
+    devil_advocate_for_scalp: false  # hemat RPD, Devil di-skip
+```
+
+### Range Bonus di Ranking (_gemini_score)
+
+```python
+# forward.py _gemini_score
+if adx_v <= 15:
+    _range_bonus = 3.0  # 3× skor agar range tak kalah dari simbol trend
+```
+
+Tanpa ini, ATR rendah di range → skor kecil → budget habis di simbol trend → `scalp_range` tidak pernah mendapat giliran.
+
+### Mikro-TP Dinamis Berbasis pos_in_range
+
+Entry di support (pos_in_range < 0.5) → TP ke **swing_high** (resisten). Entry di resisten (> 0.5) → TP ke **swing_low**. Jika swing terlalu dekat → fallback micro-TP config (0.005–0.30%).
+
+**Mengapa ini konsisten:** range sempit (ATR <0.15%) geraknya cuma ke tepi range. TP fixed ATR-based (1.2×) terlalu lambat/banyak gagal. TP ke tepi range = ambil seluruh osilasi yang tersedia.
+
+### Devil's Advocate Selective Skip
+
+```yaml
+devil_advocate_for_scalp: false
+```
+
+Devil's Advocate memanggil LLM kedua (double RPD) untuk menitipkan). Di `scalp_range` profit mikro, overhead 2× tidak layak — kurikulum sudah menekankan SL ketat 1×ATR + exit paksa 3 bar.
+
+### Environment Variable
+
+```bash
+GEMINI_MIN_INTERVAL_S=1.0   # jeda per-key (paid tier bisa 0.5/0.2)
+```
+
+### Hasil yang Diharapkan
+
+- **400 calls/siklus** saat >50% simbol range (budget boost 4× cap 100)
+- **Setiap `scalp_range` dipanggil tiap siklus** (throttle 60s + budget besar)
+- **Profit 0.005–0.3% per entry** × 3–5 entry/sesi = konsisten tanpa tren
+- **0 fallback ke rules-based** (RPD tidak habis karena rotasi 26 key seimbang)
+
+> Catatan: `GEMINI_MIN_INTERVAL_S=1.0` memerlukan **26 API key dari project Google Cloud berbeda**. Jika key dari project yang sama, RPM terbagi → RPM efektif < 260, adjust interval ke atas.

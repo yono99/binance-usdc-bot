@@ -151,7 +151,7 @@ Di tengah range / melawan tren kuat = abaikan.
 KNOWLEDGE["indicators"] = """\
 INDIKATOR (LAGGING & sendirian sudah diarbitrase — pakai sebagai KONTEKS, bukan pemicu):
 - EMA (9/21/50): susunan & kemiringan = arah/kekuatan tren; harga ke EMA = area pullback.
-- ADX: kekuatan tren (bukan arah). Tinggi (>25) = trending; rendah (<18) = sideways → ganti mode.
+- ADX: kekuatan tren (bukan arah). Tinggi (>25) = trending; rendah (<15) = sideways → ganti mode.
 - RSI: momentum/ekstrem. "Overbought/oversold" BUKAN sinyal jual/beli di tren kuat (bisa
   bertahan ekstrem lama). Lebih berguna: divergensi di level.
 - MACD: momentum/persilangan; konfirmasi, bukan pemicu mandiri.
@@ -161,18 +161,31 @@ JANGAN bertindak atas SATU indikator. Mereka mengonfirmasi tesis, tidak mencipta
 
 KNOWLEDGE["scalp_range"] = """\
 SCALP RANGE (khusus range/sideways ATR rendah <0.3%):
-- ADX < 18 = range → mode scalping (bukan trend-follow). Entry kecil, exit cepat.
+- ADX < 15 = range → mode scalping (bukan trend-follow). Entry kecil, exit cepat.
 - KONTEKS PASAR punya: swing_high, swing_low, range_width_pct, pos_in_range (0=bawah, 1=atas).
-  gunakan: pos_in_range < 0.2 = dekat support → long; > 0.8 = dekat resisten → short.
+  gunakan: pos_in_range < 0.25 = dekat support → long; > 0.75 = dekat resisten → short.
+  pos_in_range 0.4-0.6 = TENGAH range → RISKY (tak ada cukup ruang ke tepi), cenderung FLAT.
   range_width_pct kecil (<1%) = range sempit → scalp paling cocok, TP cepat.
   range_in_atr = lebar range dalam satuan ATR; <3 = range sangat sempit (ideal scalp).
 - CARI overextensi: harga sentuh/mendekati tepi range (pos_in_range ekstrem)
   LALU balik dengan candle penolakan (wick/doji/engulfing kecil) = trigger fade.
-- TP kecil: cukup 0.2-0.5% (1.2xATR). Jangan greed — di range, gerak terbatas.
+- TP kecil: cukup 0.005-0.5% (1.2xATR). Jangan greed — di range, gerak terbatas.
+  Bila entry di support (pos<0.25), TP = arah resisten (pos>0.75) atau swing_high.
+  Bila entry di resisten (pos>0.75), TP = arah support (pos<0.25) atau swing_low.
 - SL ketat: 1xATR, taruh di BALIK swing terdekat. Range sering sapu stop lalu balik.
-- JANGAN hold lewat 2-3 bar tanpa profit — range tak punya momentum, harga akan kembali.
-- KONTEKS: range dengan ADX <10 = super-sideways → scalping paling cocok.
-  Range dengan ADX 10-18 = masih bisa fade tapi waspada breakout palsu."""
+  Sabar: harga mungkin tidak segera profit (osilasi) → exit paksa setelah 3 bar bila nirkemajuan.
+- JANGAN hold lewat 3 bar tanpa profit — range tak punya momentum, harga akan kembali.
+- KONTEKS: range dengan ADX <10 = super-sideways → scalping paling cocok (profit paling konsisten).
+  Range dengan ADX 10-15 = masih bisa fade tapi waspada breakout palsu (turunkan conviction).
+- PROFIT MIKRO ITU SAH & DIUTAMAKAN: di range tipis (ATR 0.01-0.15%), target profit 0.005-0.3%
+  ADALAH WAJAR & KONSISTEN. Jangan tolak entry hanya karena profit tampak "terlalu kecil" —
+  di sideways, konsistensi kumpulan profit mikro > 1-2 kali profit besar yang jarang terjadi.
+  KODE akan memotong posisi yang nirkemajuan (exit paksa) — jadi pastikan entry-mu
+  BERPROBABILITAS profit kecil tinggi, bukan menunggu gerakan besar yang tak akan datang.
+  Trader profesional di range: ambil 0.01% 50× daripada 1% 1× dengan 49 drawdown.
+- FREKUENSI ENTRY: di range, peluang muncul tiap osilasi (bisa 3-5× per sesi 15m). Jangan
+  tunggu "setup sempurna" — setup range yang BIASA-BIASA SAJA dgn pos_in_range ekstrem + SL ketat
+  adalah trade yang valid. Overthinking di sideways = melewatkan profit mikro yangCONSISTEN."""
 
 KNOWLEDGE["meta"] = """\
 META (kebijaksanaan yang membedakan trader bertahan):

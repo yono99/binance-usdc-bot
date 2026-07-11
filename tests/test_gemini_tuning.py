@@ -4,7 +4,7 @@ from bot.settings_store import RuntimeSettings, _from_dict
 
 def test_defaults():
     s = RuntimeSettings()
-    assert s.gemini_decide_seconds == 180 and s.gemini_manage_seconds == 60
+    assert s.gemini_decide_seconds == 60 and s.gemini_manage_seconds == 30
     assert s.gemini_portfolio_seconds == 300 and s.gemini_plan_hours == 6
     assert s.gemini_tool_iters == 4
 

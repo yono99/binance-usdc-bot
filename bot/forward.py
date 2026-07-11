@@ -177,11 +177,11 @@ class ForwardTester:
         # loop sekuensial → ledakan 429 + _monitor_usd (SL/TP keras) simbol lain ikut tertunda.
         # DINAMIS (_recompute_decide_budget): budget = minimum agar SEMUA simbol dapat giliran
         # sekali per _decide_interval, dibatasi cap wall-clock (budget × latensi < poll_seconds).
-        self._gemini_decide_cap = int(_gcfg.get("gemini_decide_cap", 24))  # batas serial: ~cap×2dtk < poll
+        self._gemini_decide_cap = int(_gcfg.get("gemini_decide_cap", 100))  # batas serial: ~cap×2dtk < poll
         self._gemini_decide_budget = self._gemini_decide_cap
         self._gemini_decide_used = 0              # reset tiap awal siklus (_on_cycle_store)
         self._last_decide: dict = {}              # throttle keputusan-entry Gemini per simbol
-        self._decide_interval = 180               # detik min antar keputusan entry (~3 mnt) — hemat token
+        self._decide_interval = 60               # detik min antar keputusan entry (~1 mnt) — turun dr 180 utk 26 key
         # Cache harga saat Gemini terakhir memutuskan: {sym → (price, decision)}.
         # Skip Gemini jika harga belum bergerak melewati threshold (hemat RPD saat pasar stagnan).
         self._decide_price_cache: dict[str, tuple[float, dict]] = {}
@@ -189,6 +189,16 @@ class ForwardTester:
         self._last_rpd_warn = 0.0
         # KESELAMATAN: Gemini-trader boleh order LIVE hanya bila di-set eksplisit di config.
         self._allow_live_gemini = bool(self.cfg.get("gemini", {}).get("allow_live_trader", False))
+        # ── SIDEWAYS SNIPER (profit konsisten walau sideways) ─────────────────────
+        _sniper = self.cfg.get("gemini", {}).get("sideways_sniper", {})
+        self._sideways_sniper = bool(_sniper.get("enabled", True))
+        self._sniper_pregate_atr_range = float(_sniper.get("pregate_atr_pct_range", 0.01))
+        self._sniper_price_cache_range = float(_sniper.get("price_cache_pct_range", 0.0))
+        self._sniper_budget_boost_pct = float(_sniper.get("budget_boost_pct", 300))
+        self._sniper_micro_tp_min = float(_sniper.get("micro_tp_pct_min", 0.005))
+        self._sniper_micro_tp_max = float(_sniper.get("micro_tp_pct_max", 0.30))
+        self._sniper_scalp_exit_bars = int(_sniper.get("scalp_exit_bars", 3))
+        self._sniper_require_scalp = bool(_sniper.get("require_setup_scalp_range", True))
 
     def seed(self) -> None:
         for sym in self.symbols:
@@ -544,6 +554,24 @@ class ForwardTester:
             return {"regime": _market_summary(df, cfg)["regime"]}
         except Exception:  # boundary — regime opsional, jangan pernah blokir trading
             return {"regime": "unknown"}
+
+    @staticmethod
+    def _is_range(df, cfg) -> bool:
+        """Deteksi regime=range MURAH untuk sideways sniper (tak panggil _market_summary
+        penuh — hemat CPU saat dipakai tiap siklus utk tiap simbol). Pure."""
+        try:
+            from .indicators import adx as _adx, atr as _atr
+            st = cfg["strategy"]
+            adx_v = float(_adx(df, cfg["signals"]["adx_period"])[0].iloc[-1])
+            return adx_v <= st.get("adx_range", 18)
+        except Exception:  # boundary — tak yakin regime = tak sideways sniper
+            return False
+
+    @staticmethod
+    def _sniper_cache_add(cache: dict, sym: str, is_range: bool) -> None:
+        """Catat regime-range per simbol untuk decision budget boost (dipakai ranking)."""
+        if cache is not None:
+            cache[sym] = is_range
 
     def _close_trade(self, sym: str, price: float, reason: str) -> None:
         pos = self.open.pop(sym)
@@ -1249,7 +1277,23 @@ class ForwardTester:
             except Exception:
                 pass
         sl = entry - atr * _sl_mult if is_long else entry + atr * _sl_mult
-        if rs.target_profit_pct > 0:
+        # ── SIDEWAYS SNIPER: micro-TP override untuk setup scalp_range di regime=range.
+        # Saat gemini setup='scalp_range' & sideways_sniper aktif → override target_profit_pct
+        # ke nilai mikro (config: 0.01-0.30%) WALAU tanpa target_profit_pct runtime. Tujuan:
+        # profit konsisten walau kecil — jangan tunggu RR 1.2×ATR (lambat di sideways tipis).
+        _sniper_setup = (gem and self._sideways_sniper and self._sniper_require_scalp
+                         and gem["dec"].get("setup") == "scalp_range")
+        _sniper_rng = False
+        _rb2 = self.buffers.get(sym)
+        if _sniper_setup and _rb2 is not None and len(_rb2) >= 30:
+            _sniper_rng = self._is_range(_rb2.iloc[:-1], self.cfg)
+        if _sniper_setup and _sniper_rng:
+            # Ambil target_profit_pct runtime bila ada; selain itu pakai micro-TP config.
+            _user_tp = rs.target_profit_pct if rs.target_profit_pct > 0 else self._sniper_micro_tp_max
+            _micro_tp = max(self._sniper_micro_tp_min, min(_user_tp, self._sniper_micro_tp_max))
+            tp = entry * (1 + _micro_tp / 100) if is_long else entry * (1 - _micro_tp / 100)
+            log.info(f"SIDEWAYS SNIPER {sym}: micro-TP {_micro_tp:.3f}% (scalp_range regime=range)")
+        elif rs.target_profit_pct > 0:
             tp = entry * (1 + rs.target_profit_pct / 100) if is_long else entry * (1 - rs.target_profit_pct / 100)
         else:
             tp = entry + atr * _tp_mult if is_long else entry - atr * _tp_mult
@@ -1335,6 +1379,13 @@ class ForwardTester:
                      if buf_full is not None else {})   # kesepakatan multi-TF (shadow)
         settle = "USDC" if sym.endswith(":USDC") else "USDT"
         entry_fee_rate = rs.fee_rate(settle, rs.order_type == "limit")   # kaki ENTRY: maker bila limit
+        # ── SIDEWAYS SNIPER: stempel scalp_exit_bars untuk exit cepat ──────────
+        _scalp_exit = 0
+        if self._sideways_sniper and self._sniper_scalp_exit_bars > 0 and gem:
+            _setup = gem["dec"].get("setup", "")
+            if not self._sniper_require_scalp or _setup == "scalp_range":
+                _scalp_exit = self._sniper_scalp_exit_bars
+        # ─────────────────────────────────────────────────────────────────────
         self.open[sym] = {"side": "long" if is_long else "short", "entry": entry, "qty": qty,
                           "sl": sl, "tp": tp, "liq": liq, "bet": bet,
                           "risk0": abs(entry - sl) * qty,   # 1R BEKU saat open — SL boleh di-trail, R tidak ikut bergeser
@@ -1343,7 +1394,8 @@ class ForwardTester:
                           "opened_ts": pd.Timestamp.utcnow().isoformat(),  # utk marker panah di chart
                           **self.vrp.stamp(),   # stempel regime VRP saat open (A/B shadow)
                           **self._regime_stamp(buf_full, self.cfg),  # regime → laporan EV
-                          **mtf_stamp}
+                          **mtf_stamp,
+                          "scalp_bars": _scalp_exit}   # SIDEWAYS SNIPER: 0=nonaktif, N=bar tersisa
         if gem:                                     # catat keputusan Gemini → settle saat tutup
             self.open[sym]["conviction"] = gem_conv   # untuk skor Brier saat close
             try:
@@ -1429,7 +1481,7 @@ class ForwardTester:
                                   "equity": round(self.balance_usd, 2)})
         log.info(f"CLOSE {reason.upper()} {sym} pnl=${pnl:+.2f} bal=${self.balance_usd:.2f}")
         icon = {"liq": "💥 <b>LIKUIDASI</b>", "sl": "🛑 SL", "tp": "✅ TP",
-                "manual": "✋ CLOSE", "eod": "⏹ EOD"}.get(reason, reason)
+                "manual": "✋ CLOSE", "eod": "⏹ EOD", "scalp_exit": "⚡ SCALP EXIT"}.get(reason, reason)
         self.notify.send(f"{icon} {sym}\nPnL ${pnl:+.2f} · R {r:+.2f} · saldo ${self.balance_usd:.2f}")
 
     def _check_calib_drift(self) -> None:
@@ -1511,6 +1563,23 @@ class ForwardTester:
                                         f"{prog * 100:.0f}% — pertimbangkan kunci profit / exit")
                 self._last_manage[sym] = 0.0      # buka throttle → _gemini_manage jalan siklus ini
                 log.info(f"GIVE-BACK {sym}: puncak {peak * 100:.0f}%→{prog * 100:.0f}% TP — panggil Gemini")
+        # ── SIDEWAYS SNIPER: exit cepat scalp_range (tak profit dalam N bar) ──
+        # Range tak punya momentum; hold lama = give back = rugi. Paksa exit bila
+        # posisi scalp_range belum profit setelah _scalp_exit_bars bar. Decrement
+        # tiap siklus di sini (hanya saat bar tertutup baru & posisi belum profit).
+        _scalp_bars = pos.get("scalp_bars", 0)
+        if _scalp_bars > 0:
+            # Decrement tiap siklus — selama posisi masih hidup & bar tertutup baru
+            in_profit = ((last_price > pos["entry"]) if long else (last_price < pos["entry"]))
+            if in_profit:
+                pos["scalp_bars"] = 0               # sudah profit, exit wajar lewat TP
+            else:
+                pos["scalp_bars"] = _scalp_bars - 1  # satu bar terbuang tanpa profit
+                if pos["scalp_bars"] <= 0:
+                    log.info(f"SIDEWAYS SNIPER {sym}: exit cepat (tak profit dalam "
+                             f"{self._sniper_scalp_exit_bars} bar) @ {last_price:.6f}")
+                    self._close_usd(sym, last_price, "scalp_exit")
+                    return                            # SKIP SL/TP/liq — posisi sudah ditutup
         # Urutan konservatif: likuidasi → SL → TP (bila satu bar menyentuh dua sisi, ambil yg merugikan).
         if (lo <= pos["liq"]) if long else (hi >= pos["liq"]):
             self._close_usd(sym, pos["liq"], "liq")
@@ -1602,6 +1671,17 @@ class ForwardTester:
         return None
 
     def _on_cycle_store(self) -> None:
+        # Guard: pastikan default sideways-sniper attributes (bila __init__ di-bypass test)
+        if not hasattr(self, '_sideways_sniper'):
+            self._sideways_sniper = False
+            self._sniper_pregate_atr_range = 0.02
+            self._sniper_price_cache_range = 0.0
+            self._sniper_budget_boost_pct = 0.0
+            self._sniper_micro_tp_min = 0.01
+            self._sniper_micro_tp_max = 0.30
+            self._sniper_scalp_exit_bars = 3
+            self._sniper_require_scalp = True
+
         rs = self._apply_settings()
         self._gemini_decide_used = 0      # kuota panggilan Gemini per-siklus, reset tiap cycle
         # Budget dinamis: pas untuk memberi SEMUA simbol satu giliran per _decide_interval,
@@ -1671,6 +1751,7 @@ class ForwardTester:
         expo = self._exposure_frac()
         label = {1: "LONG", -1: "SHORT", 0: "skip"}
         gemini_pool = []                       # (sym, df, score) — di-ranking setelah loop
+        _sniper_range_cache: dict[str, bool] = {}   # regime-range per simbol untuk budget boost
         for sym in self.symbols:
             buf = self._update_buffer(sym)        # refresh DULU → monitor lihat high/low terbaru
             self._monitor_usd(sym, buf)           # cek SL/TP intrabar (tangkap wick antar-poll)
@@ -1699,6 +1780,13 @@ class ForwardTester:
                 if bar_closed:
                     self.last_closed[sym] = df_closed.index[-1]
                 if self.use_gemini_trader and self.gtrader is not None and not _gemini_rpd_fallback:
+                    # ── DETEKSI REGIME=range (sideways sniper) ────────────────────
+                    # Murah (cuma ADX) — dipakai untuk bypass pre-gate ATR & price-cache
+                    # khusus regime=range (sideways tipis jangan diblok, tetap panggil Gemini).
+                    _sideways_on = getattr(self, '_sideways_sniper', False)
+                    _is_rng = self._is_range(df_closed, self.cfg) if _sideways_on else False
+                    self._sniper_cache_add(_sniper_range_cache if _sideways_on else None,
+                                           sym, _is_rng)
                     # Blokir MURAH dulu (tanpa panggil Gemini) — jangan buang token bila
                     # jelas tak akan buka posisi.
                     pre = (None if rs.enabled else "bot OFF")
@@ -1713,7 +1801,14 @@ class ForwardTester:
                         #   Hanya saring pasar mati (ATR% < lantai) agar tak buang token. Lantai =
                         #   knob (calibration): naikkan bila token boros, turunkan bila sinyal langka.
                         _, gate_atr = self._signal(sym, df_closed)
-                        floor = self.cfg.get("gemini", {}).get("pregate_atr_pct", 0.3)
+                        # ── SIDEWAYS SNIPER: lantai ATR DILENGGARKAN khusus regime=range.
+                        # Default pregate_atr_pct=0.08 blok pair ATR<0.08% — tapi sideways
+                        # ideal justru ATR 0.02-0.10%. Setup `scalp_range` butuh ATR rendah.
+                        # Saat regime=range & sideways_sniper aktif → pakai lantai lebih rendah.
+                        if self._sideways_sniper and _is_rng:
+                            floor = self._sniper_pregate_atr_range
+                        else:
+                            floor = self.cfg.get("gemini", {}).get("pregate_atr_pct", 0.3)
                         if c["price"] and gate_atr / c["price"] * 100 < floor:
                             pre = "pre-gate: pasar terlalu sepi"
                     if pre is not None:
@@ -1722,8 +1817,13 @@ class ForwardTester:
                     # ── PRICE CACHE ───────────────────────────────────────────────────
                     # Skip Gemini jika harga belum bergerak melewati threshold sejak decide
                     # terakhir — hemat RPD saat pasar stagnan tanpa melewatkan pergerakan nyata.
-                    _price_cache_pct = float(
-                        self.cfg.get("gemini", {}).get("price_cache_pct", 0.15))
+                    # SIDEWAYS SNIPER: price-cache DIMATIKAN khusus regime=range (harga sideways
+                    # memang diam, tapi tetap harus dievaluasi tiap siklus → jangan skip).
+                    if self._sideways_sniper and _is_rng:
+                        _price_cache_pct = self._sniper_price_cache_range   # 0.0 = bypass cache
+                    else:
+                        _price_cache_pct = float(
+                            self.cfg.get("gemini", {}).get("price_cache_pct", 0.15))
                     _cached = self._decide_price_cache.get(sym)
                     if _cached is not None and _price_cache_pct > 0 and c["price"]:
                         _cached_price, _cached_dec = _cached
@@ -1786,8 +1886,27 @@ class ForwardTester:
 
         # RANKING: kuota decide dialokasikan ke kandidat paling "hidup" (skor), bukan
         # urutan daftar. Sisa slot dari siklus ini (budget dikurangi pemakaian manage dll).
+        # ── SIDEWAYS SNIPER: budget BOOST saat mayoritas simbol regime=range. 26 key aman
+        # RPD → panggil lebih sering saat sideways agar scalp_range dapat kesempatan walau
+        # skor volatilitasnya rendah (range = ATR rendah = skor _gemini_score kecil →
+        # tanpa boost kalah bersaing dengan trend setup di simbol lain).
         gemini_pool.sort(key=lambda t: (-t[2], t[0]))    # skor desc, tie-break nama (deterministik)
-        slots = max(self._gemini_decide_budget - self._gemini_decide_used, 0)
+        # Hitung boost budget berdasarkan rasio simbol regime=range di pool kandidat
+        _eff_budget = self._gemini_decide_budget
+        if self._sideways_sniper and self._sniper_budget_boost_pct > 0 and gemini_pool:
+            n_range = sum(1 for t in gemini_pool
+                          if _sniper_range_cache.get(t[0], False))
+            n_total = len(gemini_pool)
+            if n_total > 0 and n_range / n_total >= 0.5:   # ≥50% sideways → apply boost
+                _boost_mult = 1.0 + self._sniper_budget_boost_pct / 100.0
+                _eff_budget = min(
+                    int(self._gemini_decide_budget * _boost_mult),
+                    self._gemini_decide_cap * 2)            # cap 2× default 24 = 48 (26 key aman)
+                if _eff_budget != self._gemini_decide_budget:
+                    log.info(f"SIDEWAYS SNIPER: budget boost "
+                             f"{self._gemini_decide_budget}→{_eff_budget} "
+                             f"({n_range}/{n_total} simbol range, +{self._sniper_budget_boost_pct:.0f}%)")
+        slots = max(_eff_budget - self._gemini_decide_used, 0)
         gemini_candidates = [(sym, df) for sym, df, _ in gemini_pool[:slots]]
         for sym, df, _ in gemini_pool[slots:]:
             # JANGAN set _last_decide (bukan throttle normal) — tetap ikut ranking siklus depan.

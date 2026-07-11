@@ -54,7 +54,9 @@ _MIN_INTERVAL = float(os.getenv("GEMINI_MIN_INTERVAL_S", "6.5"))
 # Timeout HTTP per panggilan (ms) — batasi satu call yang hang agar tak membekukan siklus
 # (loop entry kini bisa banyak call/siklus krn budget dinamis). Timeout → error transien →
 # generate() merotasi key/model seperti error lain. Knob: GEMINI_TIMEOUT_S.
-_TIMEOUT_MS = int(float(os.getenv("GEMINI_TIMEOUT_S", "8")) * 1000)
+# MINIMUM 10s — Google SDK menolak deadline <10s dgn 400 INVALID_ARGUMENT (error permanen,
+# BUKAN 429) yang tak ter-rotasi (kode pikir "request salah" → return None tanpa coba key lain).
+_TIMEOUT_MS = int(max(float(os.getenv("GEMINI_TIMEOUT_S", "15")), 10.0) * 1000)
 _throttle_lock = threading.Lock()
 _last_call: dict[str, float] = {}      # per-key: ts panggilan terakhir
 
@@ -136,6 +138,29 @@ def _st(key: str) -> dict:
 _breaker = {"fails": 0, "open_until": 0.0}
 BREAKER_FAILS = 5          # kegagalan penuh beruntun sebelum breaker TERBUKA
 BREAKER_COOLDOWN = 60.0    # detik breaker terbuka (skip semua panggilan → fallback deterministik)
+
+# Model health tracking — sliding window sukses/gagal per model. Dipakai untuk
+# rotasi CERDAS saat 504/overload: prefer model dengan success rate tertinggi
+# dalam N panggilan terakhir (bukan urutan FALLBACK_MODELS tetap).
+_MODEL_HEALTH_WINDOW = 20
+_model_health: dict[str, list[bool]] = {}   # model → [True=sukses, False=gagal] terbaru
+
+
+def _record_model_health(model: str, success: bool) -> None:
+    h = _model_health.setdefault(model, [])
+    h.append(success)
+    if len(h) > _MODEL_HEALTH_WINDOW:
+        h.pop(0)
+
+
+def _model_health_score(model: str) -> float:
+    """Skor kesehatan model 0-1 (success rate), dengan penalti sampel kecil."""
+    h = _model_health.get(model, [])
+    if not h:
+        return 0.5               # model baru = skor netral (lebih rendah dari model terbukti OK)
+    rate = sum(h) / len(h)
+    n_penalty = max(0, 1.0 - (_MODEL_HEALTH_WINDOW - len(h)) / _MODEL_HEALTH_WINDOW)
+    return rate * (0.5 + 0.5 * n_penalty)   # skor rendah bila sampel sedikit
 
 
 def _breaker_open() -> bool:
@@ -284,9 +309,19 @@ class GeminiClient:
         if self.keys and not any(_st(k)["cooldown_until"] <= now for k in self.keys):
             return None                     # → pakai fallback deterministik siklus ini
         last_err = ""
+        # Urutan model: primary pertama, lalu fallback diurutkan oleh kesehatan
+        # (success rate) descending — prefer model yang sedang sehat.
+        if len(self.models) > 1:
+            primary = self.models[0]
+            fallbacks = sorted(self.models[1:],
+                               key=lambda m: _model_health_score(m),
+                               reverse=True)
+            ordered_models = [primary] + fallbacks
+        else:
+            ordered_models = list(self.models)
         for rnd in range(self.rounds):
             any_transient = False
-            for model in self.models:
+            for model in ordered_models:
                 model_down = False
                 for key in _ordered_keys(self.keys):
                     ki = self.keys.index(key)
@@ -306,6 +341,7 @@ class GeminiClient:
                         ot = int(getattr(u, "candidates_token_count", 0) or 0)
                         tt = int(getattr(u, "total_token_count", 0) or (pt + ot))
                         store.log_gemini_usage(model, purpose, ki, pt, ot, tt, ok=True)
+                        _record_model_health(model, True)          # catat sukses untuk ranking
                         _breaker_record(True)          # sukses → reset breaker
                         return txt
                     except Exception as e:  # boundary
@@ -326,10 +362,12 @@ class GeminiClient:
                             continue
                         if kind == "overload":  # 504: server sibuk → cooldown key + ganti model
                             _mark_bad(key, "rate")   # istirahatkan key 60s, coba key lain
+                            _record_model_health(model, False)  # 504 = model sedang sibuk
                             model_down = True
                             any_transient = True
                             break
                         if kind == "model":     # model down/unavailable → coba model lain
+                            _record_model_health(model, False)  # model down/unavailable
                             model_down = True
                             any_transient = True
                             break
