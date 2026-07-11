@@ -136,9 +136,9 @@ gemini:
   # Tujuan: profit konsisten kecil di sideways, walau 0.005% — jangan tunggu tren.
   sideways_sniper:
     enabled: true                # saklar utama
-    pregate_atr_pct_range: 0.01  # lantai ATR% DILENGGARKAN khusus regime=range (sideways tipis)
+    pregate_atr_pct_range: 0.003  # lantai ATR% DILENGGARKAN khusus regime=range (sideways tipis 0.3%)
     #   default pregate_atr_pct 0.08 blok pair ATR<0.08% — tapi sideways ideal justru
-    #   ATR 0.01-0.10%. Range sniper butuh ATR rendah, jangan blok wajar pasar senyap.
+    #   ATR 0.01-0.30%. Range sniper butuh ATR rendah, jangan blok wajar pasar senyap.
     price_cache_pct_range: 0.0    # price-cache DImatiKAN khusus range (harga sideways diam,
     #   tapi tetap harus dievaluasi tiap siklus -> jangan skip krn Δharga kecil).
     budget_boost_pct: 300          # budget keputusan Gemini DITAMBAH +300% saat mayoritas simbol

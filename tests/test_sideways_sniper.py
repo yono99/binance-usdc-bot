@@ -50,8 +50,9 @@ def test_sideways_defaults_from_config(cfg):
     ss = cfg.get("gemini", {}).get("sideways_sniper", {})
     assert isinstance(ss, dict)
     assert ss.get("enabled", True) is True
-    assert 0.01 <= ss.get("pregate_atr_pct_range", 0.02) <= 1.0
-    assert ss.get("micro_tp_pct_min", 0.01) >= 0.001
+    # Kurikulum scalp_range: ATR < 0.3% ideal → pregate_atr_pct_range 0.003 (0.3%)
+    assert 0.003 <= ss.get("pregate_atr_pct_range", 0.003) <= 1.0
+    assert ss.get("micro_tp_pct_min", 0.005) >= 0.001
 
 
 # ── Model health tracking per (key, model) (gemini_client) ────────────────────

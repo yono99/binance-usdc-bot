@@ -1343,6 +1343,14 @@ class ForwardTester:
             c["blocked"] = "gemini-live dimatikan (config)"
             return
         gem_conv = float(gem["dec"].get("conviction", 0.0) or 0.0) if gem else None
+        # ── ASYMMETRIC SHORT SIZING (arsitektur profit konsisten):
+        # Saat BTC dump ≥2% (dump_flag=True) → alt beta>1 turun LEBIH DALAM → SHORT edge.
+        # Boost conviction 1.5× utk SHORT saat dump_flag (cap 1.0).
+        if gem and side == -1:  # SHORT
+            btc_lead = gem.get("ctx", {}).get("btc_lead", {})
+            if btc_lead.get("dump_flag", False):
+                gem_conv = min(gem_conv * 1.5, 1.0)
+                log.info(f"ASYMMETRIC SHORT {sym}: dump_flag=True → conviction boost 1.5× = {gem_conv:.3f}")
         # Gerbang SIZE berbasis confidence (Phase 2 kalibrasi): tier menggantikan skala
         # conviction kontinu lama. Jalur rule-based (gem_conv=None) TIDAK digerbang —
         # tak punya angka confidence; selalu ukuran penuh (pilihan terdokumentasi).
@@ -2073,6 +2081,32 @@ class ForwardTester:
                 contexts[sym] = ctx
 
             decisions = self.gtrader.decide_batch(contexts)
+
+            # ── CONVICTION BOOST (arsitektur profit konsisten) ─────────────────────────
+            # 1. BTC Dominance Short-Priority: btc_lead.dump_flag=True & SHORT → ×1.5
+            #    Logika: BTC dump ≥2% 3-bar → BTC.D naik → alt beta>1 turun LEBIH DALAM
+            # 2. Halving Cycle: bull/bear phase → trend-following direction ×1.3
+            #    bull→LONG boost, bear→SHORT boost (macro awareness tanpa override mikro)
+            for sym, dec in decisions.items():
+                if dec["side"] not in ("long", "short"):
+                    continue
+                ctx = contexts.get(sym, {})
+                btc = ctx.get("btc_lead", {})
+                halving = ctx.get("halving_phase", "")
+                # 1. BTC dump asymmetry
+                if btc.get("dump_flag") and dec["side"] == "short":
+                    old = dec["conviction"]
+                    dec["conviction"] = round(min(old * 1.5, 1.0), 3)
+                    dec["rationale"] = (dec.get("rationale", "") +
+                                        f" | BTC_DUMP_BOOST ×1.5 ({old:.2f}→{dec['conviction']:.2f})")[:200]
+                # 2. Halving cycle macro
+                if halving in ("bull", "bear"):
+                    if (halving == "bull" and dec["side"] == "long") or \
+                       (halving == "bear" and dec["side"] == "short"):
+                        old = dec["conviction"]
+                        dec["conviction"] = round(min(old * 1.3, 1.0), 3)
+                        dec["rationale"] = (dec.get("rationale", "") +
+                                            f" | HALVING_{halving.upper()}_BOOST ×1.3 ({old:.2f}→{dec['conviction']:.2f})")[:200]
 
             from .indicators import atr as _atr
             for sym, df_closed in gemini_candidates:
