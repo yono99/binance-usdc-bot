@@ -191,6 +191,73 @@ def basis_zscore(binance_close: pd.Series, bybit_close: pd.Series, window: int) 
 # untuk signals.evaluate (live) maupun strategy_lab decide_v* (backtest vektor).
 # --------------------------------------------------------------------------
 
+def btc_fade_confirm(side_str: str, cfg: dict, btc_df: pd.DataFrame | None = None,
+                     lookback: int = 5) -> dict:
+    """BTC Directional Confirmation for FADE setups (stricter than btc_gate).
+    
+    btc_gate only BLOCKS counter-trend to strong BTC moves.
+    btc_fade_confirm REQUIRES active BTC support in the fade direction:
+    
+    - SHORT-at-resistance: BTC must have DOWN bias (price < short EMA OR EMA slope negative)
+    - LONG-at-support: BTC must be neutral-to-positive (NOT strong down bias)
+    
+    Args:
+        side_str: "long" or "short"
+        cfg: config dict with 'btc' section
+        btc_df: BTC OHLCV DataFrame (must have at least lookback+2 bars)
+        lookback: bars for EMA slope calculation
+    
+    Returns:
+        {"allow": bool, "reason": str}
+    """
+    b = cfg.get("btc", {})
+    fade_cfg = b.get("fade_confirm", {})
+    if not b.get("enabled", True) or not fade_cfg.get("enabled", True):
+        return {"allow": True, "reason": "btc_fade_confirm disabled"}
+    
+    if btc_df is None or len(btc_df) < lookback + 2:
+        return {"allow": False, "reason": "insufficient BTC data for fade confirm"}
+    
+    # Use SHORT EMA for fast bias detection
+    ema_period = fade_cfg.get("ema_period", 20)
+    from . import indicators as ind
+    ema = ind.ema(btc_df["close"], ema_period)
+    if ema.empty:
+        return {"allow": False, "reason": "EMA calculation failed"}
+    
+    current_price = float(btc_df["close"].iloc[-1])
+    current_ema = float(ema.iloc[-1])
+    ema_slope = float(ema.iloc[-1] - ema.iloc[-lookback-1]) / lookback if len(ema) > lookback + 1 else 0
+    
+    if side_str == "short":
+        # SHORT-at-resistance: need BTC down bias
+        price_below_ema = current_price < current_ema
+        slope_negative = ema_slope < 0
+        
+        require_both = fade_cfg.get("require_both", False)
+        if require_both:
+            allow = price_below_ema and slope_negative
+            reason = f"BTC fade SHORT: price<EMA={price_below_ema}, slope<0={slope_negative} (need both)"
+        else:
+            allow = price_below_ema or slope_negative
+            reason = f"BTC fade SHORT: price<EMA={price_below_ema}, slope<0={slope_negative} (need either)"
+        
+        return {"allow": allow, "reason": reason}
+    
+    else:  # long
+        # LONG-at-support: need BTC neutral-to-positive (NOT strong down)
+        price_above_ema = current_price > current_ema
+        slope_positive = ema_slope > 0
+        
+        # Strong down = price well below EMA AND steep negative slope
+        strong_down = (current_price < current_ema * 0.995) and (ema_slope < -0.001)
+        
+        allow = not strong_down  # allow unless strong down
+        reason = f"BTC fade LONG: strong_down={strong_down} (price={current_price:.2f}, EMA={current_ema:.2f}, slope={ema_slope:.4f})"
+        
+        return {"allow": allow, "reason": reason}
+
+
 def btc_gate(side: int, btc_ret_pct: float | None, cfg: dict) -> dict:
     """Gerbang dominansi BTC untuk SATU keputusan (skalar, jalur live).
 

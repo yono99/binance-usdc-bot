@@ -1,229 +1,134 @@
-# ============================================================
-#  Konfigurasi strategi & risiko.
-#  Edit di sini, JANGAN hardcode di kode.
-# ============================================================
-
+agent:
+  ab_shadow: false
+  autonomous: false
+  autonomous_interval_s: 300
+  full_auto: false
+  plan_horizon_h: 6
+  planner: false
+  tool_loop: false
+  tool_max_iters: 4
+btc:
+  block_counter: true
+  dump_pct: 0.5
+  enabled: true
+  size_floor: 0.4
+  symbol: BTC/USDC:USDC
+execution:
+  order_type: limit
+  pending_timeout_s: 300
+  post_only: true
+flat_shadow:
+  horizon_bars: 16
+  k_atr: 1.0
+  miss_threshold: 0.35
+  mode: shadow
+  retention_days: 90
+  sample: 200
+gemini:
+  allow_live_trader: true
+  batch_chunk_size: 12
+  devil_advocate:
+    enabled: true
+    model: ''
+    veto_threshold: 0.7
+  gemini_decide_cap: 100
+  giveback_margin: 0.15
+  giveback_tp_frac: 0.5
+  min_regime_score: 0.4
+  model: gemini-3-flash-preview
+  news_veto: true
+  planner_min_trades: 3
+  pregate_atr_pct: 0.08
+  price_cache_pct: 0.03
+  role: veto
+  sideways_sniper:
+    budget_boost_pct: 300
+    devil_advocate_for_scalp: false
+    enabled: false
+    micro_tp_pct_max: 0.3
+    micro_tp_pct_min: 0.005
+    pregate_atr_pct_range: 0.003
+    price_cache_pct_range: 0.0
+    require_setup_scalp_range: true
+    scalp_exit_bars: 3
 market:
-  quote: USDC              # margin/quote asset (USDC-M futures)
-  timeframe: "15m"         # timeframe sinyal utama
-  poll_seconds: 20         # interval loop (REST poll)
-  # settle yang diikutkan saat whitelist kosong. USDT membuka ±760 pair ekstra
-  # TAPI: (1) USDT TIDAK ikut promo fee 0% (taker ~0.05%/sisi nyata); (2) akun
-  # butuh saldo USDT utk margin pair USDT (atau aktifkan Multi-Asset Mode di
-  # Binance); (3) kembaran (BTC/USDT vs BTC/USDC) otomatis di-dedup, prefer USDC.
-  settles: [USDC, USDT]
-  # whitelist; kosongkan [] untuk auto-pilih dari screener (default: screening SEMUA pair)
+  poll_seconds: 20
+  quote: USDC
+  settles:
+  - USDC
+  - USDT
+  timeframe: 15m
   whitelist: []
-
+mtf:
+  mode: shadow
+  mults:
+  - 8
+  - 16
+  sample: 100
+risk:
+  account_risk_pct: 0.5
+  corr_lookback: 50
+  corr_threshold: 0.85
+  daily_max_loss_pct: 3.0
+  daily_max_trades: 20
+  leverage: 3
+  max_portfolio_exposure_pct: 30
+  sl_atr_mult: 1.5
+  tp_atr_mult: 2.6
+  trailing: true
+  trailing_atr_mult: 1.2
+rotate:
+  blacklist_after_sl: 2
+  cooldown_minutes: 30
+  max_open_positions: 6
 screener:
-  min_quote_volume_24h: 5_000_000   # likuiditas minimum (USDC)
-  max_spread_pct: 0.03              # bid-ask maksimum (%) — diketatkan utk akun mikro:
-                                    # spread adalah biaya pasti tiap trade; 0.03% masih
-                                    # meloloskan majors (BTC/ETH/SOL/XRP <0.015%), membuang
-                                    # pair mahal (CRV/BOME/PNUT ~0.10-0.15% terukur 2026-07)
-  min_atr_pct: 0.05                 # volatilitas minimum (ATR/price %) — turunkan dari 0.25
-                                     # agar pair sideways (ATR 0.05-0.25%) lolos screener ke Gemini.
-                                     # Scalp_range butuh ATR rendah; pre-gate Gemini (0.08%) yang saring.
-  max_atr_pct: 6.0                  # buang yang terlalu liar
-
+  max_atr_pct: 6.0
+  max_spread_pct: 0.03
+  min_atr_pct: 0.05
+  min_quote_volume_24h: 5000000
 signals:
+  adx_period: 14
+  adx_trend_min: 20
+  atr_period: 14
   ema_fast: 9
   ema_mid: 21
   ema_slow: 50
-  adx_period: 14
-  adx_trend_min: 20        # di bawah ini dianggap choppy -> cenderung SKIP
+  entry_confidence: 0.55
   rsi_period: 14
-  atr_period: 14
-  # ambang skor gabungan (0..1) untuk membuka posisi
-  entry_confidence: 0.62
   weights:
-    trend: 0.40
-    momentum: 0.30
-    structure: 0.30
-
-btc:
-  # Dominansi BTC (mother coin) — gerbang direction-aware dipakai SEMUA teknik.
-  # BTC turun kuat -> entri LONG alt diblok; BTC naik kuat -> entri SHORT alt diblok.
-  # Entri SEARAH BTC atau saat gerak BTC kecil = lolos penuh (peluang short saat
-  # BTC dump TIDAK dibuang). Live: signals.evaluate. Backtest: strategy_lab decide_v*.
-  enabled: true
-  symbol: "BTC/USDC:USDC"   # simbol pemimpin pasar
-  dump_pct: 0.5             # |gerak %| bar-tertutup BTC >= ini = "kuat" (di bawah ini lolos)
-  block_counter: true       # true = blok entri lawan-arah; false = diskon size saja
-  size_floor: 0.4           # (mode diskon) faktor size minimum saat lawan-arah BTC
-
-rotate:
-  max_open_positions: 6     # slot aktif maksimum
-  cooldown_minutes: 30      # jeda re-entry pair yang baru ditutup
-  blacklist_after_sl: 2     # SL beruntun -> blacklist sementara
-
-risk:
-  account_risk_pct: 0.5     # risiko per trade (% equity) -> tentukan size dari jarak SL
-  leverage: 3               # konservatif. Naikkan dgn sangat hati-hati.
-  max_portfolio_exposure_pct: 30   # total notional / equity
-  daily_max_loss_pct: 3.0   # circuit breaker: stop buka posisi bila rugi harian >= % saldo awal hari (default; bisa diatur dari UI, 0 = nonaktif)
-  daily_max_trades: 20      # circuit breaker: stop bila jumlah open hari ini tercapai (default; bisa diatur dari UI, 0 = nonaktif)
-  corr_threshold: 0.85      # guard korelasi: blok entry SEARAH bila korelasi return >= ini
-  corr_lookback: 50         # bar untuk hitung korelasi (0/kecil = nonaktif)
-  sl_atr_mult: 1.5          # SL = entry -/+ ATR * mult
-  tp_atr_mult: 2.6          # TP (RR ~1.7). >1 = expectancy-friendly
-  trailing: true
-  trailing_atr_mult: 1.2
-
-execution:
-  order_type: limit         # default maker (limit, post-only) | market (taker)
-  post_only: true           # limit: tolak bila langsung jadi taker (jamin fee maker)
-  # LIMIT + post-only (GTX) hampir selalu jadi RESTING order (belum terisi). Bot menelusurinya
-  # sbg PENDING (bukan posisi) & reconcile tiap siklus via fetch_open_orders: terisi -> pasang
-  # SL/TP + daftar posisi; batal/expire -> dibuang. pending_timeout_s: limit resting lebih dari
-  # ini (detik) -> dibatalkan & skip (jangan tunggu selamanya). 0 = tanpa timeout.
-  pending_timeout_s: 300
-
+    momentum: 0.3
+    structure: 0.3
+    trend: 0.4
 strategy:
-  # enhancement (dipakai optimize --strategy v2; live menyusul bila OOS positif)
-  htf_mult: 4              # timeframe filter = timeframe × ini (mis. 15m×4 = 1h)
-  adx_strong: 25           # adx >= ini -> mode trend-follow
-  adx_range: 18            # adx <= ini -> mode mean-reversion (fade ekstrem)
-  mr_rsi_low: 30           # MR long bila rsi < ini
-  mr_rsi_high: 70          # MR short bila rsi > ini
-  # anti-"entry di pucuk / sell minus" (v2-v4): tolak entry yang sudah overextended dari mean.
-  # TOGGLE on/off (default OFF) — HANYA berlaku teknik non-gemini; jalur Gemini tak pakai gate ini.
-  gate_overext: false      # ON -> aktifkan gate RSI-jenuh + jarak-ke-EMA (entry_rsi_*/entry_ext_atr)
-  gate_runup: false        # ON -> aktifkan gate anti-chase lonjakan N-bar (entry_runup_*)
-  gate_corr: false         # ON -> aktifkan guard korelasi utk non-gemini (gemini tetap pakai corr_threshold)
-  entry_rsi_max: 72        # long ditolak bila RSI >= ini (jenuh-beli, kejar pucuk)
-  entry_rsi_min: 28        # short ditolak bila RSI <= ini (jenuh-jual, jual di dasar)
-  entry_ext_atr: 2.2       # |harga - EMA_slow| / ATR >= ini -> terlalu jauh dari mean, tolak
-  entry_runup_bars: 3      # anti-chase: lihat lonjakan berapa bar terakhir
-  entry_runup_atr: 2.0     # (close - close[N bar lalu]) / ATR >= ini -> baru melonjak, jangan kejar
-  sessions: []             # jam UTC yang diizinkan; [] = semua jam
-  # v3 — funding & open interest
-  funding_z_window: 30     # jendela z-score funding (8h/poin -> ~10 hari)
-  funding_z_block: 1.5     # |z| > ini -> blokir entry searah kerumunan
-  oi_delta_lookback: 4     # bar untuk hitung perubahan open interest
-  # v4 — order flow / CVD
-  cvd_lookback: 8          # bar untuk hitung imbalance taker buy/sell
-  cvd_min: 0.05            # |imbalance| minimum untuk konfirmasi entry
-  # v5 — cross-exchange basis (Binance vs Bybit)
-  basis_z_window: 48       # bar rolling untuk z-score basis (48×15m = 12 jam)
-  # v6 — liquidation cascade fade (proxy OHLCV: range spike + volume spike + kapitulasi)
-  cascade_vol_mult: 2.0    # volume bar / SMA(volume) >= ini (lonjakan volume)
-  cascade_close_loc: 0.35  # close di <=35% bawah range -> kapitulasi turun (mirror utk naik)
-  cascade_vol_lookback: 20 # bar untuk SMA volume
-
-gemini:
-  # peran: confirm | veto | off  (lihat README)
-  role: "veto"
-  model: "gemini-3-flash-preview"   # kuota free 2.5-flash dipangkas Des'25 (429 masif); preview masih longgar
-  min_regime_score: 0.4     # bila Gemini nilai regime < ini -> skip entry
-  news_veto: true           # veto entry saat ada berita high-impact (real-time, butuh GEMINI_ENABLED)
-  planner_min_trades: 3     # lantai kuota trade sesi: planner tak boleh cekik di bawah ini (kecuali risk_off).
-  giveback_tp_frac: 0.5     # posisi sempat >= ini (fraksi jarak entry->TP) menuju TP ...
-  giveback_margin: 0.2      # ... lalu balik >= ini -> PAKSA Gemini review (kunci profit / exit)
-  gemini_decide_cap: 100    # CAP budget keputusan Gemini/siklus. Budget dihitung DINAMIS tiap
-  #   siklus = min(ceil(jumlah_simbol / cycles), cap), cycles = gemini_decide_seconds // poll_seconds
-  #   -> cukup agar SEMUA simbol dapat giliran sekali per decide-interval, TAPI tak melampaui cap.
-  #   Cap menjaga wall-clock serial: cap × ~2dtk latensi harus < poll_seconds (SL/TP tak tertunda).
-  #   Universe besar/kecil atau poll berubah -> budget menyesuaikan sendiri, tanpa setel manual.
-  #   26-key (RPM efektif ~260) aman melipat kuota → cap 100 dr 24 (sideways sniper agresif).
-  batch_chunk_size: 12     # simbol per panggilan batch Gemini (decide_batch). 12 dr 4 — kurikulum
-  #   + grounding global dikirim SEKALI per sub-batch → token turun ~3-4×. Batch besar hemat RPD/TPM
-  #   TAPI terlalu besar → Gemini "lupa" simbol awal (attention drop) → parse gagal. 12 sweet spot.
-  # ── SIDWAYS SNIPER (profit konsisten walau sideways, target micro) ─────────────
-  # Saat regime=range (ADX<15, ATR rendah), bot AGRESIF mengevaluasi setup `scalp_range`:
-  # bypass pre-gate ATR & price-cache (Gemini tetap ditanya tiap siklus), budget bonus,
-  # micro-TP 0.005-0.3% (override TP ATR), exit cepat bila tak profit dalam N bar.
-  # Tujuan: profit konsisten kecil di sideways, walau 0.005% — jangan tunggu tren.
-  sideways_sniper:
-    enabled: true                # saklar utama
-    pregate_atr_pct_range: 0.003  # lantai ATR% DILENGGARKAN khusus regime=range (sideways tipis 0.3%)
-    #   default pregate_atr_pct 0.08 blok pair ATR<0.08% — tapi sideways ideal justru
-    #   ATR 0.01-0.30%. Range sniper butuh ATR rendah, jangan blok wajar pasar senyap.
-    price_cache_pct_range: 0.0    # price-cache DImatiKAN khusus range (harga sideways diam,
-    #   tapi tetap harus dievaluasi tiap siklus -> jangan skip krn Δharga kecil).
-    budget_boost_pct: 300          # budget keputusan Gemini DITAMBAH +300% saat mayoritas simbol
-    #   regime=range (26 key aman RPD — boleh panggil lebih sering). 0 = nonaktif.
-    micro_tp_pct_min: 0.005       # micro-TP minimum (% harga) untuk scalp_range: 0.005% = nyaris
-    #   berapapun gerakan, asal positif, ambil. Profit konsisten walau kecil.
-    micro_tp_pct_max: 0.30       # micro-TP maksimum (% harga) untuk scalp_range: cap di 0.30%
-    #   agar tak greedy di sideways — ambil cepat lalu keluar.
-    scalp_exit_bars: 3            # exit paksa bila posisi scalp_range TAK profit dalam N bar
-    #   (range tak punya momentum; hold lama = give back). 0 = nonaktif.
-    require_setup_scalp_range: true  # hanya setup 'scalp_range' yang dapat micro-TP override
-    devil_advocate_for_scalp: false  # Devil's Advocate TIDAK dijalankan utk scalp_range (hemat RPD)
-  pregate_atr_pct: 0.08     # lantai pre-gate: tanya Gemini hanya bila ATR% >= ini (pasar hidup).
-  #                           Turunkan ke 0.08 agar sideways market (ATR 0.10-0.25%) tetap dievaluasi.
-  #                           Setup `range_fade`/`scalp_range` butuh ATR rendah — jangan blok!
-  price_cache_pct: 0.03     # skip Gemini bila harga belum bergerak >= ini sejak decide terakhir.
-  #                           Turunkan ke 0.03 agar sideways market (harga diam) tetap ditanya tiap
-  #                           siklus. 0.15% terlalu tinggi untuk timeframe 15m di pasar sepi.
-  #                           0 = nonaktifkan (tanya Gemini tiap siklus bila lolos pre-gate).
-  # Devil's Advocate (adaptasi debat Bull/Bear TradingAgents): pass LLM kedua yang HANYA
-  # mencari alasan MENOLAK entry yang diajukan -> mengurangi percaya-diri sepihak/halusinasi.
-  # Hanya menantang aksi ENTER; gagal/timeout = fail-open (proceed). Rem, bukan penentu.
-  devil_advocate:
+  adx_range: 999
+  adx_strong: 25
+  basis_z_window: 48
+  cascade_close_loc: 0.35
+  cascade_vol_lookback: 20
+  cascade_vol_mult: 2.0
+  cleanliness:
     enabled: true
-    veto_threshold: 0.7     # strength keberatan >= ini -> batalkan entry jadi SKIP
-    model: ""               # kosong = pakai model utama; isi mis. "gemini-2.5-pro" untuk kritik lebih tajam
-  # KESELAMATAN: teknik "gemini" (LLM ambil keputusan) di MODE LIVE = UANG NYATA dikendalikan AI.
-  # Default false -> di live, Gemini-trader TIDAK membuka posisi (demo/paper tetap jalan).
-  # Set true HANYA bila kamu sadar penuh & menerima risiko AI-driven live trading.
-  allow_live_trader: true
-
-agent:
-  # FULL-AUTO: satu saklar untuk menyalakan SELURUH stack otonom sekaligus
-  # (tool_loop + autonomous). Setara set keduanya true. Default off.
-  # Di LIVE, aksi FLAT tetap butuh gemini.allow_live_trader: true.
-  full_auto: false
-  # A/B SHADOW: ReAct menalar & MENCATAT verdict, tapi TAK memblokir (rules tetap eksekusi
-  # semua entry) -> kita bisa membandingkan exp_R rules-saja vs rules+ReAct secara jujur.
-  # Kumpulkan trade lalu jalankan `python ab_report.py` (atau panel /agent -> A/B).
-  ab_shadow: false
-  # TOOL-LOOP (agent otonom): agen boleh MEMANGGIL tool (order book, korelasi, dll) secara
-  # iteratif sebelum memutuskan — bukan satu-shot. Lebih "agentik" tapi lebih banyak panggilan
-  # LLM (dibatasi tool_max_iters). Gagal -> fallback single-shot deterministik.
-  tool_loop: false
-  tool_max_iters: 4
-  # OTONOMI PORTOFOLIO: agen meninjau SEMUA posisi terbuka berkala & boleh REDUCE_RISK
-  # (geser stop ke breakeven pada yang profit) atau FLAT (tutup semua) — HANYA mengurangi
-  # risiko. Di LIVE, FLAT butuh allow_live_trader: true. Default off (paper-aman).
-  autonomous: false
-  autonomous_interval_s: 300
-  # PLANNER tipis: agen menetapkan TUJUAN sesi (stance/bias/kuota trade & eksposur) tiap
-  # plan_horizon_h jam -> keputusan per-tick tunduk padanya. HANYA bisa mengetatkan (lebih
-  # konservatif dari batasmu), tak pernah melonggarkan. Ikut menyala bila full_auto: true.
-  planner: false
-  plan_horizon_h: 6
-
-# REM-VRP (dari riset H28 yang DITOLAK sebagai alpha, dipakai ulang sebagai REM regime):
-# gap = DVOL Deribit − realized-vol 30d BTC. Gap lebar = pasar bayar mahal proteksi = stres.
-#   mode: off | shadow | enforce
-#   - shadow  (default): TIDAK blokir; tiap posisi distempel regime saat open, outcome
-#     dicatat ke logs/vrp_shadow.jsonl. Ukur: python -c "from bot import vrp; print(vrp.report())"
-#   - enforce : blokir entry saat gap > gap_threshold. NAIK KELAS HANYA bila shadow
-#     membuktikan nilai (trade brake-on signifikan lebih buruk, p<0.05).
+    lookback_bars: 50
+    max_adx: 25
+    max_atr_cv: 0.8
+    max_wick_body_ratio: 3.0
+  cvd_lookback: 8
+  cvd_min: 0.05
+  entry_ext_atr: 2.2
+  entry_rsi_max: 72
+  entry_rsi_min: 28
+  entry_runup_atr: 2.0
+  entry_runup_bars: 3
+  funding_z_block: 1.5
+  funding_z_window: 30
+  gate_corr: true
+  gate_overext: true
+  gate_runup: true
+  htf_mult: 4
+  mr_rsi_high: 70
+  mr_rsi_low: 30
+  oi_delta_lookback: 4
+  sessions: []
 vrp:
+  gap_threshold: 0.1
   mode: shadow
-  gap_threshold: 0.10
-
-# Kesepakatan multi-timeframe (Phase 3 kalibrasi) — SHADOW dulu (pola VRP).
-# Base signal v4 sudah pakai satu HTF (htf_mult=4 -> 15m×4=1h). Gate ini membaca
-# arah di >=2 TF lain (base×mults) & catat agree/disagree tiap trade, TAK blokir.
-#   mode: off | shadow (default). enforce = perubahan terpisah setelah report positif.
-#   Ukur: python -c "from bot import mtf; print(mtf.report('dry'))"
-mtf:
-  mode: shadow
-  mults: [8, 16]        # 15m×8=2h, 15m×16=4h (di luar HTF 1h base signal)
-  sample: 100           # ambang sampel sebelum report bermakna
-
-# Shadow keputusan FLAT Gemini (pola VRP/MTF): catat tiap flat asli, lalu ukur
-# apakah ada gerakan tradeable >= k_atr*ATR dalam horizon yang terlewat (miss).
-# Verdict PRA-REGISTRASI: FLAT_BIAS_TOO_EXPENSIVE butuh n>=sample, miss_rate >
-# miss_threshold, DAN >=1 regime (n>=50) melewatinya. Alat ukur, bukan gerbang.
-flat_shadow:
-  mode: shadow          # off | shadow
-  horizon_bars: 16      # 16 bar 15m = 4 jam
-  k_atr: 1.0            # ambang gerakan ~1R
-  sample: 200
-  miss_threshold: 0.35
-  retention_days: 90

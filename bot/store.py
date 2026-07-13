@@ -627,6 +627,35 @@ def active_lessons(limit: int = 20, mode: str | None = None,
     return [dict(r) for r in rows]
 
 
+def is_setup_retired(setup: str, mode: str | None = None,
+                     share_across_modes: bool = False) -> bool:
+    """HARD GATE: cek apakah setup sudah dipensiunkan (retired) via evidence-gate.
+    
+    Returns True jika setup BLOKIR:
+    - active=0 (gagal evidence-gate) 
+    - n_support >= 10 (cukup sampel untuk evaluasi)
+    - exp_r_support < 0 (expectancy negatif = setup gagal)
+    
+    Dipanggil SEBELUM entry untuk hard-block setup yang sudah terbukti gagal.
+    
+    Tahap 0: default mode=None = lintas-mode (back-compat). Produksi HARUS pass mode.
+    """
+    if not setup:
+        return False
+    init_db()
+    _migrate()
+    where = "WHERE active=0 AND n_support >= 10 AND exp_r_support < 0"
+    args: list = []
+    if mode is not None and not share_across_modes:
+        where += " AND mode=?"
+        args.append(mode)
+    with _conn() as c:
+        row = c.execute(
+            f"SELECT 1 FROM gemini_lessons {where} AND setup=? LIMIT 1",
+            (*args, setup)).fetchone()
+    return row is not None
+
+
 def add_reflection(period: str, summary: str, metrics: dict,
                    mode: str = "dry") -> int:
     """Catat refleksi berkala. Tahap 0: label `mode` agar histori refleksi

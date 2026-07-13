@@ -1421,12 +1421,26 @@ def api_decisions(limit: int = 20) -> JSONResponse:
 
 
 @app.get("/api/lessons")
-def api_lessons() -> JSONResponse:
-    """Pelajaran aktif + akurasi (times_correct/triggered) & berapa kali dipicu."""
+def api_lessons(page: int = 1, page_size: int = 5) -> JSONResponse:
+    """Pelajaran aktif + akurasi (times_correct/triggered) & berapa kali dipicu.
+    Pagination: page (1-indexed), page_size (allowed: 5, 10, 20, 30, 100, default 5)."""
     from . import lessons
+    allowed_page_sizes = {5, 10, 20, 30, 100}
+    page_size = page_size if page_size in allowed_page_sizes else 5
     rows = [l for l in lessons.load_all() if not l.get("retired")]
     rows.sort(key=lambda l: l.get("created_at", ""), reverse=True)
-    return JSONResponse({"count": len(rows), "lessons": rows})
+    total = len(rows)
+    page = max(1, page)
+    start = (page - 1) * page_size
+    end = start + page_size
+    paginated = rows[start:end]
+    return JSONResponse({
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": (total + page_size - 1) // page_size,
+        "lessons": paginated
+    })
 
 
 @app.get("/api/agent-health")
@@ -1517,10 +1531,11 @@ AGENT_PAGE = """<!doctype html><html lang="id"><head><meta charset="utf-8">
  <div class="card"><h2>A/B — rules vs rules+ReAct</h2><div id="ab" class="mut">memuat…</div></div>
  <div class="card"><h2>Keputusan Terakhir</h2><table id="dec"><thead><tr><th>waktu</th><th>simbol</th>
    <th>aksi</th><th>conf</th><th>sumber</th><th>alasan</th><th>outcome</th><th>R</th></tr></thead><tbody></tbody></table></div>
- <div class="card"><h2>Pelajaran Aktif</h2><table id="les"><thead><tr><th>pelajaran</th><th>regime</th>
-   <th>akurasi</th><th>dipicu</th><th>sumber</th></tr></thead><tbody></tbody></table></div>
- <div class="card"><h2>Evolusi Threshold (OOS)</h2><table id="evo"><thead><tr><th>waktu</th><th>param</th>
-   <th>lama→baru</th><th>OOS base→prop</th><th>p</th><th>applied</th></tr></thead><tbody></tbody></table></div>
+<div class="card"><h2>Pelajaran Aktif</h2><table id="les"><thead><tr><th>pelajaran</th><th>regime</th>
+    <th>akurasi</th><th>dipicu</th><th>sumber</th></tr></thead><tbody></tbody></table>
+    <div id="les-pagination" style="margin-top:10px"></div></div>
+  <div class="card"><h2>Evolusi Threshold (OOS)</h2><table id="evo"><thead><tr><th>waktu</th><th>param</th>
+    <th>lama→baru</th><th>OOS base→prop</th><th>p</th><th>applied</th></tr></thead><tbody></tbody></table></div>
 </div>
 <script>
 const $=s=>document.querySelector(s);
@@ -1547,11 +1562,52 @@ async function load(){
    `<td>${esc(x.symbol)}</td><td><span class="pill">${esc(x.action)}</span></td><td>${(x.confidence??0)}</td>`+
    `<td class="mut">${esc(x.source)}</td><td>${esc(x.reasoning)}</td><td>${esc(x.outcome??'')}</td>`+
    `<td class="${rcls(x.outcome_r)}">${x.outcome_r==null?'':x.outcome_r}</td></tr>`).join('')||'<tr><td colspan=8 class=mut>belum ada keputusan</td></tr>';}
- const l=await j('/api/lessons');
- if(l){$('#les tbody').innerHTML=(l.lessons||[]).map(x=>{const t=x.times_triggered||0,c=x.times_correct||0;
-   const acc=t?(c/t*100).toFixed(0)+'%':'—';return `<tr><td>${esc(x.lesson)}</td><td class="mut">${esc(x.market_regime)}</td>`+
-   `<td>${acc} <span class="mut">(${c}/${t})</span></td><td>${t}</td><td class="mut">${esc(x.source)}</td></tr>`;}).join('')
-   ||'<tr><td colspan=5 class=mut>belum ada pelajaran</td></tr>';}
+const l=await j('/api/lessons');
+  if(l){
+    // Render lessons table
+    $('#les tbody').innerHTML=(l.lessons||[]).map(x=>{const t=x.times_triggered||0,c=x.times_correct||0;
+      const acc=t?(c/t*100).toFixed(0)+'%':'—';return `<tr><td>${esc(x.lesson)}</td><td class="mut">${esc(x.market_regime)}</td>`+
+      `<td>${acc} <span class="mut">(${c}/${t})</span></td><td>${t}</td><td class="mut">${esc(x.source)}</td></tr>`;}).join('')
+      ||'<tr><td colspan=5 class=mut>belum ada pelajaran</td></tr>';
+    
+    // Render pagination for lessons
+    renderLessonsPagination(l);
+  }
+  
+  // Render pagination for lessons (extracted function)
+  function renderLessonsPagination(l) {
+    const totalPages = l.total_pages || 1;
+    const page = l.page || 1;
+    const pageSize = l.page_size || 5;
+    const total = l.total || 0;
+    const pageSizeOptions = [5, 10, 20, 30, 100];
+    const pageSizeHtml = pageSizeOptions.map(s => 
+      `<option value="${s}" ${s === pageSize ? 'selected' : ''}>${s}</option>`).join('');
+    const paginationHtml = `
+      <div style="display:flex;justify-content:center;gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center;">
+        <button class="btnsm" onclick="loadLessons(${page - 1})" ${page <= 1 ? 'disabled' : ''}>← Prev</button>
+        <span style="align-self:center;color:#8aa0c0;">Page ${page} / ${totalPages} (${total} total)</span>
+        <button class="btnsm" onclick="loadLessons(${page + 1})" ${page >= totalPages ? 'disabled' : ''}>Next →</button>
+        <label style="margin-left:16px;color:#8aa0c0;font-size:12px;">Page size:
+          <select onchange="loadLessons(1, parseInt(this.value))" style="margin-left:4px;background:#0b1220;border:1px solid #243049;color:#e2e8f0;border-radius:4px;padding:2px 6px;">
+            ${pageSizeOptions.map(s => `<option value="${s}" ${s === pageSize ? 'selected' : ''}>${s}</option>`).join('')}
+          </select>
+        </label>
+      </div>`;
+    $('#les-pagination').innerHTML = paginationHtml;
+  }
+
+  // Load lessons with pagination
+  async function loadLessons(page = 1, pageSize = 5) {
+    const l = await j(`/api/lessons?page=${page}&page_size=${pageSize}`);
+    if(l) {
+      $('#les tbody').innerHTML = (l.lessons||[]).map(x=>{const t=x.times_triggered||0,c=x.times_correct||0;
+        const acc=t?(c/t*100).toFixed(0)+'%':'—';return `<tr><td>${esc(x.lesson)}</td><td class="mut">${esc(x.market_regime)}</td>`+
+        `<td>${acc} <span class="mut">(${c}/${t})</span></td><td>${t}</td><td class="mut">${esc(x.source)}</td></tr>`;}).join('')
+        ||'<tr><td colspan=5 class=mut>belum ada pelajaran</td></tr>';
+      renderLessonsPagination(l);
+    }
+  }
  const e=await j('/api/evolution?limit=30');
  if(e){$('#evo tbody').innerHTML=(e.events||[]).map(x=>`<tr><td class="mut">${esc((x.ts||'').slice(0,19))}</td>`+
    `<td>${esc(x.param)}</td><td>${esc(x.old)} → ${esc(x.new??'—')}</td>`+

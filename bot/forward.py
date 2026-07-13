@@ -290,6 +290,63 @@ class ForwardTester:
             "dominance_dir": dominance_dir,
         }
 
+    def _pair_cleanliness_check(self, symbol: str, df: pd.DataFrame) -> dict:
+        """C3: Pair Cleanliness Filter for fade family setups.
+        
+        Filters out pairs with:
+        1. High ADX (trending = bad for fade)
+        2. Repeated long wicks (manipulation/liquidation risk)
+        3. Unstable ATR (high std/mean of ATR)
+        
+        Args:
+            symbol: trading pair
+            df: OHLCV DataFrame (closed bars)
+            
+        Returns:
+            {"allow": bool, "reason": str}
+        """
+        cfg = self.cfg.get("cleanliness", {})
+        if not cfg.get("enabled", True):
+            return {"allow": True, "reason": "cleanliness filter disabled"}
+        
+        lookback = cfg.get("lookback_bars", 50)
+        if df is None or len(df) < lookback:
+            return {"allow": False, "reason": f"insufficient data ({len(df)} < {lookback}) for cleanliness check"}
+        
+        from . import indicators as ind
+        
+        # 1. ADX check (trending = bad for fade)
+        adx_val = float(ind.adx(df, 14)[0].iloc[-1])
+        adx_max = cfg.get("max_adx", 25)
+        if adx_val > adx_max:
+            return {"allow": False, "reason": f"ADX {adx_val:.1f} > max {adx_max} (trending)"}
+        
+        # 2. Wick/body ratio (long wicks = manipulation/liq)
+        recent = df.iloc[-20:]  # last 20 candles
+        body = abs(recent["close"] - recent["open"])
+        total_range = recent["high"] - recent["low"]
+        total_range = total_range.replace(0, 1e-9)
+        upper_wick = recent["high"] - recent[["open", "close"]].max(axis=1)
+        lower_wick = recent[["open", "close"]].min(axis=1) - recent["low"]
+        max_wick = (upper_wick.combine(lower_wick, max) / total_range).mean()
+        wick_threshold = cfg.get("max_wick_body_ratio", 0.7)
+        if max_wick > wick_threshold:
+            return {"allow": False, "reason": f"avg wick/body {max_wick:.2f} > {wick_threshold} (manipulation risk)"}
+        
+        # 3. ATR stability
+        atr_vals = ind.atr(df, 14).dropna()
+        if len(atr_vals) < 20:
+            return {"allow": False, "reason": "insufficient ATR data"}
+        atr_recent = atr_vals.iloc[-20:]
+        atr_mean = float(atr_recent.mean())
+        atr_std = float(atr_recent.std())
+        cv = atr_std / atr_mean if atr_mean > 0 else float('inf')
+        cv_threshold = cfg.get("max_atr_cv", 0.5)
+        if cv > cv_threshold:
+            return {"allow": False, "reason": f"ATR CV {cv:.2f} > {cv_threshold} (unstable volatility)"}
+        
+        return {"allow": True, "reason": "cleanliness passed"}
+
     def _halving_phase(self) -> str:
         """Deteksi fase siklus halving BTC (~4 tahun). Tanggal halving historis:
         2012-11-28, 2016-07-09, 2020-05-11, 2024-04-19 (estimasi).
@@ -1220,6 +1277,15 @@ class ForwardTester:
             log.error(f"LIVE CLOSE {sym} gagal: {e}")
         self.pending.pop(sym, None)               # bersihkan pending bila ada
 
+    def _live_partial_close(self, sym: str, pos: dict, close_qty: float, price: float, reason: str) -> None:
+        """Tutup SEBAGIAN posisi nyata (reduceOnly market) — utk partial TP."""
+        try:
+            close_side = "sell" if pos["side"] == "long" else "buy"
+            self.ex.client.create_order(sym, "market", close_side, close_qty, None, {"reduceOnly": True})
+            log.info(f"LIVE PARTIAL CLOSE {reason} {sym}: qty={close_qty:.6f} @ {price:.6f}")
+        except Exception as e:  # boundary
+            log.error(f"LIVE PARTIAL CLOSE {sym} gagal: {e}")
+
     def _live_reconcile(self) -> None:
         """Sinkron posisi nyata dari Binance: deteksi yang sudah tertutup (SL/TP/liq),
         update saldo dari equity nyata, bersihkan order yatim.
@@ -1557,7 +1623,47 @@ class ForwardTester:
         elif rs.target_profit_pct > 0:
             tp = entry * (1 + rs.target_profit_pct / 100) if is_long else entry * (1 - rs.target_profit_pct / 100)
         else:
-            tp = entry + atr * _tp_mult if is_long else entry - atr * _tp_mult
+            # ── PHASE 3: Structured TP for fade family v2 (range_fade_v2, scalp_range_v2)
+            # Only applies to fade family v2 setups (not regular range_fade/scalp_range)
+            gem = self.sig_cache.get(sym, {}).get("gemini") if self.use_gemini_trader else None
+            setup_id = gem["dec"].get("setup") if gem else None
+            fade_v2_setups = ("range_fade_v2", "scalp_range_v2")
+            
+            if setup_id in fade_v2_setups:
+                # Get opposite valid level from S/R detection
+                try:
+                    from . import levels as lvl_mod
+                    side_str = "long" if is_long else "short"
+                    level_type = "resistance" if is_long else "support"  # opposite level for TP
+                    has_level, level = lvl_mod.find_nearest_level(
+                        sym, entry, level_type, max_distance_atr_mult=10.0)  # wide search
+                    structural_tp = level.price if has_level else None
+                except Exception:
+                    structural_tp = None
+                
+                # Cap target: 5% price move from entry
+                cap_pct = 5.0  # 5% price move cap
+                cap_tp = entry * (1 + cap_pct / 100) if is_long else entry * (1 - cap_pct / 100)
+                
+                # Final TP = min(structural, cap) — whichever is closer to entry
+                if structural_tp is not None:
+                    dist_structural = abs(structural_tp - entry)
+                    dist_cap = abs(cap_tp - entry)
+                    tp = structural_tp if dist_structural <= dist_cap else cap_tp
+                    log.info(f"FADE v2 {sym}: structured TP={'structural' if dist_structural <= dist_cap else 'cap'} @ {tp:.6f} "
+                             f"(structural={structural_tp:.6f}, cap_5%={cap_tp:.6f})")
+                else:
+                    # Fallback to ATR-based TP if no structural level
+                    tp = entry + atr * _tp_mult if is_long else entry - atr * _tp_mult
+                    log.info(f"FADE v2 {sym}: fallback ATR TP @ {tp:.6f} (no structural level)")
+                
+                # Partial TP: 75% at target, 25% trailing
+                # Store partial TP info in position for exit logic
+                c = self.sig_cache.setdefault(sym, {})
+                c["partial_tp_pct"] = 0.75  # 75% at first target
+                c["partial_tp_price"] = tp
+            else:
+                tp = entry + atr * _tp_mult if is_long else entry - atr * _tp_mult
         liq = liquidation_price(entry, is_long, rs.liquidation_frac())
         # Gemini trader penuh: SL/TP dari Gemini menggantikan ATR — TAPI divalidasi KODE.
         # Guardrail: SL wajib di sisi benar & DI DALAM likuidasi (di-clamp bila perlu); TP sisi benar.
@@ -1776,6 +1882,77 @@ class ForwardTester:
                 "manual": "✋ CLOSE", "eod": "⏹ EOD", "scalp_exit": "⚡ SCALP EXIT"}.get(reason, reason)
         self.notify.send(f"{icon} {sym}\nPnL ${pnl:+.2f} · R {r:+.2f} · saldo ${_wallet_total:.2f}")
 
+    def _close_partial_usd(self, sym: str, price: float, pct: float, reason: str) -> None:
+        """Close a fraction (pct) of position at given price.
+        
+        Args:
+            sym: symbol
+            price: exit price
+            pct: fraction to close (0.75 = 75%)
+            reason: close reason (e.g., "tp_partial")
+        """
+        if sym not in self.open:
+            return
+        pos = self.open[sym]
+        is_long = pos["side"] == "long"
+        
+        # Calculate partial quantities
+        orig_qty = pos["qty"]
+        close_qty = orig_qty * pct
+        remain_qty = orig_qty - close_qty
+        
+        if close_qty <= 0:
+            return
+            
+        # Calculate PnL for partial close
+        exit_fill = price * (1 - self.slippage / 100 if is_long else 1 + self.slippage / 100)
+        move = (exit_fill - pos["entry"]) if is_long else (pos["entry"] - exit_fill)
+        
+        # Fee calculation (same as _close_usd)
+        settle = "USDC" if sym.endswith(":USDC") else "USDT"
+        entry_rate = pos.get("entry_fee_rate")
+        if entry_rate is None:
+            entry_rate = self.rs.fee_rate(settle, self.rs.order_type == "limit") if self.rs else self.fee
+        exit_rate = self.rs.fee_rate(settle, False) if self.rs else self.fee
+        fee = (entry_rate / 100 * pos["entry"] + exit_rate / 100 * exit_fill) * close_qty
+        funding = pos.get("funding_paid", 0.0) * (close_qty / orig_qty) if orig_qty > 0 else 0.0
+        pnl = max(close_qty * move - fee - funding, -pos["bet"] * pct)
+        
+        # Apply PnL to correct wallet
+        if sym.endswith(":USDC"):
+            self.balance_usdc += pnl
+            self._day_pnl_usdc += pnl
+        else:
+            self.balance_usdt += pnl
+            self._day_pnl_usdt += pnl
+            
+        # R calculation
+        risk0 = pos.get("risk0") or abs(pos["entry"] - pos["sl"]) * orig_qty
+        r = pnl / risk0 if risk0 else 0.0
+        self.trades.append(namedtuple("T", ["r"])(r * pct))  # scale R by partial
+        
+        # Update position
+        pos["qty"] = remain_qty
+        pos["bet"] = pos["bet"] * (1 - pct)  # reduce bet proportionally
+        
+        # Log
+        journal("forward_close", {"symbol": sym, "exit": round(exit_fill, 6), "reason": reason,
+                                  "pnl_usd": round(pnl, 4), "r": round(r, 4),
+                                  "regime": pos.get("regime", "unknown"),
+                                  "mae_pct": round(pos.get("mae_pct", 0.0), 3),
+                                  "mfe_pct": round(pos.get("mfe_pct", 0.0), 3),
+                                  "funding_usd": round(funding, 4),
+                                  "equity": round(self.balance_usdt + self.balance_usdc, 2)})
+        _wallet_total = self.balance_usdt + self.balance_usdc
+        log.info(f"PARTIAL CLOSE {reason.upper()} {sym} pct={pct*100:.0f}% pnl=${pnl:+.2f} bal=${_wallet_total:.2f}")
+        
+        # Live mode: actually close partial on exchange
+        if self.live:
+            try:
+                self._live_partial_close(sym, pos, close_qty, exit_fill, reason)
+            except Exception as e:
+                log.warning(f"live partial close {sym}: {e}")
+
     def _check_calib_drift(self) -> None:
         """Phase 6: pantau DRIFT kalibrasi (Brier terkini vs baseline 14-hari, per mode).
         Bila memburuk melewati margin → ALARM Telegram + SARAN dicatat (jurnal), TANPA
@@ -1878,7 +2055,19 @@ class ForwardTester:
         elif (lo <= pos["sl"]) if long else (hi >= pos["sl"]):
             self._close_usd(sym, pos["sl"], "sl")
         elif (hi >= pos["tp"]) if long else (lo <= pos["tp"]):
-            self._close_usd(sym, pos["tp"], "tp")
+            # Partial TP for fade family v2 (structured TP with partial close)
+            if pos.get("partial_tp_pct") and pos.get("partial_tp_price"):
+                partial_pct = pos["partial_tp_pct"]
+                tp_price = pos["partial_tp_price"]
+                # Close partial_pct (e.g., 75%) at TP, remaining trails
+                self._close_partial_usd(sym, tp_price, partial_pct, "tp_partial")
+                # Remaining position: switch to trailing stop
+                pos["trailing_active"] = True
+                pos["trailing_sl"] = pos["sl"]  # start trailing from original SL
+                log.info(f"PARTIAL TP {sym}: closed {partial_pct*100:.0f}% @ {tp_price:.6f}, "
+                         f"remaining {1-partial_pct:.0%} trailing")
+            else:
+                self._close_usd(sym, pos["tp"], "tp")
 
     def on_cycle(self) -> None:
         if self.use_store:
@@ -2270,20 +2459,36 @@ class ForwardTester:
             #    Logika: BTC dump ≥2% 3-bar → BTC.D naik → alt beta>1 turun LEBIH DALAM
             # 2. Halving Cycle: bull/bear phase → trend-following direction ×1.3
             #    bull→LONG boost, bear→SHORT boost (macro awareness tanpa override mikro)
+            # HARD GATE: boost HANYA untuk setup dengan exp_R historis ≥ 0 (atau ≥ -0.02 toleransi)
+            # Setup gagal (scalp_range, range_fade, trend_pullback) TIDAK BOLEH dapat boost
             for sym, dec in decisions.items():
                 if dec["side"] not in ("long", "short"):
                     continue
                 ctx = contexts.get(sym, {})
                 btc = ctx.get("btc_lead", {})
                 halving = ctx.get("halving_phase", "")
-                # 1. BTC dump asymmetry
+                setup_id = dec.get("setup")
+                
+                # Check setup exp_R for halving boost gate
+                allow_halving_boost = True
+                if setup_id:
+                    try:
+                        from . import store
+                        st = store.setup_stats(setup_id, mode=self.settings.mode)
+                        if st["n"] >= 10 and st["exp_r"] < -0.02:  # toleransi noise kecil
+                            allow_halving_boost = False
+                            log.debug(f"{sym}: halving boost SKIPPED for setup {setup_id} (exp_R={st['exp_r']:.3f}, n={st['n']})")
+                    except Exception as e:
+                        log.debug(f"exp_R check failed for {setup_id}: {e}")
+                
+                # 1. BTC dump asymmetry (always allowed - structural edge)
                 if btc.get("dump_flag") and dec["side"] == "short":
                     old = dec["conviction"]
                     dec["conviction"] = round(min(old * 1.5, 1.0), 3)
                     dec["rationale"] = (dec.get("rationale", "") +
                                         f" | BTC_DUMP_BOOST ×1.5 ({old:.2f}→{dec['conviction']:.2f})")[:200]
-                # 2. Halving cycle macro
-                if halving in ("bull", "bear"):
+                # 2. Halving cycle macro (GATED by setup exp_R)
+                if allow_halving_boost and halving in ("bull", "bear"):
                     if (halving == "bull" and dec["side"] == "long") or \
                        (halving == "bear" and dec["side"] == "short"):
                         old = dec["conviction"]
@@ -2359,6 +2564,62 @@ class ForwardTester:
                         self._session_plan, "long" if side == 1 else "short",
                         new_trades=self._session_trades, exposure_frac=expo)):
                     blocked = pblock
+
+                # Evidence-gate hard block: cek apakah setup ini sudah retired di lessons
+                elif not blocked:
+                    setup_id = c.get("setup")
+                    if setup_id:
+                        try:
+                            from . import store
+                            if store.is_setup_retired(setup_id, mode=self.settings.mode):
+                                blocked = f"evidence-gate: setup {setup_id} RETIRED (akurasi < 0.4, ≥10 pemicu)"
+                        except Exception as e:
+                            log.debug(f"evidence-gate check {sym}: {e}")
+
+                # S/R Level Validity Gate (Phase 1): HARD BLOCK fade setups without valid level
+                elif not blocked:
+                    setup_id = c.get("setup")
+                    fade_setups = ("range_fade", "scalp_range", "range_fade_v2", "scalp_range_v2")
+                    if setup_id in fade_setups:
+                        try:
+                            from . import levels as lvl_mod
+                            price = c.get("price") or float(self.ex.ticker(sym)["last"])
+                            side_str = "long" if side == 1 else "short"
+                            has_level, level = lvl_mod.is_price_at_valid_level(
+                                sym, price, side_str, max_dist_atr_mult=0.5)
+                            if not has_level:
+                                blocked = f"S/R-gate: {setup_id} requires valid {'support' if side == 1 else 'resistance'} within 0.5×ATR (none found)"
+                            else:
+                                log.info(f"{sym}: S/R-gate PASSED - {side_str} at {level.level_type} {level.price:.4f} (strength={level.strength:.1f}, dist={level.dist_atr:.2f}ATR)")
+                                
+                                # C2: BTC Directional Confirmation Gate (stricter than btc_gate)
+                                if not blocked:
+                                    try:
+                                        from . import altdata
+                                        btc_confirm = altdata.btc_fade_confirm(side_str, self.cfg)
+                                        if not btc_confirm["allow"]:
+                                            blocked = f"BTC-fade-gate: {btc_confirm['reason']}"
+                                        else:
+                                            log.info(f"{sym}: BTC-fade-gate PASSED - {btc_confirm['reason']}")
+                                    except Exception as e:
+                                        log.debug(f"BTC-fade-gate {sym}: {e}")
+                                        pass
+                                
+                                # C3: Pair Cleanliness Filter
+                                if not blocked:
+                                    try:
+                                        clean = self._pair_cleanliness_check(sym, df_closed)
+                                        if not clean["allow"]:
+                                            blocked = f"Cleanliness-gate: {clean['reason']}"
+                                        else:
+                                            log.info(f"{sym}: Cleanliness-gate PASSED")
+                                    except Exception as e:
+                                        log.debug(f"Cleanliness-gate {sym}: {e}")
+                                        pass
+                        except Exception as e:
+                            log.debug(f"S/R-gate check {sym}: {e}")
+                            # Fail-open for S/R gate (don't block on error)
+                            pass
 
                 c["blocked"] = blocked
                 if blocked is None:
