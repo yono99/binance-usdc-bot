@@ -195,35 +195,53 @@ _CANDLE_WATCH_INTERVAL_S = float(os.getenv("SSE_CANDLE_WATCH_TICK", "5"))
 
 async def _candle_close_watcher() -> None:
     """Periodik: periksa apakah bar terbaru tf high-timeframe (1h/1d/1w/1M) sudah
-    ganti (close). Kalau ya → broadcast event 'candle'={symbol, tf, bar}. Per simbol
-    yg punya coverage di market.db."""
+    ganti (close). Kalau ya → broadcast event 'candle'={symbol, tf, bar, emas, rsi}.
+    Per simbol yg punya coverage di market.db. EMA/RSI dihitung server-side supaya
+    frontend SSE update indikator tanpa perlu fetch REST ulang."""
     from . import chartstore
+    from . import indicators as ind
+    from .config import load_settings
     if _CANDLE_WATCH_INTERVAL_S <= 0:
         return
+    sig = load_settings().raw["signals"]
+    ema_fast_p, ema_mid_p, ema_slow_p, rsi_p = (
+        sig["ema_fast"], sig["ema_mid"], sig["ema_slow"], sig["rsi_period"]
+    )
     while True:
         try:
             cov = chartstore.coverage()
-            # filter tf yg dipantau + ada simbol
             wanted = [c for c in cov if c["tf"] in _CANDLE_WATCH_TFS]
             for c in wanted:
                 sym, tf = c["symbol"], c["tf"]
                 try:
-                    last_bar = chartstore.load(sym, tf, limit=1)
+                    df = chartstore.load(sym, tf, limit=200)
                 except Exception:
                     continue
-                if last_bar.empty:
+                if df.empty or len(df) < max(ema_slow_p, rsi_p) + 5:
                     continue
-                bar_ts = int(last_bar.index[-1].timestamp() * 1000)
+                close = df["close"]
+                ema_fast = ind.ema(close, ema_fast_p)
+                ema_mid = ind.ema(close, ema_mid_p)
+                ema_slow = ind.ema(close, ema_slow_p)
+                rsi = ind.rsi(close, rsi_p)
+                last_idx = -1
+                bar_ts = int(df.index[last_idx].timestamp() * 1000)
                 bar = {
                     "ts": bar_ts,
-                    "open": float(last_bar["open"].iloc[-1]),
-                    "high": float(last_bar["high"].iloc[-1]),
-                    "low": float(last_bar["low"].iloc[-1]),
-                    "close": float(last_bar["close"].iloc[-1]),
-                    "volume": float(last_bar["volume"].iloc[-1]),
+                    "open": float(df["open"].iloc[last_idx]),
+                    "high": float(df["high"].iloc[last_idx]),
+                    "low": float(df["low"].iloc[last_idx]),
+                    "close": float(df["close"].iloc[last_idx]),
+                    "volume": float(df["volume"].iloc[last_idx]),
                 }
+                emas = {
+                    "fast": round(float(ema_fast.iloc[last_idx]), 6) if not pd.isna(ema_fast.iloc[last_idx]) else None,
+                    "mid": round(float(ema_mid.iloc[last_idx]), 6) if not pd.isna(ema_mid.iloc[last_idx]) else None,
+                    "slow": round(float(ema_slow.iloc[last_idx]), 6) if not pd.isna(ema_slow.iloc[last_idx]) else None,
+                }
+                rsi_val = round(float(rsi.iloc[last_idx]), 2) if not pd.isna(rsi.iloc[last_idx]) else None
                 await hub.broadcast("candle",
-                                     {"symbol": sym, "tf": tf, "bar": bar},
+                                     {"symbol": sym, "tf": tf, "bar": bar, "emas": emas, "rsi": rsi_val},
                                      mode="*")
         except Exception as e:
             log.debug(f"candle close watcher: {e}")

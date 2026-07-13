@@ -187,6 +187,8 @@ export interface Ohlcv {
   ema_mid?: number[];
   ema_slow?: number[];
   rsi?: number[];
+  emas?: { fast?: number; mid?: number; slow?: number };
+  rsi_val?: number;
   periods?: { fast: number; mid: number; slow: number; rsi: number };
   error?: string;
 }

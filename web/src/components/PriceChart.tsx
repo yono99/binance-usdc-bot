@@ -85,13 +85,18 @@ export function PriceChart({ status, available }: { status: Status | null; avail
     };
   }, []);
 
-  // fetch saat sym/tf berubah + refresh tiap 30 dtk
+  // clear data saat sym/tf berubah agar loading state jelas
+  useEffect(() => {
+    setData(null);
+  }, [sym, tf]);
   useEffect(() => {
     if (!sym) return;
     let alive = true;
+    const isIntraday = !SSE_CANDLE_TFS.has(tf);
+    const interval = isIntraday ? 5000 : 30000; // intraday: 5s polling, high-TF: 30s (SSE handles updates)
     const fetchData = () => api.ohlcv(sym, tf).then((d) => alive && setData(d));
     fetchData();
-    const id = setInterval(fetchData, 30000);
+    const id = setInterval(fetchData, interval);
     return () => {
       alive = false;
       clearInterval(id);
@@ -123,20 +128,39 @@ export function PriceChart({ status, available }: { status: Status | null; avail
             const lastSec = Math.floor(last.x / 1000);
             const barSec = Math.floor(d.bar.ts / 1000);
             const bars = prev.bars.slice();
+            let ema_fast = prev.ema_fast ? [...prev.ema_fast] : undefined;
+            let ema_mid = prev.ema_mid ? [...prev.ema_mid] : undefined;
+            let ema_slow = prev.ema_slow ? [...prev.ema_slow] : undefined;
+            let rsi_arr = prev.rsi ? [...prev.rsi] : undefined;
+            let emas = { ...prev.emas };
+            let rsi_val = prev.rsi_val;
             if (lastSec === barSec) {
               // update bar terakhir
               bars[bars.length - 1] = {
                 ...last,
                 o: d.bar.open, h: d.bar.high, l: d.bar.low, c: d.bar.close,
               };
+              // update indikator terakhir
+              if (ema_fast && d.emas?.fast !== undefined) ema_fast[ema_fast.length - 1] = d.emas.fast;
+              if (ema_mid && d.emas?.mid !== undefined) ema_mid[ema_mid.length - 1] = d.emas.mid;
+              if (ema_slow && d.emas?.slow !== undefined) ema_slow[ema_slow.length - 1] = d.emas.slow;
+              if (rsi_arr && d.rsi !== undefined) rsi_arr[rsi_arr.length - 1] = d.rsi;
             } else if (barSec > lastSec) {
-              // bar baru — append (candle chart append langsung)
+              // bar baru — append
               bars.push({
                 x: d.bar.ts, o: d.bar.open, h: d.bar.high,
                 l: d.bar.low, c: d.bar.close,
               });
+              // append indikator baru
+              if (ema_fast && d.emas?.fast !== undefined) ema_fast.push(d.emas.fast);
+              if (ema_mid && d.emas?.mid !== undefined) ema_mid.push(d.emas.mid);
+              if (ema_slow && d.emas?.slow !== undefined) ema_slow.push(d.emas.slow);
+              if (rsi_arr && d.rsi !== undefined) rsi_arr.push(d.rsi);
             }
-            return { ...prev, bars };
+            // update single-value emas/rsi untuk kompatibilitas
+            if (d.emas) emas = { ...prev.emas, ...d.emas };
+            if (d.rsi !== undefined) rsi_val = d.rsi;
+            return { ...prev, bars, ema_fast, ema_mid, ema_slow, rsi: rsi_arr, emas, rsi_val };
           });
         } catch {
           /* ignore parse error */
@@ -156,9 +180,6 @@ export function PriceChart({ status, available }: { status: Status | null; avail
   useEffect(() => {
     if (!data || !candle.current || !rsiSeries.current) return;
     if (!data.bars?.length) {
-      // Fetch gagal/kosong (simbol/tf lain, exchange error) — BERSIHKAN chart lama, jangan
-      // biarkan candle/panah/garis simbol SEBELUMNYA nyangkut seolah masih berlaku (bingung
-      // saat ganti pair: "chart tidak menampilkan" krn kelihatan beku, bukan kosong jujur).
       candle.current.setData([]);
       candle.current.setMarkers([]);
       priceLines.current.forEach((pl) => candle.current!.removePriceLine(pl));
@@ -171,13 +192,16 @@ export function PriceChart({ status, available }: { status: Status | null; avail
     const t = (x: number) => (x / 1000) as UTCTimestamp;
     candle.current.setData(data.bars.map((b) => ({ time: t(b.x), open: b.o, high: b.h, low: b.l, close: b.c })));
 
-    // EMA overlays
+    // EMA overlays - gunakan emas dari state (SSE update) atau data awal (REST)
     emaSeries.current.forEach((s) => pxChart.current!.removeSeries(s));
     emaSeries.current = [];
+    const emaFast = data.emas?.fast ?? data.ema_fast;
+    const emaMid = data.emas?.mid ?? data.ema_mid;
+    const emaSlow = data.emas?.slow ?? data.ema_slow;
     const emaDefs: [number[] | undefined, string][] = [
-      [data.ema_fast, "#eab308"],
-      [data.ema_mid, "#3b82f6"],
-      [data.ema_slow, "#a855f7"],
+      [emaFast, "#eab308"],
+      [emaMid, "#3b82f6"],
+      [emaSlow, "#a855f7"],
     ];
     for (const [arr, color] of emaDefs) {
       if (!arr) continue;
@@ -226,7 +250,9 @@ export function PriceChart({ status, available }: { status: Status | null; avail
       candle.current.setMarkers([]);
     }
 
-    if (data.rsi) rsiSeries.current.setData(data.rsi.map((y, i) => ({ time: t(data.bars[i].x), value: y })));
+    // RSI - gunakan rsi_val dari state (SSE update) atau data awal (REST)
+    const rsiData = data.rsi_val ?? data.rsi;
+    if (rsiData) rsiSeries.current.setData(rsiData.map((y, i) => ({ time: t(data.bars[i].x), value: y })));
     pxChart.current!.timeScale().fitContent();
     rsiChart.current!.timeScale().fitContent();
   }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
