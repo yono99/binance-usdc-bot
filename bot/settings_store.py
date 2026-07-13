@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass, field
+from decimal import Decimal, ROUND_DOWN
 from pathlib import Path
 
 from . import store
@@ -14,6 +15,42 @@ from . import store
 ROOT = Path(__file__).resolve().parent.parent
 # file lama — hanya dipakai untuk migrasi sekali ke SQLite
 LEGACY_STORE = ROOT / "logs" / "runtime.json"
+
+
+def _to_decimal_str(value: float) -> str:
+    """Konversi float ke string Decimal dengan presisi 8 digit (standar Binance)."""
+    d = Decimal(str(value)).quantize(Decimal('0.00000001'), rounding=ROUND_DOWN)
+    # Avoid scientific notation for zero
+    if d == 0:
+        return "0"
+    return format(d, 'f')
+
+
+def fetch_live_balances() -> dict[str, str]:
+    """Ambil saldo USDT & USDC dari Binance LIVE (mode=live).
+    Return Decimal string untuk presisi penuh. Raise Exception jika gagal."""
+    import os
+    import ccxt
+    from dotenv import load_dotenv
+    from pathlib import Path
+    
+    ROOT = Path(__file__).resolve().parent.parent
+    load_dotenv(ROOT / ".env")
+    
+    key = os.getenv("BINANCE_LIVE_KEY", "").strip()
+    secret = os.getenv("BINANCE_LIVE_SECRET", "").strip()
+    if not key or not secret:
+        raise ValueError("BINANCE_LIVE_KEY/SECRET tidak di-set di .env")
+    client = ccxt.binanceusdm({
+        "apiKey": key,
+        "secret": secret,
+        "enableRateLimit": True,
+        "options": {"defaultType": "future"},
+    })
+    total = client.fetch_balance().get("total", {})
+    usdt = Decimal(str(total.get("USDT") or 0))
+    usdc = Decimal(str(total.get("USDC") or 0))
+    return {"USDT": _to_decimal_str(float(usdt)), "USDC": _to_decimal_str(float(usdc))}
 
 # Preset teknik → timeframe + parameter strategi v4.
 PRESETS: dict[str, dict] = {
@@ -44,10 +81,17 @@ class RuntimeSettings:
     leverage: int = 100                         # default 100x (paper) — likuidasi pada gerakan ~0.5%
     bet_usd: float = 12.0                       # margin per posisi (dipakai bila bet_pct=0)
     bet_pct: float = 0.0                         # ADAPTIF: >0 → margin = %saldo (auto-scale $10→naik)
-    balance_usd: float = 12.0                   # saldo akun (paper)
-    dry_quote_split_usdc: float = -1.0          # DRY: porsi saldo kertas utk pool USDC (0..1);
-    #                                             sisanya USDT. -1 = auto (proporsi jumlah pair USDC
-    #                                             di universe). LIVE abaikan ini — pool dari saldo asli.
+    # balance_usd DIHAPUS — sistem sekarang split per-wallet (balance_usdt + balance_usdc).
+    # Migrasi inline di _from_dict tetap jalan untuk KV lama yang punya 'balance_usd'.
+    balance_usdt: float = 12.0                  # saldo USDT (wallet USDT-M) — Tahap 0 split per-quote
+    balance_usdc: float = 6.0                   # saldo USDC (wallet USDC-M) — Tahap 0 split per-quote
+    # DEPRECATED setelah Tahap 0; hanya disimpan untuk back-compat KV lama. Field ini di-ignore
+    # oleh code-path baru; baca dr kv lama → pecah jadi balance_usdt/balance_usdc (lihat
+    # migrate_balance_split.py). dry_quote_split_usdc dihapus (porsi eksplisit via split di atas).
+    dry_quote_split_usdc: float = -1.0          # DEPRECATED setelah Tahap 0 — di-ignore code-path
+    #                                             baru. Hanya dipakai migrasi KV lama (lihat
+    #                                             migrate_balance_split.py) untuk pecah ke
+    #                                             balance_usdt/balance_usdc.
     target_profit_pct: float = 0.0              # 0 = pakai TP dari ATR; >0 = TP = entry×(1+ini%)
     max_open_positions: int = 2                 # slot posisi paralel maksimum
     daily_max_loss_pct: float = 3.0             # circuit breaker: stop buka posisi bila rugi harian ≥ % saldo awal hari (0 = nonaktif)
@@ -97,7 +141,10 @@ class RuntimeSettings:
         self.leverage = int(max(1, min(125, self.leverage)))
         self.bet_usd = max(0.01, float(self.bet_usd))
         self.bet_pct = max(0.0, min(100.0, float(self.bet_pct)))   # 0 = pakai bet_usd tetap
-        self.balance_usd = max(0.0, float(self.balance_usd))
+        # Tahap 0 (plan-sess): split saldo per-wallet (USDT + USDC).
+        self.balance_usdt = max(0.0, float(self.balance_usdt))
+        self.balance_usdc = max(0.0, float(self.balance_usdc))
+        # dry_quote_split_usdc DEPRECATED: di-clamp nilai waras tapi TAK dipakai code baru.
         self.target_profit_pct = max(0.0, min(100.0, float(self.target_profit_pct)))   # >100% gerak harga = tak masuk akal
         self.max_open_positions = int(max(1, min(20, self.max_open_positions)))
         self.daily_max_loss_pct = max(0.0, min(100.0, float(self.daily_max_loss_pct)))   # 0 = nonaktif; >100% saldo tak masuk akal
@@ -183,6 +230,15 @@ def liquidation_price(entry: float, is_long: bool, frac: float) -> float:
 
 def _from_dict(data: dict, mode: str | None = None) -> RuntimeSettings:
     known = {f for f in RuntimeSettings().__dict__}
+    # Tahap 0 (plan-sess): migrasi inline settings KV — bila KV lama hanya punya balance_usd
+    # (tanpa balance_usdt/balance_usdc), pecah ke dua wallet sama rata. Idempoten — pemanggil
+    # boleh menyimpan hasilnya kembali untuk KV jadi baru.
+    if ("balance_usdt" not in data and "balance_usdc" not in data
+            and "balance_usd" in data):
+        legacy = float(data.get("balance_usd") or 0.0)
+        if legacy > 0:
+            half = round(legacy / 2.0, 6)
+            data = {**data, "balance_usdt": half, "balance_usdc": round(legacy - half, 6)}
     s = RuntimeSettings(**{k: v for k, v in data.items() if k in known}).clamp()
     if mode is not None:
         s.mode = mode
@@ -228,9 +284,28 @@ def load_settings(mode: str | None = None) -> RuntimeSettings:
 
 def save_settings(s: RuntimeSettings, set_active: bool = True) -> None:
     """Simpan ke bucket mode-nya sendiri. set_active=False → JANGAN sentuh mode
-    aktif (dipakai POST /api/settings agar form tak bisa memindah mode)."""
+    aktif (dipakai POST /api/settings agar form tak bisa memindah mode).
+    
+    LIVE MODE: balance_usdt & balance_usdc TIDAK bisa di-set manual — diambil
+    otomatis dari Binance API (fetch_live_balances). Mencegah input manual salah."""
     s = s.clamp()
-    store.set_kv("runtime:" + _eff_mode(s.mode), asdict(s))
+    eff = _eff_mode(s.mode)
+    if eff == "live":
+        # Di mode LIVE: ambil saldo real dari Binance, abaikan nilai dari form
+        try:
+            live_bal = fetch_live_balances()
+            s.balance_usdt = float(live_bal["USDT"])
+            s.balance_usdc = float(live_bal["USDC"])
+        except Exception as e:
+            # Jika gagal fetch, JANGAN simpan nilai manual — log error & keep existing
+            import logging
+            logging.getLogger(__name__).error(f"LIVE: Gagal fetch saldo Binance: {e} — saldo TIDAK diupdate")
+            # Ambil nilai yang sudah tersimpan (jika ada)
+            existing = store.get_kv("runtime:live")
+            if existing:
+                s.balance_usdt = float(existing.get("balance_usdt", s.balance_usdt))
+                s.balance_usdc = float(existing.get("balance_usdc", s.balance_usdc))
+    store.set_kv("runtime:" + eff, asdict(s))
     if set_active:
         set_active_mode(s.mode)
 

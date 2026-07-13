@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from contextlib import asynccontextmanager
+from decimal import Decimal
 from pathlib import Path
 
 from dataclasses import asdict
@@ -20,6 +22,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from .logger import log
 from .settings_store import (PRESETS, RuntimeSettings, get_active_mode, load_settings,
                              save_settings, set_active_mode)
 from . import store
@@ -166,13 +169,65 @@ _TRADE_COLS = ["close_ts", "symbol", "side", "reason", "r", "pnl_usd", "entry", 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup: jalankan EventHub (ZMQ + WS + SQLite watcher).
-    Shutdown: hentikan bersih."""
+    """Startup: jalankan EventHub (ZMQ + WS + SQLite watcher) + candle closer
+    (Tahap 6c). Shutdown: hentikan bersih."""
     hub.start()
+    _candle_job = asyncio.create_task(_candle_close_watcher(), name="sse-candle-watcher")
     try:
         yield
     finally:
+        _candle_job.cancel()
+        try:
+            await _candle_job
+        except (asyncio.CancelledError, Exception):
+            pass
         await hub.stop()
+
+
+# ---------- Tahap 6c (plan-sess): candle close watcher ----------
+# Deteksi close candle tf tertentu (1h/1d/1w/1M) → broadcast SSE 'candle' dgn
+# {symbol, tf, bar}. Subscribe di frontend PriceChart untuk update real-time
+# tanpa polling REST tiap tick. Untuk tf intraday kecil (1m/5m/15m) tidak ada
+# job (tetap pakai polling 30s di PriceChart—atau restart polling lebih responsif).
+_CANDLE_WATCH_TFS = ("1h", "1d", "1w", "1M")
+_CANDLE_WATCH_INTERVAL_S = float(os.getenv("SSE_CANDLE_WATCH_TICK", "5"))
+
+
+async def _candle_close_watcher() -> None:
+    """Periodik: periksa apakah bar terbaru tf high-timeframe (1h/1d/1w/1M) sudah
+    ganti (close). Kalau ya → broadcast event 'candle'={symbol, tf, bar}. Per simbol
+    yg punya coverage di market.db."""
+    from . import chartstore
+    if _CANDLE_WATCH_INTERVAL_S <= 0:
+        return
+    while True:
+        try:
+            cov = chartstore.coverage()
+            # filter tf yg dipantau + ada simbol
+            wanted = [c for c in cov if c["tf"] in _CANDLE_WATCH_TFS]
+            for c in wanted:
+                sym, tf = c["symbol"], c["tf"]
+                try:
+                    last_bar = chartstore.load(sym, tf, limit=1)
+                except Exception:
+                    continue
+                if last_bar.empty:
+                    continue
+                bar_ts = int(last_bar.index[-1].timestamp() * 1000)
+                bar = {
+                    "ts": bar_ts,
+                    "open": float(last_bar["open"].iloc[-1]),
+                    "high": float(last_bar["high"].iloc[-1]),
+                    "low": float(last_bar["low"].iloc[-1]),
+                    "close": float(last_bar["close"].iloc[-1]),
+                    "volume": float(last_bar["volume"].iloc[-1]),
+                }
+                await hub.broadcast("candle",
+                                     {"symbol": sym, "tf": tf, "bar": bar},
+                                     mode="*")
+        except Exception as e:
+            log.debug(f"candle close watcher: {e}")
+        await asyncio.sleep(_CANDLE_WATCH_INTERVAL_S)
 
 
 app = FastAPI(title="Bot Monitor", lifespan=lifespan)
@@ -219,10 +274,29 @@ def api_get_settings(mode: str = None) -> JSONResponse:
 @app.get("/api/status")
 def api_bot_status(mode: str = None) -> JSONResponse:
     """Status bot per-mode ('status:<mode>'). Tanpa ?mode= → mode aktif UI.
-    Fallback ke kv 'status' lama (bot lama/single-process)."""
+    NO FALLBACK to old 'status' key for live mode (old format has balance_usd).
+    For dry/test: convert legacy balance_usd to balance_usdt/balance_usdc if needed."""
     from .settings_store import _env_mode
     m = mode if mode in ("dry", "test", "live") else (get_active_mode() or _env_mode())
-    return JSONResponse(store.get_kv(f"status:{m}") or store.get_kv("status") or {})
+    st = store.get_kv(f"status:{m}") or {}
+    if m == "live":
+        return JSONResponse(st)
+    # dry/test: fallback to legacy 'status' key, but convert legacy format
+    legacy = store.get_kv("status") or {}
+    if legacy and not st:
+        st = legacy
+    # Convert legacy balance_usd → balance_usdt/balance_usdc (50/50 split)
+    if st and "balance_usd" in st and ("balance_usdt" not in st or "balance_usdc" not in st):
+        legacy_bal = float(st.get("balance_usd", 0.0))
+        if legacy_bal > 0:
+            st["balance_usdt"] = round(legacy_bal / 2.0, 2)
+            st["balance_usdc"] = round(legacy_bal / 2.0, 2)
+    # Convert legacy day_pnl → day_pnl_usdt/day_pnl_usdc
+    if st and "day_pnl" in st and ("day_pnl_usdt" not in st or "day_pnl_usdc" not in st):
+        legacy_pnl = float(st.get("day_pnl", 0.0))
+        st["day_pnl_usdt"] = round(legacy_pnl / 2.0, 2)
+        st["day_pnl_usdc"] = round(legacy_pnl / 2.0, 2)
+    return JSONResponse(st)
 
 
 # ---------- SSE: real-time push ----------
@@ -231,7 +305,10 @@ def _sse_snapshot() -> dict:
     Tanpa ini client hanya lihat delta dari titik connect, bukan state sekarang."""
     from .settings_store import _env_mode
     m = get_active_mode() or _env_mode()
-    status = store.get_kv(f"status:{m}") or store.get_kv("status") or {}
+    if m == "live":
+        status = store.get_kv(f"status:{m}") or {}
+    else:
+        status = store.get_kv(f"status:{m}") or store.get_kv("status") or {}
     try:
         stats = _json_safe(compute_stats(mode=m))
     except Exception:
@@ -291,9 +368,10 @@ def api_account() -> JSONResponse:
         try:
             from .exchange import Exchange
             b = Exchange(s).balances(0.0)
+            # Return full precision (8 decimals) for live mode
             data = {"mode": "live", "api_valid": True,
-                    "balance_usdc": round(b["USDC"], 2), "balance_usdt": round(b["USDT"], 2),
-                    "balance_total": round(b["USDC"] + b["USDT"], 2),
+                    "balance_usdc": b["USDC"], "balance_usdt": b["USDT"],
+                    "balance_total": b["USDC"] + b["USDT"],
                     "gemini_enabled": s.gemini_enabled, "gemini_keys": len(s.gemini_keys)}
         except Exception as e:  # boundary
             data = {"mode": "live", "api_valid": False, "error": str(e)[:140],
@@ -303,6 +381,25 @@ def api_account() -> JSONResponse:
                 "gemini_enabled": s.gemini_enabled, "gemini_keys": len(s.gemini_keys)}
     _acct.update(ts=time.time(), data=data)
     return JSONResponse(data)
+
+
+@app.get("/api/live-balance")
+def api_live_balance() -> JSONResponse:
+    """Ambil saldo USDT & USDC REAL dari Binance LIVE (mode=live).
+    HANYA berfungsi di mode LIVE. Return Decimal string untuk presisi penuh.
+    Digunakan frontend untuk auto-fill & disable input manual."""
+    from .config import load_settings
+    s = load_settings()
+    if s.mode != "live":
+        return JSONResponse({"valid": False, "error": "Hanya mode LIVE", "mode": s.mode})
+    try:
+        from .settings_store import fetch_live_balances
+        bal = fetch_live_balances()
+        return JSONResponse({"valid": True, "balance_usdt": bal["USDT"], "balance_usdc": bal["USDC"],
+                             "balance_total": str(Decimal(bal["USDT"]) + Decimal(bal["USDC"])),
+                             "mode": "live"})
+    except Exception as e:
+        return JSONResponse({"valid": False, "error": str(e)[:160], "mode": "live"})
 
 
 _ex_cache: dict = {"ex": None}
@@ -399,7 +496,15 @@ def api_h28_toggle(payload: dict) -> JSONResponse:
 @app.get("/api/candles")
 def api_candles(symbol: str, tf: str = "15m", limit: int = 500) -> JSONResponse:
     """Candle dari SQLITE STORE (data/market.db) — sumber chart persisten, tanpa
-    memukul exchange. Isi/refresh via `python chart_ingest.py`."""
+    memukul exchange. Isi/refresh via `python chart_ingest.py`.
+
+    Tahap 6 (plan-sess): whitelist timeframe (5m/15m/30m/1h/2h/4h/1d/1w/1M) — '1w' & '1M'
+    ditambahkan untuk chart makro. Limit max 5000 (default 500 untuk hemat render)."""
+    ALLOWED_TF = {"1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h",
+                  "1d", "3d", "1w", "1M"}
+    if tf not in ALLOWED_TF:
+        return JSONResponse({"symbol": symbol, "tf": tf,
+                              "error": f"tf tak dikenal: {tf}", "candles": []})
     try:
         from . import chartstore
         df = chartstore.load(symbol, tf, limit=min(int(limit), 5000))
@@ -434,12 +539,30 @@ def api_validate_key(payload: dict) -> JSONResponse:
         c = ccxt.binanceusdm({"apiKey": key, "secret": secret, "enableRateLimit": True,
                               "options": {"defaultType": "future"}})
         total = c.fetch_balance().get("total", {})
-        usdc, usdt = float(total.get("USDC") or 0), float(total.get("USDT") or 0)
-        return JSONResponse({"valid": True, "balance_usdc": round(usdc, 2),
-                             "balance_usdt": round(usdt, 2),
-                             "balance_total": round(usdc + usdt, 2)})
+        usdc = float(total.get("USDC") or 0)
+        usdt = float(total.get("USDT") or 0)
+        return JSONResponse({"valid": True, "balance_usdc": usdc,
+                             "balance_usdt": usdt,
+                             "balance_total": usdc + usdt})
     except Exception as e:  # boundary
         return JSONResponse({"valid": False, "error": str(e)[:160]})
+
+
+@app.get("/api/live-balance")
+def api_live_balance() -> JSONResponse:
+    """Ambil saldo LIVE (USDT & USDC) dari Binance dengan presisi Decimal penuh.
+    HANYA untuk mode=live. Return string Decimal agar tidak kehilangan presisi."""
+    import os
+    from .settings_store import fetch_live_balances
+    s = load_settings()
+    if s.mode != "live":
+        return JSONResponse({"error": "Hanya untuk mode=live"}, status_code=400)
+    try:
+        bal = fetch_live_balances()
+        return JSONResponse({"mode": "live", "balance_usdt": bal["USDT"], "balance_usdc": bal["USDC"],
+                             "balance_total": str(Decimal(bal["USDT"]) + Decimal(bal["USDC"]))})
+    except Exception as e:  # boundary
+        return JSONResponse({"mode": "live", "error": str(e)[:140]}, status_code=500)
 
 
 @app.post("/api/close")
@@ -477,17 +600,34 @@ _open_orders_cache: dict = {"ts": 0.0, "data": None}
 
 
 def _normalize_open_order(o: dict) -> dict:
-    """Standarkan field order Binance → ringkas utk dashboard."""
+    """Standarkan field order Binance → ringkas utk dashboard. Tahap 3 (plan-sess): tambah
+    field `kind` (ENTRY_PENDING/SL/TP/UNKNOWN) memetakan tipe order ke kategori posisi
+    supaya UI bisa menampilkan linkage posisi ↔ order reduce-only dengan jelas."""
     try:
         info = o.get("info") or {}
-        otype = o.get("type") or info.get("type") or ""
+        otype = (o.get("type") or info.get("type") or "").upper()
         # STOP_MARKET / TAKE_PROFIT_MARKET punya stopPrice; LIMIT punya price biasa
         trigger = o.get("stopPrice") or info.get("stopPrice") or o.get("price") or 0.0
         reduce_only = bool(o.get("reduceOnly") or info.get("reduceOnly"))
+        # Tahap 3: klasifikasi order — SL/TP/ENTRY_PENDING/UNKNOWN. Entry LIMIT resting
+        # belum filled → ENTRY_PENDING (bukan posisi). Order reduce-only yang muncul
+        # SL/TP → SL atau TP berdasar tipe. Lainnya UNKNOWN.
+        if otype in ("STOP_MARKET", "STOP", "STOP_LIMIT"):
+            kind = "SL"
+        elif otype in ("TAKE_PROFIT_MARKET", "TAKE_PROFIT", "TAKE_PROFIT_LIMIT"):
+            kind = "TP"
+        elif otype == "LIMIT" and not reduce_only:
+            kind = "ENTRY_PENDING"
+        elif otype == "MARKET":
+            # MARKET order yg masih open biasanya reduce-only exit atau dust — tak tampil sbg entry.
+            kind = "EXIT_PENDING" if reduce_only else "UNKNOWN"
+        else:
+            kind = "UNKNOWN"
         return {
             "symbol": o.get("symbol"),
             "order_id": o.get("id"),
             "type": str(otype).upper(),
+            "kind": kind,
             "side": str(o.get("side") or "").upper(),
             "price": float(trigger or 0.0),
             "qty": float(o.get("amount") or o.get("contracts") or 0.0),
@@ -498,16 +638,43 @@ def _normalize_open_order(o: dict) -> dict:
         }
     except Exception:
         return {"symbol": o.get("symbol"), "order_id": o.get("id"),
-                "type": str(o.get("type") or ""), "side": str(o.get("side") or ""),
+                "type": str(o.get("type") or ""), "kind": "UNKNOWN",
+                "side": str(o.get("side") or ""),
                 "price": 0.0, "qty": 0.0, "filled": 0.0, "status": "",
                 "reduce_only": False, "timestamp": o.get("timestamp")}
+
+
+def _link_orders_to_positions(orders: list[dict]) -> None:
+    """Tahap 3 (plan-sess): mutate `orders` in-place menambah metadata `linked_symbol`
+    + `linked_kind`. Sumber kebenaran: order reduce-only SL/TP → cocokkan dgn posisi yang
+    pair-nya sama. Order ENTRY_PENDING (LIMIT, non-reduce) → link ke posisi masa-depan
+    yg belum self.open (dr botstate_<mode>: pending_orders). Untuk dry/paper, hanya
+    LIMIT yg ditelusuri engine di self.pending → cocokkan simbol + order_id."""
+    sym_to_sl: dict[str, list[dict]] = {}
+    sym_to_tp: dict[str, list[dict]] = {}
+    for o in orders:
+        sym = o.get("symbol")
+        if not sym:
+            continue
+        o["linked_symbol"] = sym
+        if o.get("kind") == "SL":
+            sym_to_sl.setdefault(sym, []).append(o)
+            o["linked_kind"] = "SL"
+        elif o.get("kind") == "TP":
+            sym_to_tp.setdefault(sym, []).append(o)
+            o["linked_kind"] = "TP"
+        elif o.get("kind") == "ENTRY_PENDING":
+            o["linked_kind"] = "ENTRY_PENDING"
+        else:
+            o["linked_kind"] = o.get("kind", "UNKNOWN")
 
 
 @app.get("/api/open-orders")
 def api_open_orders() -> JSONResponse:
     """Order aktif nyata dari Binance (LIMIT resting entry + SL/TP reduce-only).
-    LIVE: fetch_open_orders langsung. DRY: tak ada order exchange → baca pending_orders
-    dari status kv (limit resting yang ditelusuri engine paper). Cache 8 dtk."""
+    LIVE: fetch_open_orders langsung + klasifikasi kind (ENTRY_PENDING/SL/TP) untuk linkage
+    posisi ↔ order di frontend. DRY: tak ada order exchange → baca pending_orders dari
+    status kv (LIMIT resting yg ditelusuri engine). Cache 8 dtk."""
     import os
     import time as _t
     if _open_orders_cache["data"] and _t.time() - _open_orders_cache["ts"] < 8:
@@ -518,6 +685,7 @@ def api_open_orders() -> JSONResponse:
         try:
             raw = _get_ex().open_orders()
             orders = [_normalize_open_order(o) for o in raw]
+            _link_orders_to_positions(orders)         # Tahap 3: linkage posisi↔order
             data = {"orders": orders}
         except Exception as e:  # boundary
             data = {"orders": [], "error": str(e)[:140]}
@@ -525,7 +693,23 @@ def api_open_orders() -> JSONResponse:
         # DRY/paper: ambil pending_orders dari status kv (ditulis engine tiap siklus)
         m = get_active_mode() or "dry"
         st = store.get_kv(f"status:{m}") or store.get_kv("status") or {}
-        data = {"orders": st.get("pending_orders") or [], "paper": True}
+        raw_pending = st.get("pending_orders") or []
+        # Normalisasi + tandai ENTRY_PENDING utk linkage UI.
+        orders = [{
+            "symbol": p.get("symbol"),
+            "order_id": p.get("order_id"),
+            "type": "LIMIT",
+            "kind": "ENTRY_PENDING",
+            "side": "BUY" if p.get("side") == "buy" else "SELL",
+            "price": p.get("price", 0.0),
+            "qty": p.get("qty", 0.0),
+            "filled": 0.0,
+            "status": "open",
+            "reduce_only": False,
+            "timestamp": p.get("opened_ts"),
+        } for p in raw_pending]
+        _link_orders_to_positions(orders)
+        data = {"orders": orders, "paper": True}
     _open_orders_cache.update(ts=_t.time(), data=data)
     return JSONResponse(data)
 
@@ -548,6 +732,72 @@ def api_cancel_order(payload: dict) -> JSONResponse:
         return JSONResponse({"ok": True, "symbol": sym, "order_id": oid})
     except Exception as e:  # boundary
         return JSONResponse({"ok": False, "error": str(e)[:140]})
+
+
+_positions_cache: dict = {"ts": 0.0, "data": None}
+
+
+@app.get("/api/positions")
+def api_positions() -> JSONResponse:
+    """Posisi nyata dari Binance (LIVE) atau dipinjam dari Engine status (DRY).
+
+    Tahap 3 (plan-sess): setiap posisi distempel `margin_type` (di mesin internal). Di
+    LIVE metadata margin_type berasal dari Exchange.margin_type(symbol). Posisi CROSS
+    lawas ditandai 'CROSS — tutup manual dulu' (lihat Tahap 3 angka 5c)."""
+    import os
+    import time as _t
+    if _positions_cache["data"] and _t.time() - _positions_cache["ts"] < 6:
+        return JSONResponse(_positions_cache["data"])
+    from .config import load_settings
+    s = load_settings()
+    if s.is_live and os.environ.get("BINANCE_LIVE_KEY"):
+        try:
+            ex = _get_ex()
+            raw = ex.positions()
+            items = []
+            for p in raw:
+                sym = p.get("symbol")
+                items.append({
+                    "symbol": sym,
+                    "side": "long" if float(p.get("contracts") or 0) > 0 else "short",
+                    "entry": float(p.get("entryPrice") or 0),
+                    "qty": abs(float(p.get("contracts") or 0)),
+                    "liq": float(p.get("liquidationPrice") or 0),
+                    "leverage": int(p.get("leverage") or 0),
+                    "margin_type": (ex.margin_type(sym) or "?").upper(),
+                    "unrealized_pnl": float(p.get("unrealizedPnl") or 0),
+                    "margin": float(p.get("initialMargin") or 0),
+                })
+            # CROSS posisi lawas → flag admin (tak auto-buka posisi baru di simbol tsb
+            # sampai user tutup manual atau migrate ke isolated).
+            for it in items:
+                if it["margin_type"] == "CROSS":
+                    it["warning"] = "CROSS — tutup manual dulu (migrate ke ISOLATED)"
+            data = {"positions": items, "source": "binance"}
+        except Exception as e:  # boundary
+            data = {"positions": [], "error": str(e)[:140], "source": "binance"}
+    else:
+        # DRY: ambil dari status kv (ditulis engine tiap siklus — lengkap dgn metadata).
+        m = get_active_mode() or "dry"
+        st = store.get_kv(f"status:{m}") or store.get_kv("status") or {}
+        syms = st.get("symbols") or []
+        items = []
+        for s2 in syms:
+            p = s2.get("position")
+            if not p:
+                continue
+            items.append({
+                "symbol": s2["symbol"],
+                "side": p["side"], "entry": p["entry"],
+                "qty": p["qty"], "liq": p["liq"],
+                "leverage": st.get("leverage"),
+                "margin_type": "ISOLATED",   # paper default; engine metadata bisa override
+                "unrealized_pnl": p.get("pnl_usd", 0),
+                "margin": p.get("bet"),
+            })
+        data = {"positions": items, "source": "engine", "paper": True}
+    _positions_cache.update(ts=_t.time(), data=data)
+    return JSONResponse(data)
 
 
 @app.get("/api/news-log")
@@ -591,10 +841,19 @@ def _json_safe(o):
 
 
 @app.get("/api/gemini-trader")
-def api_gemini_trader() -> JSONResponse:
-    """Track record Gemini trader: verdict signifikansi, per-setup, playbook aktif, keputusan."""
+def api_gemini_trader(mode: str | None = None) -> JSONResponse:
+    """Track record Gemini trader: verdict signifikansi, per-setup, playbook aktif, keputusan.
+
+    Tahap 0 (plan-sess): mode opsional ?mode=live → filter per-mode (default=lintas-
+    mode untuk back-compat). share_across_modes untuk opt-in admin via config."""
     from .gemini_trader import track_record
-    return JSONResponse(_json_safe(track_record()))
+    gcfg = load_settings().__class__   # gunakan cfg: ambil dari settings_store cache path
+    # share flag via config helper ringan (lihat bot/config.get gemini.share_lessons_across_modes)
+    from .config import load_settings as _load_cfg_settings
+    settings = _load_cfg_settings()
+    cfg = settings.raw if hasattr(settings, "raw") and settings.raw else {}
+    share = bool(cfg.get("gemini", {}).get("share_lessons_across_modes", False))
+    return JSONResponse(_json_safe(track_record(mode=mode, share_across_modes=share)))
 
 
 from .gemini_client import FALLBACK_MODELS as _STATIC_GEMINI_MODELS  # selaras elearning
@@ -786,7 +1045,8 @@ PAGE = """<!doctype html>
       <label>Pair (pisah koma)<input id="symbols" placeholder="BTC/USDC:USDC,ETH/USDC:USDC"></label>
       <label>Leverage (x)<input id="leverage" type="number" min="1" max="125"></label>
       <label>Bet / margin (USD)<input id="bet_usd" type="number" min="0.1" step="0.1"></label>
-      <label>Saldo (USD)<input id="balance_usd" type="number" min="0" step="0.1"></label>
+      <label>Saldo USDT<input id="balance_usdt" type="number" min="0" step="0.1"></label>
+      <label>Saldo USDC<input id="balance_usdc" type="number" min="0" step="0.1"></label>
       <label>Target profit % (0=ATR)<input id="target_profit_pct" type="number" min="0" step="0.1"></label>
       <label>Max posisi terbuka<input id="max_open_positions" type="number" min="1" max="20" step="1"></label>
       <label>Stop-loss harian % (0=off)<input id="daily_max_loss_pct" type="number" min="0" max="100" step="0.1"></label>
@@ -840,6 +1100,7 @@ PAGE = """<!doctype html>
 <script>
 let chart;
 const f=(n,d=2)=>Number(n).toFixed(d);
+const fbal=(n)=>Number(n).toFixed(8);
 const cls=v=>v>0?'pos':(v<0?'neg':'');
 function card(lbl,val,c=''){return `<div class="card"><div class="lbl">${lbl}</div><div class="val ${c}">${val}</div></div>`}
 function table(cols,rows,rowCls){
@@ -903,7 +1164,45 @@ async function loadSettings(){
   document.getElementById('symbols').value=(s.symbols||[]).join(',');
   document.getElementById('leverage').value=s.leverage;
   document.getElementById('bet_usd').value=s.bet_usd;
-  document.getElementById('balance_usd').value=s.balance_usd;
+  
+  // LIVE MODE: saldo diambil OTOMATIS dari Binance (tidak bisa diinput manual)
+  const isLive = s.mode === 'live';
+  const balUsdtEl = document.getElementById('balance_usdt');
+  const balUsdcEl = document.getElementById('balance_usdc');
+  
+  if (isLive) {
+    balUsdtEl.disabled = true;
+    balUsdcEl.disabled = true;
+    balUsdtEl.title = "LIVE: Saldo diambil otomatis dari Binance API";
+    balUsdcEl.title = "LIVE: Saldo diambil otomatis dari Binance API";
+    // Auto-fetch live balances
+    try {
+      const r = await (await fetch('/api/live-balance')).json();
+      if (r.valid) {
+        balUsdtEl.value = r.balance_usdt;
+        balUsdcEl.value = r.balance_usdc;
+        // Add live indicator
+        balUsdtEl.style.backgroundColor = '#1e3a2e';
+        balUsdcEl.style.backgroundColor = '#1e3a2e';
+        balUsdtEl.style.color = '#86efac';
+        balUsdcEl.style.color = '#86efac';
+      }
+    } catch (e) {
+      console.warn('Gagal fetch live balance:', e);
+    }
+  } else {
+    balUsdtEl.disabled = false;
+    balUsdcEl.disabled = false;
+    balUsdtEl.value = s.balance_usdt;
+    balUsdcEl.value = s.balance_usdc;
+    balUsdtEl.style.backgroundColor = '';
+    balUsdcEl.style.backgroundColor = '';
+    balUsdtEl.style.color = '';
+    balUsdcEl.style.color = '';
+    balUsdtEl.title = '';
+    balUsdcEl.title = '';
+  }
+  
   document.getElementById('target_profit_pct').value=s.target_profit_pct;
   document.getElementById('max_open_positions').value=s.max_open_positions;
   document.getElementById('daily_max_loss_pct').value=s.daily_max_loss_pct;
@@ -993,7 +1292,8 @@ document.getElementById('save').addEventListener('click',async()=>{
     symbols:document.getElementById('symbols').value,
     leverage:+document.getElementById('leverage').value,
     bet_usd:+document.getElementById('bet_usd').value,
-    balance_usd:+document.getElementById('balance_usd').value,
+    balance_usdt:+document.getElementById('balance_usdt').value,
+    balance_usdc:+document.getElementById('balance_usdc').value,
     target_profit_pct:+document.getElementById('target_profit_pct').value,
     max_open_positions:+document.getElementById('max_open_positions').value,
     daily_max_loss_pct:+document.getElementById('daily_max_loss_pct').value,
@@ -1001,7 +1301,8 @@ document.getElementById('save').addEventListener('click',async()=>{
     poll_seconds:+document.getElementById('poll_seconds').value,
   };
   const s=await (await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
-  window.pendingBal=s.balance_usd;   // tahan tampilan saldo sampai bot menerapkan
+  window.pendingBalUsdt=s.balance_usdt;
+  window.pendingBalUsdc=s.balance_usdc;
   document.getElementById('tf').value=s.timeframe;
   riskWarn(s.leverage, s.liq_pct);
   const el=document.getElementById('saved'); el.textContent=' tersimpan ✓ (bot menerapkan tiap siklus)';
@@ -1012,12 +1313,17 @@ async function loadStatus(){
   const s=await (await fetch('/api/status')).json();
   window.lastStatus=s;
   // form Saldo = saldo hidup (termasuk PnL); jangan timpa saat user mengetik
-  // atau saat masih menunggu bot menerapkan nilai yang baru disimpan (pendingBal).
-  const balEl=document.getElementById('balance_usd');
-  if(window.pendingBal!=null && Math.abs((s.balance_usd??0)-window.pendingBal)<1e-9) window.pendingBal=null;
-  if(s.balance_usd!=null && document.activeElement!==balEl && window.pendingBal==null) balEl.value=s.balance_usd;
+  // atau saat masih menunggu bot menerapkan nilai yang baru disimpan (pendingBal*).
+  const balUsdtEl=document.getElementById('balance_usdt');
+  const balUsdcEl=document.getElementById('balance_usdc');
+  if(window.pendingBalUsdt!=null && Math.abs((s.balance_usdt??0)-window.pendingBalUsdt)<1e-9) window.pendingBalUsdt=null;
+  if(window.pendingBalUsdc!=null && Math.abs((s.balance_usdc??0)-window.pendingBalUsdc)<1e-9) window.pendingBalUsdc=null;
+  if(s.balance_usdt!=null && document.activeElement!==balUsdtEl && window.pendingBalUsdt==null) balUsdtEl.value=s.balance_usdt;
+  if(s.balance_usdc!=null && document.activeElement!==balUsdcEl && window.pendingBalUsdc==null) balUsdcEl.value=s.balance_usdc;
   const api=a.api_valid===true?'<span class="pos">VALID</span>':(a.api_valid===false?'<span class="neg">INVALID</span>':'paper (tanpa key)');
-  let bal=a.balance_usdc!=null?('$'+f(a.balance_usdc,2)):(s.balance_usd!=null?('$'+f(s.balance_usd,2)+' <span class="sub">paper</span>'):'—');
+  let bal=a.balance_usdc!=null||a.balance_usdt!=null
+    ?('USDT $'+fbal(a.balance_usdt)+' · USDC $'+fbal(a.balance_usdc)+(a.balance_total!=null?(' · Total $'+fbal(a.balance_total)):''))
+    :('USDT $'+fbal(s.balance_usdt)+' · USDC $'+fbal(s.balance_usdc)+(s.balance_usdt!=null||s.balance_usdc!=null?(' <span class="sub">paper</span>'):'—'));
   document.getElementById('acct').innerHTML=
     `Mode: <b>${a.mode}</b> · API: ${api} · Saldo: <b>${bal}</b> · `+
     `Gemini: ${a.gemini_enabled?('<span class="pos">on</span>, '+a.gemini_keys+' key'):'<span class="sub">off</span>'}`+
@@ -1029,7 +1335,7 @@ async function loadStatus(){
   const nv=s.news_veto&&s.news_veto.active?`<span class="neg">VETO (${s.news_veto.note})</span>`:'<span class="pos">clear</span>';
   document.getElementById('botstatus').innerHTML=
     `Status: ${s.enabled?'<span class="pos">ON</span>':'<span class="neg">OFF</span>'} · Teknik: <b>${s.technique}</b> · `+
-    `TF: ${s.timeframe} · Leverage: <b>${s.leverage}x</b> · Bet: $${f(s.bet_usd,2)} · Saldo: <b>$${f(s.balance_usd,2)}</b> · `+
+    `TF: ${s.timeframe} · Leverage: <b>${s.leverage}x</b> · Bet: $${f(s.bet_usd,2)} · Saldo: <b>USDT $${fbal(s.balance_usdt)} · USDC $${fbal(s.balance_usdc)}</b> · `+
     `Posisi: ${s.open_count}/${s.max_open} · News: ${nv} · <span class="sub">update ${(s.ts||'').slice(11,19)} UTC</span>`;
   document.getElementById('pairs').innerHTML=table(
     [{t:'Pair',k:'symbol'},

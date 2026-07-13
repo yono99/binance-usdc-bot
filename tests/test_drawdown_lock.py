@@ -50,39 +50,46 @@ def test_dd_check_math():
 def test_lock_triggers_notifies_and_blocks(cfg):
     ft = _ft(cfg)
     rs = RuntimeSettings(max_drawdown_pct=20.0)
-    ft.balance_usd = 100.0
+    ft.balance_usdc = 100.0
+    ft.balance_usdt = 0.0
     assert ft._update_drawdown(rs) is None              # puncak terbentuk: 100
-    ft.balance_usd = 79.0                                # −21% dari puncak
+    ft.balance_usdc = 79.0                              # −21% dari puncak
     reason = ft._update_drawdown(rs)
     assert reason and "drawdown total" in reason
     assert ft._dd_lock and ft.notify.sent                # telegram terkirim
-    ft.balance_usd = 95.0                                # pulih pun TETAP terkunci
+    ft.balance_usdc = 95.0                              # pulih pun TETAP terkunci
     assert ft._update_drawdown(rs) is not None           # tanpa reset manual: kunci abadi
 
 
 def test_lock_survives_restart_via_persisted_state(cfg):
     ft = _ft(cfg)
-    ft._last_cfg_balance = ft.balance_usd = 79.0
-    ft._peak_balance = 100.0
+    ft.balance_usdc = 79.0
+    ft.balance_usdt = 0.0
+    ft._last_cfg_balance_usdc = 79.0
+    ft._last_cfg_balance_usdt = 0.0
+    ft._peak_balance_usdc = 100.0
+    ft._peak_balance_usdt = 0.0
     ft._update_drawdown(RuntimeSettings(max_drawdown_pct=20.0))
     ft._persist_state()
 
     ft2 = _ft(cfg)                                       # "restart" proses
-    ft2._last_cfg_balance = 79.0
+    ft2._last_cfg_balance_usdc = 79.0
+    ft2._last_cfg_balance_usdt = 0.0
     ft2._restore_state()
     assert ft2._dd_lock is True                          # kunci ikut pulih
-    assert ft2._peak_balance == 100.0
+    assert ft2._peak_balance_usdc == 100.0
 
 
 def test_manual_reset_unlocks_and_rebases_peak(cfg):
     ft = _ft(cfg)
     rs = RuntimeSettings(max_drawdown_pct=20.0)
-    ft.balance_usd = 100.0
+    ft.balance_usdc = 100.0
+    ft.balance_usdt = 0.0
     ft._update_drawdown(rs)
-    ft.balance_usd = 75.0
+    ft.balance_usdc = 75.0
     assert ft._update_drawdown(rs) is not None           # terkunci
 
     store.set_kv("dd_reset_dry", {"ts": "now"})          # = POST /api/dd-reset
     assert ft._update_drawdown(rs) is None               # lepas
-    assert ft._peak_balance == 75.0                      # puncak mulai ulang dari saldo kini
+    assert ft._peak_balance_usdc == 75.0                 # puncak mulai ulang dari saldo kini
     assert not store.get_kv("dd_reset_dry")              # permintaan habis pakai

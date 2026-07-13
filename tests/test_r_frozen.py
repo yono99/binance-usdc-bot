@@ -35,7 +35,8 @@ def _ft(cfg, monkeypatch):
     monkeypatch.setattr(fwd, "journal", lambda *a, **k: None)
     monkeypatch.setattr(fwd.vrp, "log_close", lambda *a, **k: None)
     ft._react_settle = lambda *a, **k: None
-    ft.balance_usd = 100.0
+    ft.balance_usdc = 100.0
+    ft.balance_usdt = 0.0
     ft.slippage = 0.0
     ft.fee = 0.0
     return ft

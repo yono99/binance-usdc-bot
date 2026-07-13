@@ -38,7 +38,8 @@ def _run_lapis1(
     ft._min_hold_s = min_hold
     ft.gtrader = _mock_gtrader(manage_called)
     ft.cfg = {}
-    ft.balance_usd = 100.0
+    ft.balance_usdc = 100.0
+    ft.balance_usdt = 0.0
     ft.max_open = 6
     ft.live = False
     ft.ex = types.SimpleNamespace(ticker=lambda _s: {"last": price})

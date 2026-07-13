@@ -13,12 +13,20 @@ def _self(equity_after, *, open_pos, monkeypatch):
     monkeypatch.setattr(fwd, "journal", lambda ev, data: None)
     ex = types.SimpleNamespace(
         positions=lambda: [],                                  # semua posisi sudah tutup di bursa
-        equity_usdc=lambda bal: equity_after,                  # equity nyata pasca-tutup
+        equity_usdc=lambda bal: equity_after,                  # legacy balance (Tahap 0)
+        balances=lambda bal: {"USDT": 50.0, "USDC": equity_after - 50.0},  # Tahap 1: per-wallet
         client=types.SimpleNamespace(cancel_all_orders=lambda s: None),
     )
+    # Tahap 1: per-wallet saldo — set dummy wallet balance_up agar _live_reconcile &
+    # balance-tracker seluruh method bisa baca balance_usdt/usdc.
     self = types.SimpleNamespace(
-        ex=ex, open=open_pos, pending={}, balance_usd=100.0,
+        ex=ex, open=open_pos, pending={},
+        balance_usdt=50.0, balance_usdc=50.0,
         _day_pnl=0.0, _day_start_balance=100.0,
+        _day_pnl_usdt=0.0, _day_pnl_usdc=0.0,
+        _day_start_balance_usdt=50.0, _day_start_balance_usdc=50.0,
+        _peak_balance_usdt=50.0, _peak_balance_usdc=50.0,
+        _dd_lock=False, _dd_reason="",
         gtrader=types.SimpleNamespace(settle=lambda did, r: settled.append((did, r)),
                                       reflect=lambda: {"active_lessons": 0}),
         settings=types.SimpleNamespace(mode="live"),

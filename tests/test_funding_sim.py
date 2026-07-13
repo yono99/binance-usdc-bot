@@ -79,11 +79,12 @@ def test_close_deducts_funding_from_pnl(cfg, monkeypatch):
     monkeypatch.setattr(fwd, "journal", lambda *a, **k: None)
     monkeypatch.setattr(fwd.vrp, "log_close", lambda *a, **k: None)
     ft._react_settle = lambda *a, **k: None
-    ft.balance_usd = 100.0
+    ft.balance_usdt = 100.0
+    ft.balance_usdc = 0.0
     ft.slippage = 0.0
     ft.fee = 0.0
     p = _pos("long")
     p["funding_paid"] = 0.5
     ft.open = {"X": p}
     ft._close_usd("X", 110.0, "tp")             # gross +$10, funding −$0.5
-    assert abs(ft.balance_usd - 109.5) < 1e-9
+    assert abs((ft.balance_usdt + ft.balance_usdc) - 109.5) < 1e-9

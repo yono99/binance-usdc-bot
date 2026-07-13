@@ -44,7 +44,9 @@ type Form = {
   leverage: number;
   bet_usd: number;
   bet_pct: number;
-  balance_usd: number;
+  // saldo per-wallet (USDC/USDT). Form UI exposes kedua input.
+  balance_usdt: number;
+  balance_usdc: number;
   target_profit_pct: number;
   max_open_positions: number;
   daily_max_loss_pct: number;
@@ -77,15 +79,16 @@ export function ControlPanel({
   account: Account | null;
 }) {
   const isLive = status?.mode === "live";              // mode efektif yang BERJALAN
-  const liveBalance = status?.balance_usd;             // di live = saldo Binance nyata
   const [s, setS] = useState<Settings | null>(null);
   const [form, setForm] = useState<Form | null>(null);
   const [saved, setSaved] = useState("");
   const [models, setModels] = useState<string[]>([]);
   const [adjusted, setAdjusted] = useState<string[]>([]);
   const [lastManual, setLastManual] = useState(5);
-  const balRef = useRef<HTMLInputElement>(null);
-  const pendingBal = useRef<number | null>(null);
+  const balRefUsdt = useRef<HTMLInputElement>(null);
+  const balRefUsdc = useRef<HTMLInputElement>(null);
+  const pendingBalUsdt = useRef<number | null>(null);
+  const pendingBalUsdc = useRef<number | null>(null);
 
   const toForm = (d: Settings): Form => ({
     enabled: d.enabled,
@@ -94,7 +97,8 @@ export function ControlPanel({
     leverage: d.leverage,
     bet_usd: d.bet_usd,
     bet_pct: d.bet_pct ?? 0,
-    balance_usd: d.balance_usd,
+    balance_usdt: d.balance_usdt ?? 0,
+    balance_usdc: d.balance_usdc ?? 0,
     target_profit_pct: d.target_profit_pct,
     max_open_positions: d.max_open_positions,
     daily_max_loss_pct: d.daily_max_loss_pct,
@@ -127,15 +131,25 @@ export function ControlPanel({
 
   // Form Saldo = saldo hidup. LIVE: dari Binance Futures USDC (read-only).
   // DEMO/paper: dari status (paper, naik/turun mengikuti PnL), bisa diinput manual.
-  // Jangan timpa saat user mengetik atau menunggu bot menerapkan (pendingBal).
+  // saldo TERPISAH per-wallet (USDT/USDC). Jangan timpa saat user mengetik atau
+  // menunggu bot menerapkan (pendingBal*).
   useEffect(() => {
-    const live = isLive ? liveBalance : status?.balance_usd;
-    if (live == null || !form) return;
-    if (pendingBal.current != null && Math.abs(live - pendingBal.current) < 1e-9)
-      pendingBal.current = null;
-    if (!isLive && (document.activeElement === balRef.current || pendingBal.current != null)) return;
-    setForm((p) => (p ? { ...p, balance_usd: live } : p));
-  }, [status?.balance_usd, liveBalance, isLive]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!form) return;
+    const usdt = isLive ? account?.balance_usdt : status?.balance_usdt;
+    const usdc = isLive ? account?.balance_usdc : status?.balance_usdc;
+    const apply = (key: "balance_usdt" | "balance_usdc", val: number) => {
+      if (val == null) return;
+      const refKey = key === "balance_usdt" ? pendingBalUsdt : pendingBalUsdc;
+      if (refKey.current != null && Math.abs(val - refKey.current) < 1e-9)
+        refKey.current = null;
+      const activeRef = key === "balance_usdt" ? balRefUsdt.current : balRefUsdc.current;
+      if (!isLive && (document.activeElement === activeRef || refKey.current != null)) return;
+      setForm((p) => (p ? { ...p, [key]: val } : p));
+    };
+    apply("balance_usdt", usdt ?? form.balance_usdt);
+    apply("balance_usdc", usdc ?? form.balance_usdc);
+  }, [status?.balance_usdt, status?.balance_usdc,
+      account?.balance_usdt, account?.balance_usdc, isLive]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!s || !form) return <div className="panel"><h2>Kontrol Bot (paper)</h2><div className="empty">memuat…</div></div>;
 
@@ -193,7 +207,8 @@ export function ControlPanel({
       if (typeof a === "number" && typeof b === "number" && Math.abs(a - b) > 1e-9)
         adj.push(`${label}: ${a} → ${b}`);
     }
-    pendingBal.current = res.balance_usd;
+    pendingBalUsdt.current = res.balance_usdt ?? null;
+    pendingBalUsdc.current = res.balance_usdc ?? null;
     setS((prev) => (prev ? { ...prev, ...res } : res)); // merge, jaga 'techniques'
     // pakai nilai hasil clamp engine (kalau user input ngawur, ikut engine)
     setForm((p) =>
@@ -279,19 +294,36 @@ export function ControlPanel({
           <input type="number" min={0} max={100} step={0.5} value={form.bet_pct}
             onChange={(e) => set("bet_pct", +e.target.value)} />
         </label>
-        <label>
-          Saldo (USD) — hidup{" "}
-          <span className="sub">{isLive ? "(LIVE: Binance Futures USDC)" : "(paper: input manual)"}</span>
-          <input
-            ref={balRef}
-            type="number"
-            min={0}
-            step={0.01}
-            value={form.balance_usd}
-            disabled={isLive}
-            title={isLive ? "Saldo live diambil otomatis dari Binance — tidak bisa diubah" : ""}
-            onChange={(e) => set("balance_usd", +e.target.value)}
-          />
+        <label style={{ gridColumn: "1 / -1" }}>
+          Saldo per-wallet —{" "}
+          <span className="sub">
+            {isLive ? "LIVE: dari Binance Futures — read-only · " : ""}
+            USDT (wallet USDT-M) & USDC (wallet USDC-M) terpisah
+          </span>
+          <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
+            <label style={{ flex: 1 }}>
+              USDT
+              <input
+                ref={balRefUsdt}
+                type="number" min={0} step={0.01}
+                value={form.balance_usdt}
+                disabled={isLive}
+                title={isLive ? "Saldo USDT diambil otomatis dari Binance" : ""}
+                onChange={(e) => set("balance_usdt", +e.target.value)}
+              />
+            </label>
+            <label style={{ flex: 1 }}>
+              USDC
+              <input
+                ref={balRefUsdc}
+                type="number" min={0} step={0.01}
+                value={form.balance_usdc}
+                disabled={isLive}
+                title={isLive ? "Saldo USDC diambil otomatis dari Binance" : ""}
+                onChange={(e) => set("balance_usdc", +e.target.value)}
+              />
+            </label>
+          </div>
         </label>
         <label>
           Target profit ·{" "}

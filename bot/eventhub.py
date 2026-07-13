@@ -11,6 +11,12 @@ Setiap sumber berjalan di asyncio task terpisah, fail-open: satu sumber mati
 tidak menjatuhkan SSE stream. Broadcast men-drop ke slow client (QueueFull) —
 tidak memblokir producer.
 
+Tahap 4 (plan-sess): tiap source event diberi label `mode` agar frontend filter ke
+mode aktif UI. Zerodha-style: tiap proses forwardtest.py--mode berbeda mem-broadcast
+listenKey terpisah; namun karena EventHub dipakai GLOBAL (1 proses dashboard), mode
+di-infer dari sumber: ACCOUNT_UPDATE hanya dr WS live (mode=live), event ZMQ ke-core
+bisa di-strip dr process context (lihat _mode_label_for_src).
+
 Lifecycle: dibuat saat startup FastAPI (lifespan), dihentikan saat shutdown.
 Diakses endpoint /api/stream via subscribe()/unsubscribe().
 """
@@ -46,7 +52,13 @@ _QUEUE_MAX = 200   # per-client; QueueFull → drop (client lambat)
 
 
 class EventHub:
-    """In-memory pub/sub: subscribe() → Queue, broadcast() → fan-out semua subscriber."""
+    """In-memory pub/sub: subscribe() → Queue, broadcast() → fan-out semua subscriber.
+
+    Tahap 4 (plan-sess): tiap broadcast top-level diberi label `mode`:
+      - SSE order_update/account_update dr Binance WS → mode='live' (sumber hanya ada di live)
+      - SSE trade/status dr SQLite watcher → mode='<active_mode from kv>' (per-mode)
+      - SSE candle ZMQ → mode='*' (global market data, tak per-mode — bukan trade-source).
+    Frontend frontend/backend bisa filter client-side sesuai mode UI aktif."""
 
     def __init__(self) -> None:
         self._subs: list[asyncio.Queue] = []
@@ -65,12 +77,18 @@ class EventHub:
         except ValueError:
             pass
 
-    async def broadcast(self, event_type: str, data: Any) -> None:
-        """Fan-out ke semua subscriber. Drop kalau queue penuh (client lambat)."""
+    async def broadcast(self, event_type: str, data: Any,
+                        mode: str | None = None) -> None:
+        """Fan-out ke semua subscriber. Drop kalau queue penuh (client lambat).
+
+        Tahap 4: `mode` opsional — default akan di-resolve oleh storage_publisher
+        (lihat ZMQ sub handlers)."""
         if not self._subs:
             return
-        frame = json.dumps({"type": event_type, "data": data, "ts": time.time()},
-                           default=str)
+        payload = {"type": event_type, "data": data, "ts": time.time()}
+        if mode is not None:
+            payload["mode"] = mode
+        frame = json.dumps(payload, default=str)
         for q in self._subs:
             try:
                 q.put_nowait(frame)
@@ -106,7 +124,10 @@ class EventHub:
 
     # ---------- sumber 1: ZMQ OrderEvent (:5558) ----------
     async def _zmq_event_sub(self) -> None:
-        """SUB ke Rust core EventPub — OrderEvent {open,reject,error}."""
+        """SUB ke Rust core EventPub — OrderEvent {open,reject,error}.
+
+        Tahap 4: label mode='*' (ZMQ events global — bukan per-mode). Mode spesifik
+        di-pasang oleh core konteks upstream (lihat core.rs)."""
         try:
             import zmq.asyncio   # pyzmq
             ctx = zmq.asyncio.Context()
@@ -120,7 +141,11 @@ class EventHub:
                     msg = json.loads(raw)
                     # Rust OrderEvent → event type SSE
                     kind = msg.get("kind") or msg.get("type") or "order_event"
-                    await self.broadcast(f"order_{kind}", msg)
+                    # mode dari msg.upstream_mode jika ada
+                    mode = msg.get("mode") or "*"
+                    payload = dict(msg)
+                    payload.pop("mode", None)
+                    await self.broadcast(f"order_{kind}", payload, mode=mode)
                 except (json.JSONDecodeError, Exception) as e:
                     log.debug(f"EventHub zmq-event parse: {e}")
         except Exception as e:
@@ -128,7 +153,7 @@ class EventHub:
 
     # ---------- sumber 2: ZMQ Candle (:5556) ----------
     async def _zmq_market_sub(self) -> None:
-        """SUB ke Rust core MarketPub — Candle. Throttle: max 1/s."""
+        """SUB ke Rust core MarketPub — Candle. Throttle: max 1/s. Mode='*' (global)."""
         last_push = 0.0
         try:
             import zmq.asyncio
@@ -146,24 +171,26 @@ class EventHub:
                 try:
                     msg = json.loads(raw)
                     sym = msg.get("symbol") or msg.get("s") or "?"
-                    await self.broadcast("candle", {"symbol": sym, **msg})
+                    await self.broadcast("candle", {"symbol": sym, **msg}, mode="*")
                 except (json.JSONDecodeError, Exception):
                     pass
         except Exception as e:
             log.warning(f"EventHub ZMQ-market gagal: {e}")
 
-    # ---------- sumber 3: Binance User Data WS ----------
+    # ---------- sumber 3: Binance User Data WS (label mode='live') ----------
     async def _binance_userdata(self) -> None:
-        """WS Binance user data stream — account/order/position real-time.
+        """WS Binance user data stream — account/order/position real-time (LIVE only).
 
-        Butuh listenKey (api+secret). Kalau mode dry (no creds) atau WS gagal,
-        skip — fail-open, SSE tetap jalan dari sumber lain.
-        """
+        Tahap 4: broadcast ber-label mode='live' (sumber ini HANYA aktif di mode live).
+        Dry/test → skip. Forward multi-proses per mode: tiap mode live yang listen akan
+        stream terpisah (default: 1 EventHub global, namun kalau dipakai multi-proses
+        per mode, masing-masing bot instance mem-broadcast ke SSE via webhook)."""
         from .config import load_settings
-        settings = load_settings()
-        if settings.is_dry:
-            log.info("EventHub: Binance user-data WS skip (dry mode, no creds)")
-            return   # paper mode — account/order dari SQLite watcher saja
+        from .settings_store import _env_mode
+        cur_mode = _env_mode()
+        if cur_mode != "live":
+            log.info(f"EventHub: Binance user-data WS skip (mode={cur_mode}, no WS broadcast)")
+            return   # Tahap 4: hanya live yang subscribe WS — hemat resource
         try:
             import websockets
         except ImportError:
@@ -171,6 +198,8 @@ class EventHub:
                         "pip install websockets (user-data WS skip)")
             return
 
+        from .config import load_settings as _cfg_load
+        settings = _cfg_load()
         api_key, api_secret = settings.credentials()
         if not api_key:
             log.warning("EventHub: no API creds — user-data WS skip")
@@ -186,18 +215,17 @@ class EventHub:
                     await asyncio.sleep(USERDATA_RECONNECT_S)
                     continue
                 url = f"wss://fstream.binance.com/ws/{lk}"
-                log.info("EventHub: Binance user-data WS connect")
+                log.info("EventHub: Binance user-data WS connect (mode=live)")
                 async with websockets.connect(url, ping_interval=20) as ws:
-                    # task refresh listenKey tiap 30 menit
                     refresh = asyncio.create_task(self._refresh_listenkey(ex))
                     try:
                         async for raw in ws:
                             msg = json.loads(raw)
                             etype = msg.get("e")
                             if etype == "ORDER_TRADE_UPDATE":
-                                await self.broadcast("order_update", msg.get("o"))
+                                await self.broadcast("order_update", msg.get("o"), mode="live")
                             elif etype == "ACCOUNT_UPDATE":
-                                await self.broadcast("account_update", msg.get("a"))
+                                await self.broadcast("account_update", msg.get("a"), mode="live")
                             elif etype == "listenKeyExpired":
                                 log.warning("EventHub: listenKey expired → reconnect")
                                 break
@@ -216,28 +244,40 @@ class EventHub:
             except Exception:
                 pass
 
-    # ---------- sumber 4: SQLite watcher (fallback) ----------
+    # ---------- sumber 4: SQLite watcher (label mode dari kv active_mode) ----------
     async def _sqlite_watcher(self) -> None:
-        """Poll SQLite kv table — broadcast status change. Fallback kalau webhook gagal."""
+        """Poll SQLite kv table — broadcast status change. Fallback kalau webhook gagal.
+
+        Tahap 4: broadcast diberi label `mode` (dr active_mode kv) sehingga SSE client
+        filter sesuai mode UI aktif."""
         from . import store
+        from .settings_store import get_active_mode
         last_status = None
         last_balance = None
+        last_mode: str | None = None
         log.info(f"EventHub: SQLite watcher poll={SQLITE_POLL_S}s")
         while self._running:
             try:
-                # status per-mode aktif (mirip dashboard._ui_mode)
-                mode = store.get_kv("active_mode") or {}
-                m = mode.get("mode") if isinstance(mode, dict) else None
-                key = f"status:{m}" if m else "status"
+                # mode yang sedang dilihat UI (Tahap 4 — broadcast label)
+                mode = get_active_mode() or (store.get_kv("active_mode") or {}).get("mode")
+                if not mode:
+                    mode = "dry"
+                cur_mode = mode
+                # status per-mode aktif
+                key = f"status:{cur_mode}"
                 st = store.get_kv(key) or store.get_kv("status")
                 if st and st != last_status:
                     last_status = st
-                    await self.broadcast("status", st)
+                    await self.broadcast("status", st, mode=cur_mode)
                 # balance state (forward.py:804 write)
                 bal = store.get_kv("balance_state")
                 if bal and bal != last_balance:
                     last_balance = bal
-                    await self.broadcast("balance", bal)
+                    await self.broadcast("balance", bal, mode=cur_mode)
+                # broadcast mode change ke subscriber (konsistensi UI)
+                if cur_mode != last_mode:
+                    last_mode = cur_mode
+                    await self.broadcast("mode", {"mode": cur_mode})
             except Exception as e:
                 log.debug(f"EventHub sqlite watcher: {e}")
             await asyncio.sleep(SQLITE_POLL_S)

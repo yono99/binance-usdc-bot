@@ -21,7 +21,9 @@ export interface Settings {
   leverage: number;
   bet_usd: number;
   bet_pct: number;
-  balance_usd: number;
+  // saldo per-wallet terpisah (USDT-M / USDC-M).
+  balance_usdt?: number;
+  balance_usdc?: number;
   target_profit_pct: number;
   max_open_positions: number;
   daily_max_loss_pct: number;
@@ -92,7 +94,11 @@ export interface Status {
   timeframe?: string;
   leverage?: number;
   bet_usd?: number;
-  balance_usd?: number;
+  // saldo per-wallet (USDT-M / USDC-M) terpisah per mode (dry/test/live).
+  balance_usdt?: number;
+  balance_usdc?: number;
+  day_pnl_usdt?: number;
+  day_pnl_usdc?: number;
   open_count?: number;
   max_open?: number;
   poll_seconds?: number;
@@ -165,6 +171,8 @@ export interface Account {
   mode: string;
   api_valid: boolean | null;
   balance_usdc?: number;
+  balance_usdt?: number;
+  balance_total?: number;
   paper?: boolean;
   gemini_enabled: boolean;
   gemini_keys: number;

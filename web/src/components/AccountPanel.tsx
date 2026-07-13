@@ -17,7 +17,12 @@ export function AccountPanel({ acct }: { acct: Account | null }) {
   ) : (
     "paper (tanpa key)"
   );
-  const bal = acct?.balance_usdc != null ? `$${f(acct.balance_usdc, 2)}` : "—";
+  // Saldo per-wallet (USDT-M / USDC-M) — live: dari Binance Futures; paper: —
+  const hasBal = acct?.balance_usdc != null || acct?.balance_usdt != null;
+  const balLine = !hasBal
+    ? "—"
+    : `USDT $${f(acct?.balance_usdt, 2)} · USDC $${f(acct?.balance_usdc, 2)}` +
+      (acct?.balance_total != null ? ` · Total $${f(acct.balance_total, 2)}` : "");
 
   const validate = async () => {
     setVres("memvalidasi…");
@@ -25,7 +30,9 @@ export function AccountPanel({ acct }: { acct: Account | null }) {
       const r = await api.validateKey(vkey.trim(), vsecret.trim());
       setVres(
         r.valid ? (
-          <span className="pos">VALID — saldo ${f(r.balance_usdc, 2)}</span>
+          <span className="pos">
+            VALID — saldo USDT ${f(r.balance_usdt, 2)} · USDC ${f(r.balance_usdc, 2)}
+          </span>
         ) : (
           <span className="neg">INVALID: {r.error || "gagal"}</span>
         )
@@ -52,7 +59,7 @@ export function AccountPanel({ acct }: { acct: Account | null }) {
       <h2>Akun / API</h2>
       <div className="line">
         Mode: <b>{acct?.mode ?? "—"}</b> · API: {apiBadge}
-        {acct?.balance_usdc != null && <> · Saldo: <b>{bal}</b></>} · Gemini:{" "}
+        {hasBal && <> · Saldo: <b>{balLine}</b></>} · Gemini:{" "}
         {acct?.gemini_enabled ? (
           <span className="pos">on, {acct.gemini_keys} key</span>
         ) : (

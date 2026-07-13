@@ -32,10 +32,19 @@ def _base_ft(make_df):
     ft.daily_max_trades = 0
     ft.daily_max_loss_pct = 0.0
     ft._day_start_balance = 0.0
+    # Tahap 1: per-wallet saldo + PnL + DD peak.
+    ft.balance_usdt = 0.0
+    ft.balance_usdc = 0.0
+    ft._day_start_balance_usdt = 0.0
+    ft._day_start_balance_usdc = 0.0
     ft._day_pnl = 0.0
+    ft._day_pnl_usdt = 0.0
+    ft._day_pnl_usdc = 0.0
     ft._day_trades = 0
     ft._day = pd.Timestamp.utcnow().date()
     ft._dd_lock = False
+    ft._peak_balance_usdt = 0.0
+    ft._peak_balance_usdc = 0.0
     ft._gemini_decide_budget = 8
     ft._gemini_decide_cap = 8
     ft._gemini_decide_used = 0
@@ -67,7 +76,8 @@ def test_failed_open_keeps_accurate_reason_not_fake_success(make_df):
     """_adaptive_bet mengembalikan 0 (margin habis) -> _open_usd gagal & menulis alasan
     akurat -> caller TIDAK BOLEH menimpanya dgn '→ posisi dibuka'."""
     ft = _base_ft(make_df)
-    ft.balance_usd = 10.0
+    ft.balance_usdc = 10.0
+    ft.balance_usdt = 0.0
     from bot.settings_store import RuntimeSettings
     rs_obj = RuntimeSettings(mode="dry", enabled=True)
     ft._apply_settings = lambda: rs_obj
@@ -84,7 +94,8 @@ def test_failed_open_keeps_accurate_reason_not_fake_success(make_df):
 def test_successful_open_still_shows_success_label(make_df, monkeypatch):
     """Kontrol: saat _open_usd BENAR-BENAR berhasil, label sukses tetap tampil."""
     ft = _base_ft(make_df)
-    ft.balance_usd = 1000.0
+    ft.balance_usdc = 1000.0
+    ft.balance_usdt = 0.0
     from bot.settings_store import RuntimeSettings
     rs_obj = RuntimeSettings(mode="dry", enabled=True)
     ft._apply_settings = lambda: rs_obj
@@ -119,12 +130,14 @@ def test_status_position_view_includes_opened_ts():
     from bot.settings_store import RuntimeSettings
     rs_obj = RuntimeSettings(mode="dry")
     ft._circuit_breaker = lambda: None
-    ft._dd_lock, ft._dd_reason, ft._peak_balance = False, "", 0.0
+    ft._dd_lock, ft._dd_reason = False, ""
     ft._dd_check = lambda peak, bal, pct: (False, 0.0)
-    ft.balance_usd = 100.0
+    ft.balance_usdc = 100.0
+    ft.balance_usdt = 0.0
     ft.corr_threshold = 0
-    ft._day_pnl, ft._day_trades = 0.0, 0
+    ft._day_pnl_usdt, ft._day_pnl_usdc, ft._day_trades = 0.0, 0.0, 0
     ft._gemini_decide_budget, ft._gemini_decide_cap = 8, 8
+    ft._peak_balance_usdt, ft._peak_balance_usdc = 100.0, 0.0
     ft.settings = types.SimpleNamespace(mode="dry")
     ft.pin_mode = True
     ft.tf = "15m"

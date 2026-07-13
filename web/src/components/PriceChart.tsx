@@ -10,13 +10,20 @@ import { api } from "../api";
 import type { Ohlcv, Status } from "../types";
 import { SearchSelect } from "./SearchSelect";
 
-const TFS = ["5m", "15m", "1h", "4h"];
+// Tahap 6 (plan-sess): TFS ditambah 1d/1w/1M untuk chart 1m sampai 1M. Whitelist tsb
+// sama dengan backend /api/candles — server tolak tf tak dikenal.
+const TFS = ["1m", "5m", "15m", "30m", "1h", "2h", "4h", "1d", "1w", "1M"];
 const baseOpts = {
   layout: { background: { color: "transparent" }, textColor: "#8aa0c0" },
   grid: { vertLines: { color: "#243049" }, horzLines: { color: "#243049" } },
   rightPriceScale: { borderColor: "#243049" },
   timeScale: { borderColor: "#243049", timeVisible: true },
 };
+
+// Tahap 6c: SSE subscribe bar close real-time untuk tf high-timeframe (1h/1d/1w/1M).
+// Frontend tambah 'candle' event dari /api/stream → update bar terakhir langsung,
+// tanpa polling 30s. tf intraday kecil (1m/5m/15m) tetap polling (responsive enough).
+const SSE_CANDLE_TFS = new Set(["1h", "1d", "1w", "1M"]);
 
 export function PriceChart({ status, available }: { status: Status | null; available: string[] }) {
   const active = status?.symbols?.map((x) => x.symbol) ?? [];
@@ -88,6 +95,60 @@ export function PriceChart({ status, available }: { status: Status | null; avail
     return () => {
       alive = false;
       clearInterval(id);
+    };
+  }, [sym, tf]);
+
+  // Tahap 6c: SSE subscribe 'candle' event utk update bar TERAKHIR real-time
+  // saat close baru (tf high-timeframe). Hanya sub bila tf ∈ SSE_CANDLE_TFS,
+  // cocok symbol+tf. Update via setData last bar replacement (cheaper dari full re-fetch).
+  useEffect(() => {
+    if (!sym) return;
+    if (!SSE_CANDLE_TFS.has(tf)) return;       // intraday tf: tetap polling
+    let es: EventSource | null = null;
+    let cancelled = false;
+    try {
+      es = new EventSource("/api/stream");
+      const onMsg = (e: MessageEvent) => {
+        try {
+          const payload = JSON.parse(e.data);
+          if (payload?.type !== "candle") return;
+          const d = payload.data ?? {};
+          if (d.symbol !== sym || d.tf !== tf) return;
+          if (!d.bar) return;
+          const t = Math.floor(d.bar.ts / 1000) as UTCTimestamp;
+          // update candle series: append/update bar (overwrite bila sama time, append bila baru)
+          setData((prev) => {
+            if (!prev || !prev.bars?.length) return prev;
+            const last = prev.bars[prev.bars.length - 1];
+            const lastSec = Math.floor(last.x / 1000);
+            const barSec = Math.floor(d.bar.ts / 1000);
+            const bars = prev.bars.slice();
+            if (lastSec === barSec) {
+              // update bar terakhir
+              bars[bars.length - 1] = {
+                ...last,
+                o: d.bar.open, h: d.bar.high, l: d.bar.low, c: d.bar.close,
+              };
+            } else if (barSec > lastSec) {
+              // bar baru — append (candle chart append langsung)
+              bars.push({
+                x: d.bar.ts, o: d.bar.open, h: d.bar.high,
+                l: d.bar.low, c: d.bar.close,
+              });
+            }
+            return { ...prev, bars };
+          });
+        } catch {
+          /* ignore parse error */
+        }
+      };
+      es.onmessage = onMsg;
+    } catch {
+      // SSE tak tersedia → fallback polling (tak fatal)
+    }
+    return () => {
+      cancelled = true;
+      if (es) es.close();
     };
   }, [sym, tf]);
 

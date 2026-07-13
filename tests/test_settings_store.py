@@ -47,7 +47,7 @@ def test_save_load_roundtrip(tmp_path, monkeypatch):
     import bot.store as store
     monkeypatch.setattr(store, "DB_PATH", tmp_path / "bot.db")
     ss.save_settings(RuntimeSettings(enabled=True, technique="swing", leverage=20,
-                                     bet_usd=12, balance_usd=12, symbols=["ETH/USDC:USDC"]))
+                                     bet_usd=12, balance_usdt=12, symbols=["ETH/USDC:USDC"]))
     got = ss.load_settings()
     assert got.enabled is True
     assert got.technique == "swing"

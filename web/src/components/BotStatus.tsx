@@ -90,16 +90,28 @@ export function BotStatus({ status, onAction }: { status: Status | null; onActio
         <div className="line">
           Status: {status.enabled ? <span className="pos">ON</span> : <span className="neg">OFF</span>} · Teknik:{" "}
           <b>{status.technique}</b> · TF: {status.timeframe} · Leverage: <b>{status.leverage}x</b> · Bet: $
-          {f(status.bet_usd, 2)} · Saldo: <b>${f(status.balance_usd, 2)}</b> · Posisi: {status.open_count}/
+          {f(status.bet_usd, 2)} · Posisi: {status.open_count}/
           {status.max_open} · Order: <b>{status.order_type || "—"}</b> (fee {f(status.fee_pct, 3)}%) · News: {nv} ·{" "}
           <span className="sub">update {(status.ts || "").slice(11, 19)} UTC</span>
         </div>
         <div className="line" style={{ marginTop: 4 }}>
-          PnL hari ini:{" "}
+          Saldo:{" "}
+          <b>USDT ${f(status.balance_usdt, 2)}</b> · <b>USDC ${f(status.balance_usdc, 2)}</b>
+          {" "}| PnL hari ini:{" "}
           <b className={status.day_pnl != null ? (status.day_pnl >= 0 ? "pos" : "neg") : ""}>
             {status.day_pnl != null ? (status.day_pnl >= 0 ? "+" : "") + f(status.day_pnl, 2) : "—"}
-          </b>{" "}
-          · Trade hari ini: <b>{status.day_trades ?? 0}</b> · Guard korelasi: ≥{f(status.corr_threshold, 2)} ·{" "}
+          </b>
+          {(status.day_pnl_usdt != null || status.day_pnl_usdc != null) && (
+            <>
+              {" "}
+              <span className="sub">
+                (USDT {status.day_pnl_usdt != null ? (status.day_pnl_usdt >= 0 ? "+" : "") + f(status.day_pnl_usdt, 2) : "—"}
+                {" / "}
+                USDC {status.day_pnl_usdc != null ? (status.day_pnl_usdc >= 0 ? "+" : "") + f(status.day_pnl_usdc, 2) : "—"})
+              </span>
+            </>
+          )}
+          {" "}· Trade hari ini: <b>{status.day_trades ?? 0}</b> · Guard korelasi: ≥{f(status.corr_threshold, 2)} ·{" "}
           {status.circuit_breaker ? (
             <span className="neg">⛔ {status.circuit_breaker}</span>
           ) : (

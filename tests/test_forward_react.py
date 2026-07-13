@@ -8,11 +8,13 @@ from bot.forward import ForwardTester
 def _bare_ft():
     """ForwardTester minimal (tanpa __post_init__/Exchange) untuk uji helper murni."""
     ft = ForwardTester.__new__(ForwardTester)
-    ft.balance_usd = 1000.0
+    ft.balance_usdt = 1000.0
+    ft.balance_usdc = 0.0
     ft.risk_frac = 0.01
     ft.open = {}
     ft.max_open = 2
-    ft._day_pnl = 0.0
+    ft._day_pnl_usdt = 0.0
+    ft._day_pnl_usdc = 0.0
     ft.cfg = {"signals": {}, "strategy": {}}     # _market_summary akan gagal → regime "unknown"
     ft.ab_shadow = False
     ft.tool_loop = False

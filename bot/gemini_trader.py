@@ -36,17 +36,24 @@ def valid_tighten(side: str, old_sl: float, new_sl, price: float) -> bool:
     return price < new_sl < old_sl            # turun (lebih ketat), masih di atas harga
 
 
-def track_record() -> dict:
+def track_record(mode: str | None = None,
+                 share_across_modes: bool = False) -> dict:
     """Rekam jejak Gemini + VERDICT SIGNIFIKANSI (Fase 3). Demo-only sampai lolos.
 
-    Tidak butuh Gemini (murni statistik dari SQLite) → bisa dipanggil dashboard."""
+    Tidak butuh Gemini (murni statistik dari SQLite) → bisa dipanggil dashboard.
+
+    Tahap 0 (plan-sess): mode=None default = lintas-mode (back-compat dashboard lama),
+    pemanggil produksi (forward.py/_track_record) pass mode eksplisit."""
     from .stats import significance_report
-    decs = store.settled_decisions()
+    _eff_mode = None if share_across_modes else mode
+    decs = store.settled_decisions(mode=_eff_mode)
     rs = [float(d["outcome_r"]) for d in decs if d.get("outcome_r") is not None]
     setups = sorted({d["setup"] for d in decs if d.get("setup")})
-    per_setup = [store.setup_stats(s) for s in setups]
-    base = {"n": len(rs), "per_setup": per_setup, "active_lessons": store.active_lessons(),
-            "recent": store.recent_decisions(limit=15)}
+    per_setup = [store.setup_stats(s, mode=_eff_mode) for s in setups]
+    base = {"n": len(rs), "per_setup": per_setup,
+            "active_lessons": store.active_lessons(mode=_eff_mode,
+                                                   share_across_modes=share_across_modes),
+            "recent": store.recent_decisions(limit=15, mode=_eff_mode)}
     if not rs:
         return {**base, "verdict": "INSUFFICIENT", "verdict_reason": "belum ada trade settled"}
     rep = significance_report(rs, n_trials=1)
@@ -112,18 +119,29 @@ class GeminiTrader:
         self.mode = settings.mode                    # untuk kalibrasi per-mode di konteks
         self.client = GeminiClient(settings.gemini_keys, gcfg.get("model", "gemini-3-flash-preview"))
         self.enabled = settings.gemini_enabled and self.client.available
+        # Tahap 0 (plan-sess): default False = pelajaran/rekam-jejak diisolasi PER-MODE
+        # (track record live tak mencemari bukti dry, dsb). Opt-in admin True = share bukti
+        # antar mode (untuk evaluator yang ingin agregat lintas-mode SENGaja).
+        self.share_lessons_across_modes = bool(gcfg.get("share_lessons_across_modes", False))
 
     def _track_record(self) -> list[dict]:
         """Rekam jejak per-setup DIHITUNG KODE dari SQLite (deterministik, anti-halusinasi):
         win rate, expectancy R, seberapa sering SL tersambar & MAE/MFE-nya. Memberi Gemini
-        BUKTI performa tiap setup-nya sendiri — bukan klaim, bukan ramalan."""
+        BUKTI performa tiap setup-nya sendiri — bukan klaim, bukan ramalan.
+
+        Tahap 0: pemfilteran per-mode agar track record tak bercampur (dry-track ≠
+        live-track). share_lessons_across_modes=True (opt-in admin) → lintas mode."""
         try:
             from .stats import effective_sample_size
             decs = store.settled_decisions()
+            # settled_decisions() tetap lintas-mode — filter di Tier sini:
+            if not self.share_lessons_across_modes:
+                decs = [d for d in decs if (d.get("mode") or "dry") == self.mode]
             setups = sorted({d["setup"] for d in decs if d.get("setup")})
             out = []
             for s in setups:
-                stats = store.setup_stats(s)
+                stats = store.setup_stats(s, mode=None if self.share_lessons_across_modes
+                                          else self.mode)
                 rs = [float(d["outcome_r"]) for d in decs if d["setup"] == s]
                 eff_n = effective_sample_size(rs)
                 stats["eff_n"] = round(eff_n, 1)
@@ -135,15 +153,19 @@ class GeminiTrader:
 
     def _exit_track_record(self) -> list[dict]:
         """Scorecard per exit_reason (sl/tp/cut-loss/gemini_exit) DIHITUNG KODE — agar Gemini
-        BELAJAR cara-keluar mana yang -EV (mis. gemini_exit / cut prematur) & berhentikan."""
+        BELAJAR cara-keluar mana yang -EV (mis. gemini_exit / cut prematur) & berhentikan.
+
+        Tahap 0: agregat per-mode jika tak share (store.exit_stats(mode=self.mode))."""
         try:
-            return store.exit_stats()
+            return store.exit_stats(mode=None if self.share_lessons_across_modes else self.mode)
         except Exception:  # boundary — konteks opsional
             return []
 
     # ---------- konteks ----------
     def build_context(self, symbol: str, df: pd.DataFrame, *, alt: dict | None = None,
-                      position: dict | None = None, balance: float | None = None,
+                      position: dict | None = None,
+                      balance_usdt: float | None = None,
+                      balance_usdc: float | None = None,
                       news_note: str = "", portfolio: dict | None = None,
                       btc_lead: dict | None = None, halving_phase: str = "") -> dict:
         ctx = {
@@ -159,10 +181,16 @@ class GeminiTrader:
             #   Bull/bear kalibrasi conviction: trend-following LONG saat bull, SHORT saat bear.
             "position": position,                   # posisi terbuka di simbol INI (atau None)
             "portfolio": portfolio,                 # SEMUA posisi terbuka + eksposur (korelasi/risiko)
-            "balance_usd": round(balance, 2) if balance is not None else None,
+            "balance_usdt": round(balance_usdt, 2) if balance_usdt is not None else None,
+            "balance_usdc": round(balance_usdc, 2) if balance_usdc is not None else None,
             "news": news_note,
-            "recent_decisions": store.recent_decisions(symbol, limit=5),
-            "tested_lessons": store.active_lessons(limit=10),   # HANYA yang lolos bukti
+            "recent_decisions": store.recent_decisions(symbol, limit=5,
+                                                      mode=None if self.share_lessons_across_modes
+                                                      else self.mode),
+            "tested_lessons": store.active_lessons(limit=10,
+                                                   mode=None if self.share_lessons_across_modes
+                                                   else self.mode,
+                                                   share_across_modes=self.share_lessons_across_modes),
             # Grounding tambahan dari SQLite (agar Gemini PAHAM performa nyatanya):
             "setup_track_record": self._track_record(),         # stats per-setup (dihitung kode)
             "exit_track_record": self._exit_track_record(),      # BELAJAR dari SL/CL/TP/gemini_exit
@@ -175,9 +203,13 @@ class GeminiTrader:
     def _sl_feedback(self, symbol: str, lookback: int = 8) -> dict | None:
         """Umpan balik ADAPTASI SL/cut-loss untuk simbol INI (dari SQLite). Bila entry
         terakhir tersapu SL/likuidasi, Gemini harus MENYESUAIKAN — bukan mengulang entry
-        yang sama. MFE sebelum SL membedakan 'SL kemepetan' vs 'arah/timing salah'."""
+        yang sama. MFE sebelum SL membedakan 'SL kemepetan' vs 'arah/timing salah'.
+
+        Tahap 0: filter per-mode (kecuali share_across_modes)."""
         try:
-            decs = [d for d in store.recent_decisions(symbol, limit=lookback)
+            decs = [d for d in store.recent_decisions(symbol, limit=lookback,
+                                                      mode=None if self.share_lessons_across_modes
+                                                      else self.mode)
                     if d.get("status") == "settled" and d.get("outcome_r") is not None]
         except Exception:  # boundary — konteks opsional
             return None
@@ -239,7 +271,8 @@ class GeminiTrader:
     # Field GLOBAL (sama utk semua simbol dalam satu siklus) → kirim SEKALI di batch,
     # bukan diduplikasi per simbol. sl_feedback/recent_decisions/loss_postmortem PER-SIMBOL.
     _SHARED_KEYS = ("setup_track_record", "exit_track_record", "calibration",
-                    "tested_lessons", "btc_lead", "halving_phase", "portfolio", "balance_usd", "news")
+                    "tested_lessons", "btc_lead", "halving_phase", "portfolio",
+                    "balance_usdt", "balance_usdc", "news")
 
     def _split_batch(self, contexts: dict[str, dict]) -> tuple[dict, list[dict]]:
         """Pisahkan konteks bersama (global) dari data per-simbol → hemat token."""
@@ -370,12 +403,14 @@ class GeminiTrader:
 
     # ---------- persistensi (dipanggil saat trade dibuka/ditutup) ----------
     def commit(self, symbol: str, decision: dict, context: dict) -> int | None:
-        """Catat keputusan actionable ke SQLite (flat tak dicatat)."""
+        """Catat keputusan actionable ke SQLite (flat tak dicatat). Tahap 0: kirim mode
+        self.mode agar terisolasi per-mode (paper/dry tak mencemari live)."""
         if decision["side"] == "flat":
             return None
         return store.record_decision(
             symbol, decision["setup"], decision["side"], decision["conviction"],
-            decision["rationale"], context, model=self.cfg.get("gemini", {}).get("model", ""))
+            decision["rationale"], context, model=self.cfg.get("gemini", {}).get("model", ""),
+            mode=self.mode)
 
     def settle(self, decision_id: int, outcome_r: float, mae_pct: float | None = None,
                mfe_pct: float | None = None, exit_reason: str | None = None) -> None:
@@ -384,11 +419,13 @@ class GeminiTrader:
 
     # ---------- playbook (evidence-gated) ----------
     def propose_lesson(self, scope: str, setup: str, text: str) -> int:
-        return store.add_lesson(scope, setup, text)
+        return store.add_lesson(scope, setup, text, mode=self.mode)
 
     def promote_lessons(self, min_n: int = 20) -> int:
-        """Aktifkan pelajaran yang setup-nya cukup bukti (anti-takhayul)."""
-        return store.promote_lessons(min_n=min_n)
+        """Aktifkan pelajaran yang setup-nya cukup bukti (anti-takhayul).
+        Tahap 0: bukti digabung (lintas-mode) untuk aktivasi; les.mode dipertahankan."""
+        return store.promote_lessons(min_n=min_n,
+                                     share_across_modes=self.share_lessons_across_modes)
 
     # ---------- refleksi: "Gemini belajar dari rekam jejaknya" ----------
     def reflect(self, lookback: int = 80, min_settled: int = 10, min_n_promote: int = 20) -> dict:
@@ -397,11 +434,17 @@ class GeminiTrader:
         2) Bila cukup data & Gemini aktif: Gemini evaluasi diri & USULKAN pelajaran
            (terikat setup yang ada). Pelajaran masuk sebagai 'proposed' (belum aktif).
         3) EVIDENCE-GATE: promote_lessons mengaktifkan HANYA yang cukup bukti.
-        Selalu aman dipanggil (boundary); mengembalikan ringkasan."""
-        decisions = store.recent_decisions(limit=lookback)
+        Selalu aman dipanggil (boundary); mengembalikan ringkasan.
+
+        Tahap 0 (plan-sess): agregasi per-mode (default) — dry-track tak mencemari
+        live-track. share_across_modes=True opt-in admin untuk agregat lintas-mode."""
+        decisions = store.recent_decisions(limit=lookback,
+                                           mode=None if self.share_lessons_across_modes
+                                           else self.mode)
         settled = [d for d in decisions if d["status"] == "settled" and d.get("outcome_r") is not None]
         setups = sorted({d["setup"] for d in settled if d.get("setup")})
-        stats = {s: store.setup_stats(s) for s in setups}
+        stats = {s: store.setup_stats(s, mode=None if self.share_lessons_across_modes
+                                      else self.mode) for s in setups}
 
         summary = ("data kurang untuk refleksi bermakna" if len(settled) < min_settled
                    else f"{len(settled)} trade settled di {len(setups)} setup")
@@ -423,11 +466,12 @@ class GeminiTrader:
                     for les in data.get("lessons", [])[:6]:
                         if les.get("setup") in SETUPS and les.get("text"):
                             store.add_lesson(str(les.get("scope", "*")), les["setup"],
-                                             str(les["text"])[:300])
+                                             str(les["text"])[:300], mode=self.mode)
                 except Exception as e:  # boundary
                     log.warning(f"reflect parse gagal: {e}")
 
-        active = store.promote_lessons(min_n=min_n_promote)   # evidence-gate (deterministik)
+        active = self.promote_lessons(min_n=min_n_promote)   # evidence-gate (deterministik)
         store.add_reflection(period=f"last_{lookback}", summary=summary,
-                             metrics={"settled": len(settled), "stats": stats, "active_lessons": active})
+                             metrics={"settled": len(settled), "stats": stats, "active_lessons": active},
+                             mode=self.mode)
         return {"settled": len(settled), "setups": setups, "active_lessons": active, "summary": summary}

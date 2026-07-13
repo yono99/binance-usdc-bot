@@ -41,34 +41,36 @@ def test_gem_conviction_scaling_with_floor():
     assert bet(100.0, 10.0, 0.0, 0.0, gem_conv=0.1) == 2.0    # lantai 20% → 10 × 0.2
 
 
-# ---------- pool per-quote (dry split) ----------
+# ---------- pool per-quote (Tahap 1: per-wallet split eksplisit) ----------
 
-def _ft(symbols, balance, frac=-1.0):
+def _ft(symbols, balance_usdc=0.0, balance_usdt=0.0):
+    """pool per-wallet — wallets disetel eksplisit (split USDT/USDC)."""
     import types
     ft = ForwardTester.__new__(ForwardTester)
     ft.live = False
     ft.symbols = symbols
-    ft.balance_usd = balance
-    ft.rs = types.SimpleNamespace(dry_quote_split_usdc=frac)
+    ft.balance_usdc = balance_usdc
+    ft.balance_usdt = balance_usdt
+    ft.rs = types.SimpleNamespace()
     return ft
 
 
-def test_quote_pool_auto_proportional_to_pair_count():
-    # 3 USDT + 1 USDC dari 4 pair → USDC dapat 1/4, USDT 3/4
-    ft = _ft(["A/USDT:USDT", "B/USDT:USDT", "C/USDT:USDT", "D/USDC:USDC"], 100.0)
+def test_quote_pool_uses_separate_wallets():
+    """pool = self.balance_<wallet> langsung. Wallets independent."""
+    ft = _ft(["D/USDC:USDC"], balance_usdc=25.0, balance_usdt=75.0)
     assert ft._quote_pool("USDC") == 25.0
     assert ft._quote_pool("USDT") == 75.0
 
 
-def test_quote_pool_explicit_frac_overrides_auto():
-    ft = _ft(["A/USDT:USDT", "B/USDC:USDC"], 100.0, frac=0.3)
-    assert ft._quote_pool("USDC") == 30.0
-    assert ft._quote_pool("USDT") == 70.0
-
-
-def test_quote_pool_out_of_range_falls_back_to_auto():
-    ft = _ft(["A/USDC:USDC", "B/USDT:USDT"], 100.0, frac=2.0)   # invalid → auto 50/50
-    assert ft._quote_pool("USDC") == 50.0
+def test_quote_pool_live_uses_exchange_balances():
+    """LIVE: pool dari Exchange.balances() (dompet Binance nyata)."""
+    import types
+    from bot.forward import ForwardTester
+    ft = ForwardTester.__new__(ForwardTester)
+    ft.live = True
+    ft.ex = types.SimpleNamespace(balances=lambda fb: {"USDC": 100.0, "USDT": 50.0})
+    assert ft._quote_pool("USDC") == 100.0
+    assert ft._quote_pool("USDT") == 50.0
 
 
 # ---------- settings ----------

@@ -155,12 +155,31 @@ def init_db() -> None:
 
 def _migrate() -> None:
     """Kolom evaluasi exit (Fix B 2026-07-02): MAE/MFE + alasan exit per keputusan
-    Gemini — bahan menjawab 'SL terlalu mepet?' dgn data, bukan perasaan."""
+    Gemini — bahan menjawab 'SL terlalu mepet?' dgn data, bukan perasaan.
+
+    Tahap 0 (plan-sess): kolom `mode` di Gemini tables untuk isolasi per-mode.
+    Data lama di-backfill mode='dry' (DEFAULT). Idempotent — ALTER aman dipanggil
+    tiap kali. Index gabungan (mode, status)/(mode, active) mempercepat query
+    per-mode & menggantikan index lama untuk lookup spesifik."""
     with _conn() as c:
         for col, typ in (("mae_pct", "REAL"), ("mfe_pct", "REAL"), ("exit_reason", "TEXT")):
             try:
                 c.execute(f"ALTER TABLE gemini_decisions ADD COLUMN {col} {typ}")
             except Exception:  # kolom sudah ada
+                pass
+        # ---- Isolasi per-mode (plan-sess Tahap 0a) ----
+        for col, default in (("gemini_decisions", "'dry'"), ("gemini_lessons", "'dry'"),
+                             ("gemini_reflections", "'dry'")):
+            try:
+                c.execute(f"ALTER TABLE {col} ADD COLUMN mode TEXT DEFAULT {default}")
+            except Exception:  # kolom sudah ada (ALTER idempotent)
+                pass
+        for name, cols in (("idx_gdec_mode_status", "gemini_decisions(mode, status)"),
+                           ("idx_glesson_mode_active", "gemini_lessons(mode, active)"),
+                           ("idx_gref_mode", "gemini_reflections(mode)")):
+            try:
+                c.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {cols}")
+            except Exception:  # index sudah ada
                 pass
 
 
@@ -339,14 +358,19 @@ def gemini_usage_stats(recent: int = 30) -> dict:
 # ---------- Gemini Trader: keputusan ----------
 
 def record_decision(symbol: str, setup: str, side: str, conviction: float,
-                    rationale: str, context: dict, model: str = "") -> int:
+                    rationale: str, context: dict, model: str = "",
+                    mode: str = "dry") -> int:
+    """Catat keputusan Gemini. Arg `mode` mengisolasi per-mode (default 'dry' = back-compat
+    pemanggil lama). DEFAULT bukan hal ideal — pemanggil produk (forward.py) WAJIB lempar
+    mode eksplisit; default hanya ekuivalen sebelum Tahap 0."""
     init_db()
+    _migrate()
     with _conn() as c:
         cur = c.execute(
             "INSERT INTO gemini_decisions (ts, symbol, setup, side, conviction, rationale, "
-            "context, model, status) VALUES (?,?,?,?,?,?,?,?, 'open')",
+            "context, model, status, mode) VALUES (?,?,?,?,?,?,?,?, 'open', ?)",
             (datetime.now(timezone.utc).isoformat(), symbol, setup, side, float(conviction),
-             rationale, json.dumps(context, default=str), model))
+             rationale, json.dumps(context, default=str), model, mode))
         return cur.lastrowid
 
 
@@ -373,34 +397,50 @@ def settle_decision(decision_id: int, outcome_r: float, mae_pct: float | None = 
             (r, mae_pct, mfe_pct, exit_reason, decision_id)).rowcount > 0
 
 
-def recent_decisions(symbol: str | None = None, limit: int = 20) -> list[dict]:
+def recent_decisions(symbol: str | None = None, limit: int = 20,
+                     mode: str | None = None) -> list[dict]:
+    """Keputusan terbaru. mode=None = lintas-mode (mirror perilaku lama); pass mode='dry'
+    untuk filter ke satu mode saja (Tahap 0: cegah track record bercampur)."""
     init_db()
     _migrate()
     q = ("SELECT id, ts, symbol, setup, side, conviction, rationale, status, outcome_r, "
          "mae_pct, mfe_pct, exit_reason FROM gemini_decisions")
     args: list = []
+    where: list[str] = []
     if symbol:
-        q += " WHERE symbol=?"
+        where.append("symbol=?")
         args.append(symbol)
+    if mode is not None:
+        where.append("mode=?")
+        args.append(mode)
+    if where:
+        q += " WHERE " + " AND ".join(where)
     q += " ORDER BY id DESC LIMIT ?"
     args.append(limit)
     with _conn() as c:
         return [dict(r) for r in c.execute(q, args).fetchall()]
 
 
-def exit_stats() -> list[dict]:
+def exit_stats(mode: str | None = None) -> list[dict]:
     """Scorecard AGREGAT per exit_reason (sl/tp/cut-loss/gemini_exit/liq) — DIHITUNG KODE,
     bukan klaim AI. Agar Gemini BELAJAR cara-keluar mana yang sistematis merugikan (mis.
-    gemini_exit -EV → berhenti cut prematur, biarkan SL/TP jalan)."""
+    gemini_exit -EV → berhenti cut prematur, biarkan SL/TP jalan).
+
+    Tahap 0 (plan-sess): mode=None (default) = lintas-mode, back-compat. mode='dry'/
+    'test'/'live' = filter agregat ke mode itu saja."""
     init_db()
     _migrate()
     q = ("SELECT COALESCE(exit_reason,'?') reason, COUNT(*) n, "
          "COALESCE(AVG(outcome_r),0) exp_r, COALESCE(SUM(outcome_r>0),0) wins, "
          "COALESCE(SUM(outcome_r),0) sum_r FROM gemini_decisions "
-         "WHERE status='settled' AND outcome_r IS NOT NULL "
-         "GROUP BY COALESCE(exit_reason,'?') ORDER BY exp_r ASC")
+         "WHERE status='settled' AND outcome_r IS NOT NULL")
+    args: list = []
+    if mode is not None:
+        q += " AND mode=?"
+        args.append(mode)
+    q += " GROUP BY COALESCE(exit_reason,'?') ORDER BY exp_r ASC"
     with _conn() as c:
-        rows = c.execute(q).fetchall()
+        rows = c.execute(q, args).fetchall()
     out = []
     for r in rows:
         n = r["n"] or 0
@@ -457,40 +497,59 @@ def loss_postmortems(symbol: str | None = None, limit: int = 5) -> list[dict]:
     return out
 
 
-def settled_decisions() -> list[dict]:
-    """Semua keputusan Gemini yang sudah ada hasilnya (untuk track record/signifikansi)."""
+def settled_decisions(mode: str | None = None) -> list[dict]:
+    """Semua keputusan Gemini yang sudah ada hasilnya (untuk track record/signifikansi).
+    Tahap 0: mode=None = lintas-mode (back-compat); mode='dry'/'test'/'live' = filter."""
     init_db()
     _migrate()
+    q = ("SELECT symbol, setup, side, conviction, outcome_r, mae_pct, "
+         "mfe_pct, exit_reason, mode FROM gemini_decisions "
+         "WHERE status='settled' AND outcome_r IS NOT NULL")
+    args: list = []
+    if mode is not None:
+        q += " AND mode=?"
+        args.append(mode)
+    q += " ORDER BY id"
     with _conn() as c:
-        rows = c.execute("SELECT symbol, setup, side, conviction, outcome_r, mae_pct, "
-                         "mfe_pct, exit_reason FROM gemini_decisions "
-                         "WHERE status='settled' AND outcome_r IS NOT NULL ORDER BY id").fetchall()
+        rows = c.execute(q, args).fetchall()
     return [dict(r) for r in rows]
 
 
-def setup_stats(setup: str, scope: str | None = None) -> dict:
-    """Statistik settled per setup — DASAR evidence-gate (dihitung KODE, bukan AI)."""
+def setup_stats(setup: str, scope: str | None = None,
+                mode: str | None = None) -> dict:
+    """Statistik settled per setup — DASAR evidence-gate (dihitung KODE, bukan AI).
+
+    Tahap 0: arg `mode` opsional filter per-mode (default None = lintas-mode, back-compat)."""
     init_db()
+    _migrate()
     q = ("SELECT COUNT(*) n, COALESCE(AVG(outcome_r),0) exp_r, "
          "COALESCE(SUM(outcome_r>0),0) wins FROM gemini_decisions "
          "WHERE status='settled' AND setup=?")
-    _migrate()
     args: list = [setup]
     if scope and scope != "*":
         q += " AND symbol=?"
         args.append(scope)
+    if mode is not None:
+        q += " AND mode=?"
+        args.append(mode)
     with _conn() as c:
         r = c.execute(q, args).fetchone()
     n = r["n"]
     # Analisis exit (Fix B): berapa sering SL tersambar, dan dari SL-hit itu berapa
     # yang MFE-nya sempat besar (= SL terlalu mepet: sempat untung lalu tersapu).
+    q2 = ("SELECT COALESCE(SUM(exit_reason='sl'),0) sl_hits, "
+          "COALESCE(AVG(CASE WHEN exit_reason='sl' THEN mae_pct END),0) avg_mae_sl, "
+          "COALESCE(AVG(CASE WHEN exit_reason='sl' THEN mfe_pct END),0) avg_mfe_sl "
+          "FROM gemini_decisions WHERE status='settled' AND setup=?")
+    args2: list = [setup]
+    if scope and scope != "*":
+        q2 += " AND symbol=?"
+        args2.append(scope)
+    if mode is not None:
+        q2 += " AND mode=?"
+        args2.append(mode)
     with _conn() as c:
-        e = c.execute(
-            "SELECT COALESCE(SUM(exit_reason='sl'),0) sl_hits, "
-            "COALESCE(AVG(CASE WHEN exit_reason='sl' THEN mae_pct END),0) avg_mae_sl, "
-            "COALESCE(AVG(CASE WHEN exit_reason='sl' THEN mfe_pct END),0) avg_mfe_sl "
-            "FROM gemini_decisions WHERE status='settled' AND setup=?" 
-            + (" AND symbol=?" if scope and scope != "*" else ""), args).fetchone()
+        e = c.execute(q2, args2).fetchone()
     return {"setup": setup, "n": n, "exp_r": float(r["exp_r"]),
             "win_rate": (r["wins"] / n * 100) if n else 0.0,
             "sl_hit_rate": (e["sl_hits"] / n * 100) if n else 0.0,
@@ -500,26 +559,43 @@ def setup_stats(setup: str, scope: str | None = None) -> dict:
 
 # ---------- Gemini Trader: pelajaran (playbook) + evidence-gate ----------
 
-def add_lesson(scope: str, setup: str, text: str) -> int:
-    """Usulan pelajaran (status awal: belum aktif sampai lolos evidence-gate)."""
+def add_lesson(scope: str, setup: str, text: str, mode: str = "dry") -> int:
+    """Usulan pelajaran (status awal: belum aktif sampai lolos evidence-gate). mode='dry'
+    default = back-compat pemanggil lama. Pemanggil produksi (reflect/propose_lesson)
+    WAJIB pass mode eksplisit."""
     init_db()
+    _migrate()
     with _conn() as c:
         cur = c.execute(
-            "INSERT INTO gemini_lessons (ts, scope, setup, text, active) VALUES (?,?,?,?,0)",
-            (datetime.now(timezone.utc).isoformat(), scope, setup, text))
+            "INSERT INTO gemini_lessons (ts, scope, setup, text, active, mode) "
+            "VALUES (?,?,?,?,0, ?)",
+            (datetime.now(timezone.utc).isoformat(), scope, setup, text, mode))
         return cur.lastrowid
 
 
-def promote_lessons(min_n: int = 20) -> int:
+def promote_lessons(min_n: int = 20, mode: str | None = None,
+                    share_across_modes: bool = False) -> int:
     """EVIDENCE-GATE (anti-takhayul): aktifkan pelajaran HANYA bila setup rujukannya punya
     cukup sampel settled (n ≥ min_n). Update bukti & confidence dari statistik nyata.
-    Yang tak cukup bukti dinonaktifkan. Kembalikan jumlah yang kini aktif."""
+    Yang tak cukup bukti dinonaktifkan. Kembalikan jumlah yang kini aktif.
+
+    Tahap 0 (plan-sess) isolasi per-mode:
+      - mode=None & not share → treat SEMUA record (lintas-mode) PERMODE-nya sendiri:
+        aggregat bukti digabung, tapi aktivasi per-baris mengikuti mode baris asalnya.
+      - mode=None & share=True (opt-in config) → sama dengan mode=None & not share,
+        bedanya filter pemilihan baris untuk hitung bukti TIDAK membatasi mode.
+      - mode='dry'/'test'/'live' → filter evidence BUKTI sesuai mode itu saja
+        (default config: pemisahan bukti per-mode = satu track-record per mode).
+    """
     init_db()
+    _migrate()
     active = 0
     with _conn() as c:
-        lessons = c.execute("SELECT id, scope, setup FROM gemini_lessons").fetchall()
+        lessons = c.execute("SELECT id, scope, setup, mode FROM gemini_lessons").fetchall()
         for les in lessons:
-            st = setup_stats(les["setup"], les["scope"]) if les["setup"] else {"n": 0, "exp_r": 0.0}
+            les_mode = les["mode"] if les["mode"] is not None else "dry"
+            # bukti untuk aktivasi: spesifik per-les.mode agar tak kontaminasi
+            st = setup_stats(les["setup"], les["scope"], mode=les_mode)
             n, exp_r = st["n"], st["exp_r"]
             ok = n >= min_n
             conf = "high" if n >= 3 * min_n else ("med" if ok else "low")
@@ -529,22 +605,39 @@ def promote_lessons(min_n: int = 20) -> int:
     return active
 
 
-def active_lessons(limit: int = 20) -> list[dict]:
-    """Pelajaran yang LOLOS evidence-gate — aman disuntik ke prompt keputusan."""
+def active_lessons(limit: int = 20, mode: str | None = None,
+                   share_across_modes: bool = False) -> list[dict]:
+    """Pelajaran yang LOLOS evidence-gate — aman disuntik ke prompt keputusan.
+
+    Tahap 0 (plan-sess): default mode=None = back-compat (lintas-mode, BERISIKO
+    kontaminasi bukti saat banyak mode aktif). Pemanggil produk HARUS pass mode
+    eksplisit; share_across_modes=True khusus opt-in admin (config flag)."""
     init_db()
+    _migrate()
+    where = "WHERE active=1"
+    args: list = []
+    if mode is not None and not share_across_modes:
+        where += " AND mode=?"
+        args.append(mode)
     with _conn() as c:
         rows = c.execute(
-            "SELECT id, scope, setup, text, n_support, exp_r_support, confidence "
-            "FROM gemini_lessons WHERE active=1 ORDER BY n_support DESC LIMIT ?", (limit,)).fetchall()
+            f"SELECT id, scope, setup, text, n_support, exp_r_support, confidence "
+            f"FROM gemini_lessons {where} ORDER BY n_support DESC LIMIT ?",
+            (*args, limit)).fetchall()
     return [dict(r) for r in rows]
 
 
-def add_reflection(period: str, summary: str, metrics: dict) -> int:
+def add_reflection(period: str, summary: str, metrics: dict,
+                   mode: str = "dry") -> int:
+    """Catat refleksi berkala. Tahap 0: label `mode` agar histori refleksi
+    tak bercampur antar-mode (sama kebijakan dgn decisions/lessons)."""
     init_db()
+    _migrate()
     with _conn() as c:
-        cur = c.execute("INSERT INTO gemini_reflections (ts, period, summary, metrics) VALUES (?,?,?,?)",
+        cur = c.execute("INSERT INTO gemini_reflections (ts, period, summary, metrics, mode) "
+                        "VALUES (?,?,?,?,?)",
                         (datetime.now(timezone.utc).isoformat(), period, summary,
-                         json.dumps(metrics, default=str)))
+                         json.dumps(metrics, default=str), mode))
         return cur.lastrowid
 
 

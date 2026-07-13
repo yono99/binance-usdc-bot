@@ -65,7 +65,8 @@ def _make_ft(make_df, monkeypatch, *, price=100.0, price_cache_pct=0.15,
     ft._gemini_decide_cap = cap
     ft._gemini_decide_budget = cap
     ft._gemini_decide_used = 0
-    ft.balance_usd = 1000.0
+    ft.balance_usdc = 1000.0
+    ft.balance_usdt = 0.0
     ft._last_news_note = ""
     ft._session_trades = 0
     ft._session_plan = None

@@ -62,7 +62,7 @@
 - **Wrapper Binance USDC-M Futures via ccxt**
 - Mode: `dry` (paper, data live), `test` (paper, testnet deprecated), `live` (uang nyata)
 - Endpoint: `fetch_ohlcv`, `ticker`, `spread`, `balances`, `positions`, `open_orders`
-- **Key feature**: Pemisahan margin per-quote (USDC/USDT dompet terpisah di Binance)
+- **Key feature**: Pemisahan margin per-quote (USDC/USDT dompet terpisah di Binance) — saldo di-fetch terpisah per wallet, demikian juga posisi & order live
 
 ### Layer 2: Screener (`bot/screener.py`)
 ```python
@@ -147,9 +147,10 @@ _sl_floor(entry, is_long, sl, atr, last_range, k_atr=1.75, k_range=0.5)
 ```
 OBSERVE → REASON → ACT → RECORD
 ```
-- **State yang dikirim ke Gemini**: harga, ATR%, funding, OIΔ, CVD, regime, skor sinyal, posisi terbuka, PnL harian R, pelajaran terbaru, memori lintas-tick, BTC lead, halving phase
+- **State yang dikirim ke Gemini**: harga, ATR%, funding, OIΔ, CVD, regime, skor sinyal, posisi terbuka, PnL harian R, pelajaran terbaru, memori lintas-tick, BTC lead, halving phase, balance per-wallet (USDT/USDC)
 - **Aksi**: `ENTER_LONG`, `ENTER_SHORT`, `SKIP`, `REDUCE_RISK`, `FLAT`
 - **Fail-open**: LLM gagal/timeout → fallback ke veto lama + aturan sinyal (tak pernah blokir trading)
+- **Mode Isolation** (Tahap 0 — plan-sess): `track_record()`, `setup_stats()`, `recent_decisions()`, `exit_stats()` semua menerima arg `mode` — default terisolasi per-mode (dry/test/live tidak campur). Opt-in `share_lessons_across_modes: true` di config.
 
 ### Devil's Advocate (Adversarial Pass)
 - Pass LLM kedua yang **HANYA mencari alasan MENOLAK** entry
@@ -177,6 +178,13 @@ OBSERVE → REASON → ACT → RECORD
 **Dual-mode runtime:**
 - `use_store=False`: param hardcode `config.yaml` (backward compat)
 - `use_store=True`: **hot-reload dari UI** (`RuntimeSettings` di SQLite, per-mode `dry/test/live`)
+
+**Per-wallet Balance Split (USDT/USDC) — Tahap 1 (plan-sess):**
+- `balance_usd` menjadi **computed property** = `balance_usdt + balance_usdc` (back-compat)
+- Day PnL, peak balance, drawdown, day-start balance semuanya per-wallet
+- Kill-switch drawdown per-wallet independen: keruntuhan wallet A tak lock wallet B
+- Setting UI: 2 input terpisah (USDT + USDC), backend simpan per-wallet di `RuntimeSettings.balance_usdt` / `.balance_usdc`
+- Persistence: state KV tulis `balance_usdt` + `balance_usdc` + legacy `balance` (back-compat)
 
 **Siklus utama (`_on_cycle_store`):**
 ```
@@ -282,12 +290,19 @@ gemini.sideways_sniper:
 | `news_log` | Histori keputusan news veto (hanya saat berubah) |
 | `screen_log` | Histori screening per pair (sinyal/alasan tak-entry, on-change) |
 | `gemini_usage` | Pemantauan token per panggilan (model, key_idx, purpose) |
-| `gemini_decisions` | Keputusan Gemini trader (open/settled, conviction, outcome_r, mae/mfe) |
-| `gemini_lessons` | Pelajaran (playbook) + **evidence-gate** (aktif HANYA lolos bukti) |
-| `gemini_reflections` | Ringkasan refleksi berkala |
+| `gemini_decisions` | Keputusan Gemini trader (open/settled, conviction, outcome_r, mae/mfe) + kolom `mode` untuk isolasi per-mode |
+| `gemini_lessons` | Pelajaran (playbook) + **evidence-gate** (aktif HANYA lolos bukti) + kolom `mode` |
+| `gemini_reflections` | Ringkasan refleksi berkala + kolom `mode` |
 | `flat_shadow` | Keputusan FLAT Gemini (pending→settled, miss-rate evaluasi) |
 | `calibration_log` | Brier score per trade (confidence vs outcome) |
 | `vrp_shadow` / `mtf_shadow` | Shadow log regime brake / MTF agreement |
+
+**Mode Isolation (Tahap 0 — plan-sess):**
+- `gemini_decisions`, `gemini_lessons`, `gemini_reflections` memiliki kolom `mode TEXT DEFAULT 'dry'`
+- Index: `idx_gdec_mode_status` (mode, status), `idx_glesson_mode_active` (mode, active), `idx_gref_mode` (mode)
+- **Default: terisolasi per-mode** — track record dry/test/live tidak bercampur
+- Config opt-in: `gemini.share_lessons_across_modes: true` (admin override)
+- Semua query `settled_decisions()`, `recent_decisions()`, `setup_stats()`, `exit_stats()`, `active_lessons()` menerima arg `mode` opsional
 
 **WAL mode** → aman baca-tulis konkuren (bot tulis, UI baca).
 
@@ -301,7 +316,9 @@ RuntimeSettings:
   leverage: int (1-125)
   bet_usd: float              # margin per posisi (dipakai bila bet_pct=0)
   bet_pct: float              # >0 → margin = %saldo (auto-scale $10→naik)
-  balance_usd: float          # saldo akun (paper)
+  balance_usd: float          # saldo LEGACY/backup (computed dari balance_usdt+balance_usdc)
+  balance_usdt: float         # saldo wallet USDT-M (terpisah dari USDC)
+  balance_usdc: float         # saldo wallet USDC-M (terpisah dari USDT)
   target_profit_pct: float    # 0 = pakai TP dari ATR; >0 = TP = entry×(1+ini%)
   max_open_positions: int
   daily_max_loss_pct: float   # 0 = nonaktif
@@ -393,11 +410,29 @@ Semua gate baru lahir sebagai **SHADOW** — catat, ukur, tak blokir — sampai 
 - **Agent Panel** (`/agent`): health, decisions, lessons, evolution, A/B report
 - **Mode switching**: POST `/api/mode` (satu-satunya jalur ganti mode aktif, terpisah dari settings)
 - **Kill-switch manual**: POST `/api/dd-reset` (lepaskan drawdown lock sadar)
+- **SSE Candle Close Watcher** (Tahap 6c — plan-sess): async job periodik periksa bar terbaru tf high (1h/1d/1w/1M) di chartstore tiap 5 detik → broadcast `candle` event via SSE agar frontend update bar real-time tanpa polling REST. tf intraday (1m/5m/15m) tetap polling.
+- **Open Order Kind/Linkage** (Tahap 3): endpoint `/api/open-orders` normalisasi order + klasifikasi `kind` (ENTRY_PENDING/SL/TP/EXIT_PENDING/UNKNOWN) + linkage posisi ↔ order reduce-only. Field `linked_symbol` + `linked_kind` pada tiap order. Cache 8 detik.
 
 ### Chartstore (`bot/chartstore.py`) — `data/market.db`
 - OHLCV persisten SQLite (terpisah dari bot.db, bisa besar)
 - `ingest` inkremental: lanjut dari ts terakhir; backfill penuh bila kosong
-- Dibaca dashboard `/api/candles` (chart candlestick + EMA/RSI overlay)
+- `extra_paginate=True` (Tahap 6): paginasi mundur via `fetch_ohlcv` sampai ~10 tahun untuk tf 1w/1M (kap 520 bar/120 bar). Idempotent (PK upsert). Optional, default False.
+- Dibaca dashboard `/api/candles` (whitelist tf: 1m/3m/5m/15m/30m/1h/2h/4h/1d/3d/1w/1M, max 5000 bar)
+
+### EventHub (`bot/eventhub.py`) — SSE Multiplex
+- Sumber: ZMQ OrderEvent (:5558), ZMQ Candle (:5556), Binance User Data WS, SQLite status poll
+- **Fail-open**: satu sumber mati tidak menjatuhkan stream; slow client di-drop (QueueFull)
+- **Mode Labeling** (Tahap 4 — plan-sess): tiap broadcast berlabel `mode`:
+  - Binance WS (order_update/account_update) → `mode='live'` (hanya aktif di live mode)
+  - SQLite watcher (status/balance) → `mode=<active_mode>` dari kv
+  - ZMQ market/candle → `mode='*'` (global market data, bukan trade-source)
+  - Frontend filter client-side sesuai mode UI aktif
+
+### Frontend (`web/src/`)
+- React/Vite, Lightweight Charts
+- `PriceChart` timeframes: 1m/5m/15m/30m/1h/2h/4h/1d/1w/1M (Tahap 6)
+- SSE `candle` event subscribe untuk tf high (1h/1d/1w/1M) — update bar real-time tanpa polling
+- `ControlPanel` balance input: USDT + USDC terpisah (Tahap 1)
 
 ---
 
@@ -564,6 +599,12 @@ gemini:
 | **Walk-forward research** | `bot/optimize.py:run_walk()` | Train in-sample → test OOS → geser → verdict deterministik |
 | **Co-pilot Gemini** | `bot/copilot.py:advise()` | Tafsir OOS + usul hipotesis struktural baru |
 | **Settings hot-reload** | `bot/settings_store.py:RuntimeSettings` | UI → SQLite → bot apply tiap siklus (per-mode bucket) |
+| **Balance per-wallet** | `bot/forward.py:balance_usd` (property) | `balance_usd` = computed (`balance_usdt` + `balance_usdc`), per-wallet PnL/drawdown/peak |
+| **Mode isolation** | `bot/store.py:settled_decisions()` | Gemini track record per-mode (dry/test/live terisolasi) — kolom `mode` di `gemini_decisions`/`gemini_lessons`/`gemini_reflections` |
+| **SSE candle watcher** | `bot/dashboard.py:_candle_close_watcher()` | Periodik deteksi close high-TF (1h/1d/1w/1M) → broadcast SSE 'candle' event |
+| **Chart TF 1w/1M** | `bot/chartstore.py:ingest(extra_paginate=True)` | Paginated backfill historis untuk high-timeframe (≤10 thn) |
+| **EventHub mode label** | `bot/eventhub.py:broadcast(mode=...)` | Label mode tiap event SSE (live/per-mode/global) |
+| **Open order linkage** | `bot/dashboard.py:_normalize_open_order()` | Klasifikasi kind (ENTRY_PENDING/SL/TP) + link ke posisi |
 
 ---
 
@@ -585,4 +626,6 @@ gemini:
 
 ---
 
-*Dokumentasi ini dihasilkan dari analisis penuh 60+ file Python (total ~15.000 baris) pada 2026-07-12. Setiap referensi baris kode (`file.py:line`) dapat diverifikasi langsung.*
+*Dokumentasi ini dihasilkan dari analisis penuh 60+ file Python (total ~15.000 baris) pada 2026-07-13. Setiap referensi baris kode (`file.py:line`) dapat diverifikasi langsung.*
+
+*Update 2026-07-13: per-wallet balance split (Tahap 1), mode isolation (Tahap 0), SSE candle watcher (Tahap 6c), high-TF chart (Tahap 6), EventHub mode labeling (Tahap 4), open order kind/linkage (Tahap 3).*

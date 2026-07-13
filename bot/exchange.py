@@ -86,6 +86,54 @@ class Exchange:
         b = self.balances(fallback)
         return b["USDC"] + b["USDT"]
 
+    # ---------- Tahap 2 (plan-sess): MARGIN ISOLATED ----------
+    def set_margin_isolated(self, symbol: str) -> bool:
+        """Set marginType=ISOLATED untuk simbol ini. Idempotent: error -4046 "No need
+        to change" diabaikan (sudah isolated). Dry → no-op. Return True kalau sukses/no-op.
+        TAHAP 2: hanya dipanggil bila tak ada posisi terbuka di simbol (jika sudah ada,
+        skip — catch error, log, lanjut entry). Cache per-simbol di pemanggil."""
+        if self.settings.is_dry:
+            return True
+        try:
+            self.client.fapiPrivatePostMarginType({"symbol": symbol, "marginType": "ISOLATED"})
+            return True
+        except Exception as e:
+            # -4046 (No need to change) atau sudah isolated → no-op aman
+            msg = str(e).lower()
+            if "-4046" in msg or "no need to change" in msg:
+                return True
+            log.warning(f"set_margin_isolated {symbol}: {e}")
+            return False
+
+    def margin_type(self, symbol: str) -> str | None:
+        """Cek marginType saat ini untuk simbol. Via fapiPrivateGetSymbolConfig (jika
+        tersedia di ccxt). Return 'ISOLATED'/'CROSS'/None"""
+        if self.settings.is_dry:
+            return "ISOLATED"             # default paper
+        try:
+            res = self.client.fapiPrivateGetSymbolConfig({"symbol": symbol})
+            if isinstance(res, dict):
+                info = res.get("info") or {}
+                mt = (info.get("marginType") or res.get("marginType") or "").upper()
+                return mt or None
+            return None
+        except Exception as e:
+            log.warning(f"margin_type {symbol}: {e}")
+            return None
+
+    def position_mode(self) -> str:
+        """Asumsi awal: ONE-WAY (single side per symbol). Cross cek via fapiPrivateGetPositionSide
+        bila perlu."""
+        if self.settings.is_dry:
+            return "one-way"
+        try:
+            res = self.client.fapiPrivateGetPositionSide()
+            if isinstance(res, dict):
+                return str(res.get("dualSidePosition") and "hedge" or "one-way")
+            return "one-way"
+        except Exception:
+            return "one-way"
+
     def positions(self) -> list[dict]:
         if self.settings.is_dry:
             return []

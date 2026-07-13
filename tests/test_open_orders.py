@@ -206,10 +206,18 @@ def _make_ft_reconcile(pending, has_position=False, order_status=None):
     ft.open = {}
     ft.pending = pending
     ft._pending_timeout_s = 300
-    ft.balance_usd = 1000.0
-    ft._day_start_balance = 1000.0
-    ft._day_pnl = 0.0
+    # Tahap 1: per-wallet saldo + day_pnl + peak.
+    ft.balance_usdt = 500.0
+    ft.balance_usdc = 500.0
+    ft._day_start_balance_usdt = 500.0
+    ft._day_start_balance_usdc = 500.0
+    ft._day_pnl_usdt = 0.0
+    ft._day_pnl_usdc = 0.0
     ft._day_trades = 0
+    ft._peak_balance_usdt = 500.0
+    ft._peak_balance_usdc = 500.0
+    ft._dd_lock = False
+    ft._dd_reason = ""
     ft._gem_closes = 0
     ft.settings = types.SimpleNamespace(mode="live")
     ft.gtrader = None
@@ -229,6 +237,7 @@ def _make_ft_reconcile(pending, has_position=False, order_status=None):
         positions=lambda: positions,
         open_orders=lambda: oo,
         equity_usdc=lambda fb: 1000.0,
+        balances=lambda fb: {"USDT": ft.balance_usdt, "USDC": ft.balance_usdc},
         client=types.SimpleNamespace(cancel_all_orders=lambda s: None,
                                      cancel_order=lambda oid, sym: None))
     return ft

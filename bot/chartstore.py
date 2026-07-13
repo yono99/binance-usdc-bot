@@ -13,6 +13,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from .logger import log
+
 ROOT = Path(__file__).resolve().parent.parent
 DB_PATH = ROOT / "data" / "market.db"
 
@@ -78,24 +80,73 @@ def coverage(db: Path | None = None) -> list[dict]:
             for s, tf, n, a, b in rows]
 
 
-def ingest(ex, symbol: str, tf: str, bars: int = 1500, db: Path | None = None) -> int:
+def ingest(ex, symbol: str, tf: str, bars: int = 1500, db: Path | None = None,
+            extra_paginate: bool = False) -> int:
     """Tarik OHLCV dari exchange → SQLite. Inkremental bila sudah ada isi
-    (fetch sejak ts terakhir); backfill `bars` bila kosong. Return n baris baru."""
+    (fetch sejak ts terakhir); backfill `bars` bila kosong.
+
+    Tahap 6 (plan-sess): tf high-timeframe (1w/1M) butuh rentang historis panjang
+    (10y lebih). fetch_history() default 1500 bar = ±2.5 tahun (1w) atau bahkan
+    kurang (1M). Pakai extra_paginate=True → paginasi mundur via startTime sampai
+    cap historis (max ~10 tahun). Idempotent (PK symbol+tf+ts upserts), tanpa duplikat.
+    Return n baris baru."""
     since = last_ts(symbol, tf, db)
     if since is None:
-        from .backtest import fetch_history            # backfill penuh (paginated)
+        from .backtest import fetch_history
         df = fetch_history(ex, symbol, tf, bars)
         return upsert(symbol, tf, df, db)
-    # BACKFILL MUNDUR: bila isi store jauh lebih pendek dari yang diminta
-    # (mis. tersimpan 3rb bar, diminta 35rb utk kalibrasi 1 tahun) — fetch penuh;
-    # PK (symbol,tf,ts) membuat upsert idempotent, tak ada duplikat.
+    n_have = 0
     with _conn(db) as c:
         n_have = c.execute("SELECT COUNT(*) FROM candles WHERE symbol=? AND tf=?",
-                           (symbol, tf)).fetchone()[0]
+                            (symbol, tf)).fetchone()[0]
+    # BACKFILL MUNDUR: bila isi store jauh lebih pendek dari yang diminta
+    # (mis. tfs tinggi 1w/1M yg punya sejarah panjang butuh backfill jauh ke belakang)
     if n_have < bars * 0.9:
         from .backtest import fetch_history
         df = fetch_history(ex, symbol, tf, bars)
         return upsert(symbol, tf, df, db)
+    # OPTIONAL: paginasi mundur lebih jauh untuk 1w/1M (Tahap 6)
+    if extra_paginate:
+        import time as _t
+        # Cap historis 10 tahun (Binance futures USDC-M ada sejak 2019 ~6 tahun).
+        # Untuk 1w: 520 bar = 10 tahun. Untuk 1M: 120 bar = 10 tahun.
+        tf_ms = ex.client.parse_timeframe(tf) * 1000
+        horizon_bars_map = {"1w": 520, "1M": 120}
+        target_n = max(bars, horizon_bars_map.get(tf, bars))
+        if n_have < target_n * 0.9:
+            # window awal FFetch mundur max_step per iter, sampai dapat N baris.
+            max_step_ms = tf_ms * 1000   # 1000 bar per langkah
+            cursor_ms = since + 1
+            collected = []
+            target_fetch = target_n - n_have
+            # safety cap (10 iterasi max supaya tidak loop forever kalau API rusak)
+            for _i in range(10):
+                if not collected or len(collected) < target_fetch:
+                    step = min(max_step_ms, target_fetch * tf_ms)
+                    end_target = cursor_ms - 1
+                    try:
+                        # fetch_ohlcv tidak dukung 'end' param ccxt seragam; panggil incremental
+                        # pakai `since<ms>` dan ambil limit besar; window max 1000/request.
+                        chunk_limit = min(1000, target_fetch + 50)
+                        rows = ex.client.fetch_ohlcv(symbol, tf, since=cursor_ms,
+                                                    limit=chunk_limit)
+                    except Exception as e:
+                        log.warning(f"paginated backfill {symbol} {tf} gagal: {e}")
+                        break
+                    if not rows:
+                        break
+                    collected += rows
+                    cursor_ms = rows[-1][0] + tf_ms
+                    if len(rows) < chunk_limit:
+                        break
+                else:
+                    break
+            if collected:
+                df = pd.DataFrame(collected, columns=["time", "open", "high", "low",
+                                                       "close", "volume"])
+                df["time"] = pd.to_datetime(df["time"], unit="ms", utc=True)
+                n = upsert(symbol, tf, df.set_index("time"), db)
+                return n
     tf_ms = ex.client.parse_timeframe(tf) * 1000
     out: list = []
     cursor = since + 1                                  # setelah bar terakhir tersimpan

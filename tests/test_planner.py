@@ -102,7 +102,8 @@ def test_make_plan_uses_llm_when_enabled(planner):
 
 def test_exposure_frac():
     ft = fwd.ForwardTester.__new__(fwd.ForwardTester)
-    ft.balance_usd = 100.0
+    ft.balance_usdc = 100.0
+    ft.balance_usdt = 0.0
     ft.open = {"A": {"bet": 10}, "B": {"bet": 15}}
     assert ft._exposure_frac() == 0.25
 
@@ -111,8 +112,10 @@ def test_refresh_plan_sets_and_resets(monkeypatch):
     ft = fwd.ForwardTester.__new__(fwd.ForwardTester)
     ft.use_planner = True
     ft.daily_max_trades = 5
-    ft.balance_usd = 1000.0
-    ft._day_pnl = 0.0
+    ft.balance_usdc = 1000.0
+    ft.balance_usdt = 0.0
+    ft._day_pnl_usdt = 0.0
+    ft._day_pnl_usdc = 0.0
     ft._last_news_note = ""
     ft._plan_horizon_h = 6
     ft._plan_day = None

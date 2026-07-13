@@ -49,7 +49,8 @@ def ft(make_df, monkeypatch):
     ft._gemini_decide_cap = 2                     # CAP KECIL utk uji (5 simbol > cap 2) → budget dinamis mentok di 2
     ft._gemini_decide_budget = 2                  # ditimpa _on_cycle_store; recompute → min(ceil(5/3),2)=2
     ft._gemini_decide_used = 0
-    ft.balance_usd = 1000.0
+    ft.balance_usdt = 1000.0
+    ft.balance_usdc = 0.0
     ft._last_news_note = ""
     ft._session_trades = 0
     ft._session_plan = None

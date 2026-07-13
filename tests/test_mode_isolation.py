@@ -81,24 +81,34 @@ def test_switch_mode_moves_isolation_and_does_not_leak_state(cfg, tmp_path, monk
     s = Settings(mode="dry", raw=cfg, gemini_keys=[], gemini_enabled=False)
     ft = ForwardTester(s, ["BTC/USDC:USDC"], default_params())
     # Meniru inisialisasi nyata (use_store=True di __post_init__ men-set ini dari
-    # rs.balance_usd SEBELUM persist pertama) — tanpa ini, guard cfg_balance di
-    # _restore_state() salah baca "konfigurasi berubah" krn dibanding 0.0 palsu.
-    ft._last_cfg_balance = load_settings("dry").balance_usd
+    # rs.balance_usdt/balance_usdc SEBELUM persist pertama) — tanpa ini, guard
+    # cfg_balance di _restore_state() salah baca "konfigurasi berubah" krn dibanding 0.0 palsu.
+    cfg_load = load_settings("dry")
+    ft._last_cfg_balance_usdt = cfg_load.balance_usdt
+    ft._last_cfg_balance_usdc = cfg_load.balance_usdc
 
-    ft.balance_usd = 47.89                       # saldo PAPER "dry"
+    # Tahap 1: split per-wallet — set saldo ke wallet USDC (paper BTC/USDC:USDC).
+    ft.balance_usdc = 47.89
+    ft.balance_usdt = 0.0
+    ft._day_start_balance_usdc = 47.89
     ft._persist_state()
-    assert store.get_kv("botstate_dry")["balance"] == 47.89
+    assert store.get_kv("botstate_dry")["balance_usdc"] == 47.89
+    assert store.get_kv("botstate_dry")["balance_usdt"] == 0.0
 
     ft._switch_mode("test")                      # pindah ke mode paper LAIN
     assert ft.settings.mode == "test"
     assert ft._state_key == "botstate_test"       # <-- kunci state IKUT pindah
-    assert ft.balance_usd != 47.89                # <-- TIDAK mewarisi saldo 'dry'
+    # saldo Test mode default (config), bukan 47.89 warisan dry
+    assert ft.balance_usdt + ft.balance_usdc != 47.89 or (
+        ft.balance_usdt == 0.0 and ft.balance_usdc == 0.0)
 
-    ft.balance_usd = 999.0
+    ft.balance_usdc = 999.0
+    ft.balance_usdt = 0.0
     ft._persist_state()
-    assert store.get_kv("botstate_test")["balance"] == 999.0
-    assert store.get_kv("botstate_dry")["balance"] == 47.89   # bucket 'dry' tak tersentuh
+    assert store.get_kv("botstate_test")["balance_usdc"] == 999.0
+    assert store.get_kv("botstate_dry")["balance_usdc"] == 47.89   # bucket 'dry' tak tersentuh
 
     ft._switch_mode("dry")                        # kembali ke 'dry'
     assert ft._state_key == "botstate_dry"
-    assert ft.balance_usd == 47.89                # <-- saldo 'dry' PULIH utuh, tak tercampur
+    assert ft.balance_usdc == 47.89               # <-- saldo 'dry' PULIH utuh (USDC wallet)
+    assert ft.balance_usdt == 0.0

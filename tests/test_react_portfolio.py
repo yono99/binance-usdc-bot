@@ -58,9 +58,11 @@ def _bare():
     ft.live = False
     ft._last_portfolio = 0.0
     ft._autonomous_interval = 0
-    ft.balance_usd = 1000.0
+    ft.balance_usdc = 1000.0
+    ft.balance_usdt = 0.0
     ft.risk_frac = 0.01
-    ft._day_pnl = 0.0
+    ft._day_pnl_usdt = 0.0
+    ft._day_pnl_usdc = 0.0
     ft.lessons = types.SimpleNamespace(recent=lambda n: [])
     ft.notify = types.SimpleNamespace(send=lambda m: None)
     return ft

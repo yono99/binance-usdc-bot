@@ -23,9 +23,12 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--symbols", nargs="*", default=None)
     p.add_argument("--all-usdc", action="store_true", help="semua perp USDC")
-    p.add_argument("--tf", nargs="*", default=["15m", "1h", "1d"])
+    p.add_argument("--tf", nargs="*", default=["15m", "1h", "1d"],
+                   help="timeframe list; gunakan '1w'/'1M' utk backfill panjang (10y)")
     p.add_argument("--bars", type=int, default=3000, help="backfill awal per timeframe")
     p.add_argument("--loop", type=float, default=0, help="detik antar refresh (0 = sekali)")
+    p.add_argument("--paginate-back", action="store_true",
+                   help="Tahap 6: paginasikan mundur 1w/1M hingga ~10 tahun historis")
     args = p.parse_args()
 
     settings = load_settings()
@@ -33,6 +36,16 @@ def main() -> None:
     symbols = (args.symbols or
                (ex.usdc_symbols() if args.all_usdc else
                 settings.raw["market"].get("whitelist") or ["BTC/USDC:USDC"]))
+    # Tahap 6: high-timeframe 1w/1M butuh bars lebih banyak (1500 default = ±2y 1w; 12y 1M).
+    # Pakai horizon khusus: 1w→3120 (~6y), 1M→180 (~15y, max API Binance).
+    tf_bars = {}
+    for tf in args.tf:
+        if tf == "1w":
+            tf_bars[tf] = max(args.bars, 3120)
+        elif tf == "1M":
+            tf_bars[tf] = max(args.bars, 180)
+        else:
+            tf_bars[tf] = args.bars
     log.info(f"=== CHART INGEST: {len(symbols)} simbol × {args.tf} -> {chartstore.DB_PATH} ===")
 
     while True:
@@ -40,7 +53,8 @@ def main() -> None:
         for sym in symbols:
             for tf in args.tf:
                 try:
-                    n = chartstore.ingest(ex, sym, tf, bars=args.bars)
+                    n = chartstore.ingest(ex, sym, tf, bars=tf_bars[tf],
+                                          extra_paginate=args.paginate_back)
                     total += n
                     if n:
                         log.info(f"{sym} {tf}: +{n} bar")

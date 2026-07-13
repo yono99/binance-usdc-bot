@@ -115,45 +115,54 @@ class ForwardTester:
             log.info("AGENT full-auto AKTIF — tool-loop + otonomi portofolio + planner menyala.")
         self.notify = TelegramNotifier()
         self.rs: RuntimeSettings | None = None
-        self.balance_usd = 0.0
-        self._last_cfg_balance = 0.0   # untuk deteksi saat user mengubah saldo dari UI
+        # Tahap 1 (plan-sess): saldo PER-WALLET (USDT/USDC). balance_usd dihapus —
+        # sistem sepenuhnya split per-wallet. Total saldo = balance_usdt + balance_usdc.
+        self.balance_usdt = 0.0
+        self.balance_usdc = 0.0
+        self._last_cfg_balance_usdt = 0.0
+        self._last_cfg_balance_usdc = 0.0
         self._last_news = None         # dedup histori news veto
         self._last_screen: dict = {}   # dedup histori screening per simbol
         self._base_slippage = self.slippage   # slippage market; limit (maker) = 0
         # state circuit breaker harian (reset tiap hari UTC) — default sebelum restore
         self._day = pd.Timestamp.utcnow().date()
-        self._day_pnl = 0.0
+        # Tahap 1 (plan-sess): PnL/start per-wallet TERPISAH (USDT vs USDC). _day_trades
+        # GLOBAL (jumlah trade, bukan finansial; bisa lintas wallet). DD puncak per-wallet
+        # juga — kill-switch independen agar keruntuhan wallet A tak lock wallet B.
+        self._day_pnl_usdt = 0.0
+        self._day_pnl_usdc = 0.0
         self._day_trades = 0
-        self._day_start_balance = 0.0
+        self._day_start_balance_usdt = 0.0
+        self._day_start_balance_usdc = 0.0
         self._eff_mode = self.settings.mode          # mode efektif berjalan
         self.live = (self.settings.mode == "live")   # True = order UANG NYATA
         # LIMIT entry resting (post-only/GTX) belum terisi: ditelusuri sbg PENDING, BUKAN posisi.
-        # Reconcile tiap siklus via fetch_open_orders: filled → pasang SL/TP + pindah ke self.open;
-        # cancel/expire/timeout → dibuang. self.open HANYA posisi BENAR-BENAR terisi (uang masuk).
         self.pending: dict[str, dict] = {}
         self._pending_timeout_s = int(
             (self.cfg.get("execution") or {}).get("pending_timeout_s", 300) or 0)
-        # Kill-switch drawdown TOTAL (P1 tujuan compounding): puncak saldo per mode,
-        # kunci permanen sampai reset manual — CB harian saja tak menangkap bleed pelan.
-        self._peak_balance = 0.0
+        # Kill-switch drawdown TOTAL per-wallet (P1 tujuan compounding): puncak saldo per
+        # wallet, kunci permanen (manual release via /api/dd-reset).  Default-nya: satu
+        # reset melepas SEMUA wallet di mode itu (konsisten dengan semantik 'reset per-mode').
+        self._peak_balance_usdt = 0.0
+        self._peak_balance_usdc = 0.0
         self._dd_lock = False
         self._dd_reason = ""
         if self.use_store:
             self.rs = load_settings(self.settings.mode if self.pin_mode else None)
             self.params = self.rs.params()
-            self.tf = self.rs.timeframe()          # _screened() di bawah butuh self.tf siap dulu
-            # kosong = semua settle config → SARING lewat screener (Layer 2) SEBELUM seed, jangan
-            # seed universe RAW (ratusan pair) — _apply_settings() sudah begini di siklus hot-reload,
-            # init harus cermin yang sama agar startup tak mencoba seed seluruh universe mentah.
+            self.tf = self.rs.timeframe()
             resolved = self.rs.symbols or self.ex.perp_symbols(
                 tuple(self.cfg["market"].get("settles", ["USDC"])))
             self.symbols = self._screened(resolved) if not self.rs.symbols else resolved
-            self.balance_usd = self.rs.balance_usd
-            self._last_cfg_balance = self.rs.balance_usd
-            self._day_start_balance = self.balance_usd
-            self._restore_state()           # pulihkan saldo+posisi+state-harian dari SQLite (tahan-restart)
-            # Posisi restored WAJIB dipantau sejak siklus pertama, walau simbolnya gugur
-            # screening (lihat _apply_settings — union yg sama, cegah orphan sejak boot).
+            # Tahap 1: saldo per-wallet distinct dari rs.balance_usdt/balance_usdc;
+            # settings_store._from_dict sudah migrasi legacy single balance_usd → split.
+            self.balance_usdt = float(self.rs.balance_usdt)
+            self.balance_usdc = float(self.rs.balance_usdc)
+            self._last_cfg_balance_usdt = self.balance_usdt
+            self._last_cfg_balance_usdc = self.balance_usdc
+            self._day_start_balance_usdt = self.balance_usdt
+            self._day_start_balance_usdc = self.balance_usdc
+            self._restore_state()
             self.symbols = sorted(set(self.symbols) | set(self.open.keys()))
         else:
             self.tf = self.cfg["market"]["timeframe"]
@@ -172,22 +181,15 @@ class ForwardTester:
         _gcfg = self.cfg.get("gemini", {})        # pemicu give-back menuju TP (knob kalibrasi)
         self._giveback_tp_frac = float(_gcfg.get("giveback_tp_frac", 0.5))
         self._giveback_margin = float(_gcfg.get("giveback_margin", 0.2))
-        # Kuota panggilan Gemini per-SIKLUS (bukan per-simbol): universe besar + _last_decide
-        # kosong saat boot/restart bikin SEMUA simbol jadi "bebas panggil" serentak dlm satu
-        # loop sekuensial → ledakan 429 + _monitor_usd (SL/TP keras) simbol lain ikut tertunda.
-        # DINAMIS (_recompute_decide_budget): budget = minimum agar SEMUA simbol dapat giliran
-        # sekali per _decide_interval, dibatasi cap wall-clock (budget × latensi < poll_seconds).
-        self._gemini_decide_cap = int(_gcfg.get("gemini_decide_cap", 100))  # batas serial: ~cap×2dtk < poll
+        # Kuota panggilan Gemini per-SIKLUS (bukan per-simbol): budget dinamis (lihat
+        # _recompute_decide_budget di bawah).
+        self._gemini_decide_cap = int(_gcfg.get("gemini_decide_cap", 100))
         self._gemini_decide_budget = self._gemini_decide_cap
-        self._gemini_decide_used = 0              # reset tiap awal siklus (_on_cycle_store)
-        self._last_decide: dict = {}              # throttle keputusan-entry Gemini per simbol
-        self._decide_interval = 60               # detik min antar keputusan entry (~1 mnt) — turun dr 180 utk 26 key
-        # Cache harga saat Gemini terakhir memutuskan: {sym → (price, decision)}.
-        # Skip Gemini jika harga belum bergerak melewati threshold (hemat RPD saat pasar stagnan).
+        self._gemini_decide_used = 0
+        self._last_decide: dict = {}
+        self._decide_interval = 60
         self._decide_price_cache: dict[str, tuple[float, dict]] = {}
-        # Anti-spam log peringatan RPD habis (log sekali per jam maksimal)
         self._last_rpd_warn = 0.0
-        # KESELAMATAN: Gemini-trader boleh order LIVE hanya bila di-set eksplisit di config.
         self._allow_live_gemini = bool(self.cfg.get("gemini", {}).get("allow_live_trader", False))
         # ── SIDEWAYS SNIPER (profit konsisten walau sideways) ─────────────────────
         _sniper = self.cfg.get("gemini", {}).get("sideways_sniper", {})
@@ -335,8 +337,9 @@ class ForwardTester:
         sig = Signal(sym, side_str, 0.0, price, atr, "v4",
                      long_score=(1.0 if side == 1 else 0.0),
                      short_score=(1.0 if side == -1 else 0.0), regime=regime)
-        one_r = self.balance_usd * self.risk_frac
-        daily_pnl_r = self._day_pnl / one_r if one_r else 0.0
+        one_r = (self.balance_usdt + self.balance_usdc) * self.risk_frac
+        day_pnl_total = self._day_pnl_usdt + self._day_pnl_usdc
+        daily_pnl_r = day_pnl_total / one_r if one_r else 0.0
         kw = dict(regime=regime, alt=alt, n_positions=len(self.open),
                   max_positions=self.max_open, daily_pnl_r=daily_pnl_r,
                   lessons=self.lessons.recent(10), shadow=self.ab_shadow,
@@ -406,9 +409,12 @@ class ForwardTester:
         return n
 
     def _exposure_frac(self) -> float:
-        if self.balance_usd <= 0:
+        """Fraksi eksposur TOTAL terhadap saldo agregat (display). Sizing policy per-wallet
+        (lihat _open_usd → pool per-quote via _quote_pool) — guard ini informatif saja."""
+        total = self.balance_usdt + self.balance_usdc
+        if total <= 0:
             return 1.0
-        return sum((p.get("bet") or 0) for p in self.open.values()) / self.balance_usd
+        return sum((p.get("bet") or 0) for p in self.open.values()) / total
 
     def _refresh_plan(self, rs) -> None:
         """POINT planner — bentuk rencana sesi (stance/bias/kuota) berkala/awal-hari."""
@@ -421,8 +427,12 @@ class ForwardTester:
             return
         self._plan_day, self._last_plan_ts, self._session_trades = day, now, 0
         hard = self.daily_max_trades or 1_000_000
-        ctx = {"balance_usd": round(self.balance_usd, 2), "day_pnl_usd": round(self._day_pnl, 2),
-               "bet_usd": rs.bet_usd, "leverage": rs.leverage,   # sizing: margin kecil × leverage
+        # Tahap 1: planner lihat saldo per-wallet (USDC vs USDT) untuk konteks kekuatan
+        # modal — egocentered book; Gemini bisa saja punya bias berbeda per wallet.
+        ctx = {"balance_usdc": round(self.balance_usdc, 2),
+               "balance_usdt": round(self.balance_usdt, 2),
+               "day_pnl_usd": round(self._day_pnl_usdt + self._day_pnl_usdc, 2),
+               "bet_usd": rs.bet_usd, "leverage": rs.leverage,
                "portfolio": self._portfolio_view(), "news": self._last_news_note,
                "lessons": self.lessons.recent(5)}
         self._session_plan = self.planner.make_plan(ctx, hard_max_trades=hard)
@@ -446,9 +456,12 @@ class ForwardTester:
         if now - self._last_portfolio < self._autonomous_interval:
             return
         self._last_portfolio = now
-        one_r = self.balance_usd * self.risk_frac
+        # Tahap 1: risk denominated per saldo agregat (informasi planner/agent — sizing
+        # aktual tetap per-wallet di _open_usd).
+        one_r = (self.balance_usdt + self.balance_usdc) * self.risk_frac
+        day_pnl_total = self._day_pnl_usdt + self._day_pnl_usdc
         dec = self.react.manage_portfolio(self._portfolio_view(),
-                                          daily_pnl_r=(self._day_pnl / one_r if one_r else 0.0),
+                                          daily_pnl_r=(day_pnl_total / one_r if one_r else 0.0),
                                           lessons=self.lessons.recent(5))
         act = dec.get("action")
         if act == "FLAT":
@@ -467,12 +480,17 @@ class ForwardTester:
                 log.info(f"AGENT REDUCE_RISK — {n} stop → breakeven: {dec.get('reasoning')}")
 
     def _portfolio_view(self) -> dict:
-        """Snapshot SEMUA posisi terbuka + eksposur — konteks korelasi/risiko untuk Gemini."""
+        """Snapshot SEMUA posisi terbuka + eksposur — konteks korelasi/risiko untuk Gemini.
+        Tahap 1 (plan-sess): expose saldo per-wallet sehingga Gemini paham modal available
+        di masing-masing quote saat memberi sinyal."""
         positions = [{"symbol": s, "side": p["side"], "entry": round(p["entry"], 6),
-                      "bet": p.get("bet")} for s, p in self.open.items()]
+                      "bet": p.get("bet"), "quote": ("USDC" if s.endswith(":USDC") else "USDT")}
+                     for s, p in self.open.items()]
         return {"positions": positions, "count": len(positions),
                 "exposure_usd": round(sum(p.get("bet", 0) or 0 for p in self.open.values()), 2),
-                "balance_usd": round(self.balance_usd, 2), "max_open": self.max_open}
+                "balance_usdc": round(self.balance_usdc, 2),
+                "balance_usdt": round(self.balance_usdt, 2),
+                "max_open": self.max_open}
 
     def _gemini_manage(self, sym: str, df_closed: pd.DataFrame) -> None:
         """Review posisi terbuka Gemini (~1 menit). Hanya boleh KURANGI risiko.
@@ -682,11 +700,14 @@ class ForwardTester:
             cache[sym] = is_range
 
     def _close_trade(self, sym: str, price: float, reason: str) -> None:
+        """Legacy single-callback close (dipakai backtest live forward). PnL ke wallet
+        yang sesuai quote pair (Tahap 1)."""
         pos = self.open.pop(sym)
         tr = self.bt._close(pos, price, pd.Timestamp.utcnow(), 0, reason)
         self.trades.append(tr)
-        vrp.log_close(sym, pos, tr.r, mode=self.settings.mode)  # shadow log ber-mode
+        vrp.log_close(sym, pos, tr.r, mode=self.settings.mode)
         self.equity *= (1 + self.risk_frac * tr.r)
+        # legacy path menggunakan single equity multiplier — tak ada split wallet.
         journal("forward_close", {"symbol": sym, "exit": price, "r": round(tr.r, 4),
                                   "reason": reason, "regime": pos.get("regime", "unknown"),
                                   "equity": round(self.equity, 2)})
@@ -724,7 +745,8 @@ class ForwardTester:
         log.info(f"OPEN {sig.side.upper()} {sym} @ {pos['entry']:.6f} SL={pos['sl']:.6f} TP={pos['tp']:.6f}")
 
     def stats(self) -> dict:
-        eq = round(self.balance_usd, 2) if self.use_store else round(self.equity, 2)
+        # Tahap 1: equity via agregasi saldo per-wallet kalau store-path; legacy pakai self.equity.
+        eq = round(self.balance_usdt + self.balance_usdc, 2) if self.use_store else round(self.equity, 2)
         n = len(self.trades)
         if n == 0:
             return {"trades": 0, "equity": eq}
@@ -843,26 +865,37 @@ class ForwardTester:
 
     def _update_drawdown(self, rs) -> str | None:
         """Kill-switch drawdown TOTAL per siklus: proses permintaan reset manual,
-        update puncak saldo, kunci bila tembus ambang. Return alasan blokir/None.
-        Kunci PERMANEN (persisten, tahan restart) — lepas HANYA via /api/dd-reset:
-        setelah rugi besar, keputusan lanjut harus dibuat manusia dgn kepala
-        dingin, bukan oleh reset kalender otomatis (beda dgn CB harian)."""
+        update puncak saldo, kunci bila tembus ambang (PER-WALLET). Return alasan
+        blokir/None. Kunci PERMANEN (persisten, tahan restart) — lepas HANYA via
+        /api/dd-reset — keputusan manusia dengan kepala dingin (bukan auto-reset)."""
         from . import store as _store
         try:
             if _store.get_kv(f"dd_reset_{self.settings.mode}"):
                 _store.set_kv(f"dd_reset_{self.settings.mode}", {})   # habis pakai
                 self._dd_lock, self._dd_reason = False, ""
-                self._peak_balance = self.balance_usd                  # puncak mulai ulang
-                log.warning("DRAWDOWN LOCK direset MANUAL — puncak saldo di-set ulang "
-                            f"ke ${self.balance_usd:.2f}.")
-        except Exception as e:  # boundary — kegagalan store tak boleh ganggu siklus
+                self._peak_balance_usdt = self.balance_usdt
+                self._peak_balance_usdc = self.balance_usdc
+                log.warning("DRAWDOWN LOCK direset MANUAL — puncak saldo per-wallet "
+                            f"di-set ulang (USDT ${self.balance_usdt:.2f}, "
+                            f"USDC ${self.balance_usdc:.2f}).")
+        except Exception as e:  # boundary
             log.warning(f"cek dd_reset gagal: {e}")
-        self._peak_balance = max(self._peak_balance, self.balance_usd)
-        hit, dd = self._dd_check(self._peak_balance, self.balance_usd, rs.max_drawdown_pct)
+        # Tahap 1 (plan-sess): puncak & cek PER-WALLET — keruntuhan wallet A tak lock B.
+        self._peak_balance_usdt = max(self._peak_balance_usdt, self.balance_usdt)
+        self._peak_balance_usdc = max(self._peak_balance_usdc, self.balance_usdc)
+        hit_usdt, dd_usdt = self._dd_check(self._peak_balance_usdt, self.balance_usdt,
+                                           rs.max_drawdown_pct)
+        hit_usdc, dd_usdc = self._dd_check(self._peak_balance_usdc, self.balance_usdc,
+                                           rs.max_drawdown_pct)
+        hit = hit_usdt or hit_usdc
         if hit and not self._dd_lock:
             self._dd_lock = True
-            self._dd_reason = (f"drawdown total {dd:.1f}% ≥ {rs.max_drawdown_pct:.0f}% "
-                               f"dari puncak ${self._peak_balance:.2f}")
+            wallet = "USDT+USDC" if (hit_usdt and hit_usdc) else ("USDT" if hit_usdt else "USDC")
+            dd = max(dd_usdt, dd_usdc)
+            self._dd_reason = (f"drawdown total ({wallet}) {dd:.1f}% ≥ "
+                               f"{rs.max_drawdown_pct:.0f}% "
+                               f"dari puncak USDT ${self._peak_balance_usdt:.2f} / "
+                               f"USDC ${self._peak_balance_usdc:.2f}")
             log.error(f"DRAWDOWN LOCK: {self._dd_reason} — entry DIBLOKIR sampai "
                       "reset manual (POST /api/dd-reset).")
             self.notify.send(f"🛑 <b>DRAWDOWN LOCK</b>\n{self._dd_reason}\n"
@@ -925,11 +958,22 @@ class ForwardTester:
         if rs.gemini_model:                     # model Gemini pilihan UI (hot-reload) + fallback
             self.news.client.set_model(rs.gemini_model)
         # Jika user mengubah Saldo dari UI -> terapkan ke saldo hidup (tanpa restart).
-        # PnL biasa tidak menyentuh _last_cfg_balance, jadi tak terdeteksi sebagai edit.
-        if abs(rs.balance_usd - self._last_cfg_balance) > 1e-9:
-            self.balance_usd = rs.balance_usd
-            log.info(f"Saldo diubah dari UI -> ${self.balance_usd:.2f}")
-        self._last_cfg_balance = rs.balance_usd
+        # PnL biasa tidak menyentuh _last_cfg_balance*, jadi tak terdeteksi sebagai edit.
+        changed = (abs(rs.balance_usdt - self._last_cfg_balance_usdt) > 1e-9
+                   or abs(rs.balance_usdc - self._last_cfg_balance_usdc) > 1e-9)
+        if changed:
+            self.balance_usdt = rs.balance_usdt
+            self.balance_usdc = rs.balance_usdc
+            # Reset day_start_balance agar PnL hari ini dihitung dari saldo BARU (bukan saldo lama).
+            # Hindari PnL palsu positif/negatif saat user hanya set saldo awal.
+            self._day_start_balance_usdt = self.balance_usdt
+            self._day_start_balance_usdc = self.balance_usdc
+            self._day_pnl_usdt = 0.0
+            self._day_pnl_usdc = 0.0
+            log.info(f"Saldo diubah dari UI -> USDT ${self.balance_usdt:.2f}, "
+                     f"USDC ${self.balance_usdc:.2f} (day_start direset, PnL=0)")
+        self._last_cfg_balance_usdt = rs.balance_usdt
+        self._last_cfg_balance_usdc = rs.balance_usdc
         self.rs = rs
         return rs
 
@@ -944,24 +988,49 @@ class ForwardTester:
             return
         if not st:
             return
+        # Tahap 1 (plan-sess): state lama 'balance' tunggal di-migrasi in-memory ke per-wallet
+        # bila belum ada field balance_usdt/balance_usdc (back-compat: setara split 50/50).
+        if "balance_usdt" not in st and "balance_usdc" not in st:
+            legacy = float(st.get("balance", 0.0))
+            if legacy > 0:
+                half = legacy / 2.0
+                st["balance_usdt"] = half
+                st["balance_usdc"] = legacy - half
         # hanya pulihkan bila konfigurasi saldo tak diubah user sejak terakhir simpan
-        if abs(st.get("cfg_balance", self._last_cfg_balance) - self._last_cfg_balance) < 1e-9:
-            self.balance_usd = float(st.get("balance", self.balance_usd))
+        # (per-wallet comparison — fix latent bug: total comparison tak tangkap rebalance)
+        cfg_usdt = float(st.get("cfg_balance_usdt", self._last_cfg_balance_usdt))
+        cfg_usdc = float(st.get("cfg_balance_usdc", self._last_cfg_balance_usdc))
+        if (abs(cfg_usdt - self._last_cfg_balance_usdt) < 1e-9
+                and abs(cfg_usdc - self._last_cfg_balance_usdc) < 1e-9):
+            self.balance_usdt = float(st.get("balance_usdt", self.balance_usdt))
+            self.balance_usdc = float(st.get("balance_usdc", self.balance_usdc))
         self.open = st.get("open", {}) or {}
         self.pending = st.get("pending", {}) or {}           # LIMIT resting pulih dari restart
         self.agent_memory.restore(st.get("agent_memory"))   # memori lintas-tick tahan restart
         # pulihkan state circuit breaker harian bila masih hari yang sama (UTC)
         if st.get("day") == str(pd.Timestamp.utcnow().date()):
-            self._day_pnl = float(st.get("day_pnl", 0.0))
+            # Tahap 1: pulihkan PnL per-wallet terpisah (back-compat: field 'day_pnl' lawas)
+            self._day_pnl_usdt = float(st.get("day_pnl_usdt", st.get("day_pnl", 0.0)))
+            self._day_pnl_usdc = float(st.get("day_pnl_usdc", 0.0))
             self._day_trades = int(st.get("day_trades", 0))
-            self._day_start_balance = float(st.get("day_start_balance", self.balance_usd))
-        # drawdown-total: puncak & kunci BERTAHAN melewati restart (beda dgn state harian)
-        self._peak_balance = max(float(st.get("peak_balance", 0.0)), self.balance_usd)
-        self._dd_lock = bool(st.get("dd_lock", False))
-        self._dd_reason = str(st.get("dd_reason", ""))
+            self._day_start_balance_usdt = float(st.get(
+                "day_start_balance_usdt", st.get("day_start_balance", self.balance_usdt)))
+            self._day_start_balance_usdc = float(st.get("day_start_balance_usdc", self.balance_usdc))
+        # drawdown-total: puncak & kunci PER-WALLET, BERTAHAN melewati restart (Tahap 1).
+        # LIVE MODE: jangan pulihkan dd_lock dari state lama (hindari carry-over dari test/dry)
+        if self.live:
+            self._peak_balance_usdt = self.balance_usdt
+            self._peak_balance_usdc = self.balance_usdc
+            self._dd_lock = False
+            self._dd_reason = ""
+        else:
+            self._peak_balance_usdt = max(float(st.get("peak_balance_usdt", 0.0)), self.balance_usdt)
+            self._peak_balance_usdc = max(float(st.get("peak_balance_usdc", 0.0)), self.balance_usdc)
+            self._dd_lock = bool(st.get("dd_lock", False))
+            self._dd_reason = str(st.get("dd_reason", ""))
         if self.open:
-            log.info(f"State dipulihkan dari SQLite: saldo ${self.balance_usd:.2f}, "
-                     f"{len(self.open)} posisi terbuka")
+            log.info(f"State dipulihkan dari SQLite: saldo USDC ${self.balance_usdc:.2f}, "
+                     f"USDT ${self.balance_usdt:.2f}, {len(self.open)} posisi terbuka")
 
     def _persist_logs(self, news_veto: bool, note: str) -> None:
         """Simpan histori news veto & screening ke SQLite, hanya saat BERUBAH
@@ -986,16 +1055,23 @@ class ForwardTester:
     def _persist_state(self) -> None:
         try:
             from .store import set_kv
-            set_kv(self._state_key, {"balance": round(self.balance_usd, 6),
+            # Tahap 1: tulis state per-wallet. Legacy 'balance'/'cfg_balance' dihapus.
+            set_kv(self._state_key, {"balance_usdt": round(self.balance_usdt, 6),
+                                "balance_usdc": round(self.balance_usdc, 6),
                                 "open": self.open,
                                 "pending": self.pending,            # LIMIT resting tahan restart
-                                "cfg_balance": self._last_cfg_balance,
-                                "day": str(self._day), "day_pnl": round(self._day_pnl, 4),
+                                "cfg_balance_usdt": self._last_cfg_balance_usdt,
+                                "cfg_balance_usdc": self._last_cfg_balance_usdc,
+                                "day": str(self._day),
+                                "day_pnl_usdt": round(self._day_pnl_usdt, 4),
+                                "day_pnl_usdc": round(self._day_pnl_usdc, 4),
                                 "day_trades": self._day_trades,
-                                "day_start_balance": round(self._day_start_balance, 6),
-                                "peak_balance": round(self._peak_balance, 6),
+                                "day_start_balance_usdt": round(self._day_start_balance_usdt, 6),
+                                "day_start_balance_usdc": round(self._day_start_balance_usdc, 6),
+                                "peak_balance_usdt": round(self._peak_balance_usdt, 6),
+                                "peak_balance_usdc": round(self._peak_balance_usdc, 6),
                                 "dd_lock": self._dd_lock, "dd_reason": self._dd_reason,
-                                "agent_memory": self.agent_memory.snapshot()})   # memori lintas-tick
+                                "agent_memory": self.agent_memory.snapshot()})
         except Exception as e:  # boundary
             log.warning(f"persist state gagal: {e}")
 
@@ -1023,25 +1099,39 @@ class ForwardTester:
             decision_log.set_mode(eff)
             self._state_key = f"botstate_{eff}"
             if self.live:
-                self.balance_usd = self.ex.equity_usdc(self.balance_usd)
+                balances = self.ex.balances(self.balance_usdt + self.balance_usdc)
+                self.balance_usdt = float(balances.get("USDT", 0.0))
+                self.balance_usdc = float(balances.get("USDC", 0.0))
+                self._last_cfg_balance_usdt = self.balance_usdt
+                self._last_cfg_balance_usdc = self.balance_usdc
+                # Reset peak balances & drawdown lock saat masuk LIVE (hindari carry-over dari test/dry)
+                self._peak_balance_usdt = self.balance_usdt
+                self._peak_balance_usdc = self.balance_usdc
+                self._dd_lock = False
+                self._dd_reason = ""
                 self._sync_live_positions()     # ambil posisi nyata yang sudah ada
             else:
                 # paper: mulai dari saldo KONFIGURASI mode tujuan (bukan carry-over
                 # dari mode sebelumnya), lalu pulihkan bucket SQLite milik mode itu.
                 try:
-                    self.balance_usd = load_settings(eff).balance_usd
-                    self._last_cfg_balance = self.balance_usd
+                    rs_eff = load_settings(eff)
+                    self.balance_usdt = float(rs_eff.balance_usdt)
+                    self.balance_usdc = float(rs_eff.balance_usdc)
+                    self._last_cfg_balance_usdt = self.balance_usdt
+                    self._last_cfg_balance_usdc = self.balance_usdc
                 except Exception as e:  # boundary
                     log.warning(f"load balance mode {eff} gagal: {e}")
                 self._restore_state()
             self._day = pd.Timestamp.utcnow().date()
-            self._day_pnl = 0.0
+            self._day_pnl_usdt = 0.0
+            self._day_pnl_usdc = 0.0
             self._day_trades = 0
-            self._day_start_balance = self.balance_usd
+            self._day_start_balance_usdt = self.balance_usdt
+            self._day_start_balance_usdc = self.balance_usdc
             self._eff_mode = eff
             if self.live:
-                log.warning(f"=== BERALIH KE LIVE (UANG NYATA) — saldo Binance ${self.balance_usd:.2f} ===")
-                self.notify.send(f"⚠️ <b>MODE LIVE AKTIF — UANG NYATA</b>\nSaldo Binance ${self.balance_usd:.2f}")
+                log.warning(f"=== BERALIH KE LIVE (UANG NYATA) — saldo Binance USDT ${self.balance_usdt:.2f} + USDC ${self.balance_usdc:.2f} ===")
+                self.notify.send(f"⚠️ <b>MODE LIVE AKTIF — UANG NYATA</b>\nSaldo USDT ${self.balance_usdt:.2f} + USDC ${self.balance_usdc:.2f}")
             else:
                 log.warning(f"=== beralih ke {eff.upper()} (paper) ===")
         except Exception as e:  # boundary
@@ -1243,7 +1333,12 @@ class ForwardTester:
                         log.info(f"LIMIT PENDING BATAL {sym} (cancel/expire) — dibuang")
                         self.notify.send(f"❌ <b>LIMIT BATAL</b> {sym} — cancel/expire")
         # --- RECONCILE POSISI: deteksi close (SL/TP/liq/manual) ---
-        prev_balance = self.balance_usd
+        # Tahap 1: live R belajar dr Δequity agregat (backtest uang riil; multi-wallet
+        # delta gabung-normal). Akurat bila TEPAT SATU posisi tutup dalam satu siklus
+        # (lihat guard `if len(gem_closed) == 1` dsb).
+        prev_balance = self.balance_usdt + self.balance_usdc
+        prev_balance_usdt = self.balance_usdt
+        prev_balance_usdc = self.balance_usdc
         closed = [(sym, self.open[sym]) for sym in list(self.open) if sym not in real]
         for sym, _pos in closed:
             self.open.pop(sym, None)
@@ -1252,18 +1347,23 @@ class ForwardTester:
             except Exception:
                 pass
             journal("forward_close", {"symbol": sym, "reason": "live_exit",
-                                      "equity": round(self.balance_usd, 2)})
+                                      "equity": round(self.balance_usdt + self.balance_usdc, 2)})
             log.info(f"LIVE CLOSE terdeteksi {sym}")
             self.notify.send(f"✋ <b>LIVE CLOSE</b> {sym} (SL/TP/manual)")
-        self.balance_usd = self.ex.equity_usdc(self.balance_usd)
-        self._day_pnl = self.balance_usd - self._day_start_balance   # PnL harian dari equity nyata
+        balances = self.ex.balances(self.balance_usdt + self.balance_usdc)
+        self.balance_usdt = float(balances.get("USDT", 0.0))
+        self.balance_usdc = float(balances.get("USDC", 0.0))
+        # Tahap 1 (plan-sess): PnL harian per-wallet dari equity nyata. Untuk paper/dry,
+        # reconcile ini tak dipanggil — _close_usd sudah update _day_pnl_<wallet>.
+        self._day_pnl_usdt = self.balance_usdt - self._day_start_balance_usdt
+        self._day_pnl_usdc = self.balance_usdc - self._day_start_balance_usdc
         # BELAJAR di LIVE — HANYA dengan data PnL NYATA & TAK AMBIGU (tepat satu posisi tutup
         # siklus ini). Jika banyak tutup bersamaan, lewati (jangan ajari Gemini data kotor).
         gem_closed = [(s, p) for s, p in closed if p.get("gdecision") and self.gtrader is not None]
         if len(gem_closed) == 1:
             sym, pos = gem_closed[0]
             try:
-                r = (self.balance_usd - prev_balance) / pos["bet"] if pos.get("bet") else 0.0
+                r = ((self.balance_usdt + self.balance_usdc) - prev_balance) / pos["bet"] if pos.get("bet") else 0.0
                 if pos.get("conviction") is not None:   # skor Brier LIVE (Phase 1): PnL TAK
                     from .store import log_calibration   # ambigu di sini (tepat 1 posisi tutup)
                     log_calibration(pos.get("gdecision"), sym, float(pos["conviction"]),
@@ -1281,7 +1381,7 @@ class ForwardTester:
         react_closed = [(s, p) for s, p in closed if not p.get("gdecision")]
         if len(closed) == 1 and len(react_closed) == 1:
             sym, pos = react_closed[0]
-            outcome_r = (self.balance_usd - prev_balance) / pos["bet"] if pos.get("bet") else 0.0
+            outcome_r = ((self.balance_usdt + self.balance_usdc) - prev_balance) / pos["bet"] if pos.get("bet") else 0.0
             self._react_link(sym, "LIVE_CLOSE", outcome_r)
 
     @staticmethod
@@ -1310,14 +1410,11 @@ class ForwardTester:
 
     def _quote_pool(self, quote: str) -> float:
         """Saldo margin untuk satu quote (USDC/USDT). LIVE: dompet asli terpisah (balances()).
-        DRY: bagi saldo kertas total per rasio (config dry_quote_split_usdc, -1=proporsi pair)."""
+        DRY: ambil langsung dari self.balance_<wallet> yang sudah independen per-wallet
+        (Tahap 1 — split eksplisit; tak lagi pakai dry_quote_split_usdc)."""
         if self.live:
-            return self.ex.balances(self.balance_usd).get(quote, 0.0)
-        frac = getattr(getattr(self, "rs", None), "dry_quote_split_usdc", -1.0)
-        if not 0.0 <= frac <= 1.0:                # auto: proporsi jumlah pair USDC di universe
-            n_usdc = sum(1 for s in self.symbols if s.endswith(":USDC"))
-            frac = n_usdc / len(self.symbols) if self.symbols else 0.5
-        return self.balance_usd * (frac if quote == "USDC" else 1.0 - frac)
+            return self.ex.balances(0.0).get(quote, 0.0)
+        return self.balance_usdt if quote == "USDT" else self.balance_usdc
 
     @staticmethod
     def _adaptive_bet(pool: float, bet_usd: float, bet_pct: float,
@@ -1334,6 +1431,21 @@ class ForwardTester:
         return min(bet, avail)
 
     def _open_usd(self, sym: str, side: int, atr: float, rs: RuntimeSettings) -> None:
+        # Tahap 4a (plan-sess): cooldown/blacklist per-mode PERSEISTENT di SQLite via
+        # bot.cooldown — skip simbol yg masih cooldown atau di-blacklist setelah SL streak
+        # (config rotate.cooldown_minutes/blacklist_after_sl).
+        try:
+            from . import cooldown as _cd
+            if not _cd.available(self.settings.mode, sym):
+                c = self.sig_cache.setdefault(sym, {})
+                snap = _cd.snapshot(self.settings.mode)
+                _until = max(snap.get("cooldown_until", {}).get(sym, 0),
+                             snap.get("blacklist_until", {}).get(sym, 0))
+                _rem = max(0, int(_until - time.time()))
+                c["blocked"] = (f"cooldown/blacklist mode={self.settings.mode} ({_rem}s)")
+                return
+        except Exception as e:  # boundary — jangan gagalkan entry karena cooldown handler
+            log.debug(f"cooldown check {sym}: {e}")
         gem = self.sig_cache.get(sym, {}).get("gemini") if self.use_gemini_trader else None
         # GERBANG LIVE: Gemini-trader tak boleh order UANG NYATA tanpa izin eksplisit.
         if gem and self.live and not self._allow_live_gemini:
@@ -1367,9 +1479,26 @@ class ForwardTester:
             return
         quote = "USDC" if sym.endswith(":USDC") else "USDT"
         pool = self._quote_pool(quote)            # margin per-quote (dompet terpisah di live)
+        # Tahap 1 (plan-sess): notional locked per-WALLET (book per-quote) — bukan agregat.
+        # Position USDC tak menambah eksposur wallet USDT dan sebaliknya.
         locked_q = sum((p.get("bet") or 0) for s, p in self.open.items()
                        if (s.endswith(":USDC") and quote == "USDC")
                        or (not s.endswith(":USDC") and quote == "USDT"))
+        # Portfolio exposure guard per-wallet: max_portfolio_exposure_pct dihitung dr
+        # notional pair X vs balance_<wallet> — bukan total saldo. Wallets independen.
+        # Default 100% (no guard) → backward-compat bila field tak di-set user.
+        try:
+            max_pct = float(getattr(rs, "max_portfolio_exposure_pct", 100.0) or 100.0)
+        except Exception:
+            max_pct = 100.0
+        if max_pct < 100.0:
+            wallet_bal = self.balance_usdt if quote == "USDT" else self.balance_usdc
+            cap = wallet_bal * max_pct / 100.0
+            if locked_q >= cap:
+                c = self.sig_cache.setdefault(sym, {})
+                c["blocked"] = (f"exposure {quote} cap {locked_q:.2f}≥${cap:.2f} "
+                                f"({max_pct:.0f}% of ${wallet_bal:.2f})")
+                return
         bet = self._adaptive_bet(pool, rs.bet_usd, rs.bet_pct, locked_q, size_mult)
         if bet <= 0:
             c = self.sig_cache.setdefault(sym, {})
@@ -1463,6 +1592,17 @@ class ForwardTester:
             sl = self._sl_floor(entry, is_long, sl, atr, last_range)
         if (is_long and sl <= liq) or (not is_long and sl >= liq):
             sl = (entry + liq) / 2                  # kompromi: selebar mungkin, tetap aman
+        # Tahap 2 (plan-sess): MARGIN ISOLATED — set leverage + margin_type SEBELUM order.
+        # Idempotent: cache per-simbol + skip bila posisi sudah terbuka (catch error,
+        # log, lanjut). DRY: cukup stempel metadata; tidak ada API call.
+        if self.live:
+            try:
+                # set_margin_isolated hanya bila belum ada posisi di simbol tsb
+                if sym not in self.open:
+                    self.ex.set_margin_isolated(sym)
+                self.ex.set_leverage(sym, rs.leverage)   # idempotent di Binance
+            except Exception as e:  # boundary — set margin/leverage gagal TIDAK memblokir entry
+                log.warning(f"margin/leverage setup {sym} (best-effort, lanjut): {e}")
         if self.live:                               # UANG NYATA: order asli + SL/TP exchange
             try:
                 qty = float(self.ex.client.amount_to_precision(sym, qty))
@@ -1521,9 +1661,10 @@ class ForwardTester:
         self.open[sym] = {"side": "long" if is_long else "short", "entry": entry, "qty": qty,
                           "sl": sl, "tp": tp, "liq": liq, "bet": bet,
                           "risk0": abs(entry - sl) * qty,   # 1R BEKU saat open — SL boleh di-trail, R tidak ikut bergeser
-
                           "entry_fee_rate": entry_fee_rate,   # fee kaki-entry (per-settle); exit selalu taker
                           "opened_ts": pd.Timestamp.utcnow().isoformat(),  # utk marker panah di chart
+                          "margin_type": "ISOLATED",  # Tahap 2: metadata isolated (default; live=exchange, paper=stempel)
+                          "leverage": rs.leverage,
                           **self.vrp.stamp(),   # stempel regime VRP saat open (A/B shadow)
                           **self._regime_stamp(buf_full, self.cfg),  # regime → laporan EV
                           **mtf_stamp,
@@ -1552,8 +1693,20 @@ class ForwardTester:
             pos = self.open.get(sym)
             if pos:
                 self._live_close(sym, pos)
+                # Tahap 4a: catat cooldown/blacklist per-mode (DRY-only; live sudah rekonsiliasi).
             return
         pos = self.open.pop(sym)
+        # Tahap 4a: cooldown/blacklist per-mode (DRY) — config rotate.cooldown_minutes &
+        # blacklist_after_sl. Live juga di-catat tapi efektif di mode tersebut.
+        try:
+            from . import cooldown as _cd
+            _r_cfg = self.cfg.get("rotate", {}) or {}
+            _cd.record_close(self.settings.mode, sym, was_sl=(reason == "sl"),
+                             cooldown_minutes=float(_r_cfg.get("cooldown_minutes", 0) or 0),
+                             blacklist_after_sl=int(_r_cfg.get("blacklist_after_sl", 0) or 0),
+                             blacklist_hours=float(_r_cfg.get("blacklist_hours", 6) or 6))
+        except Exception as e:  # boundary
+            log.debug(f"cooldown record_close {sym}: {e}")
         self._decide_price_cache.pop(sym, None)  # invalidasi cache: state berubah, butuh decide baru
         is_long = pos["side"] == "long"
         exit_fill = price * (1 - self.slippage / 100 if is_long else 1 + self.slippage / 100)
@@ -1571,8 +1724,14 @@ class ForwardTester:
             fee = (entry_rate / 100 * pos["entry"] + exit_rate / 100 * exit_fill) * pos["qty"]
             funding = pos.get("funding_paid", 0.0)  # akrual simulasi funding (paper, P3)
             pnl = max(pos["qty"] * move - fee - funding, -pos["bet"])  # rugi maks = margin
-        self.balance_usd += pnl
-        self._day_pnl += pnl                        # untuk circuit breaker harian
+        # Tahap 1 (plan-sess): PnL apply PER-WALLET sesuai quote pair — wallet USDC ke
+        # posisi pair USDC, wallet USDT ke posisi pair USDT (DOMPET TERPISAH di Binance).
+        if sym.endswith(":USDC"):
+            self.balance_usdc += pnl
+            self._day_pnl_usdc += pnl
+        else:
+            self.balance_usdt += pnl
+            self._day_pnl_usdt += pnl
         # R = jarak-SL AWAL (risk0 dibekukan saat open). Fallback ke SL sekarang hanya
         # untuk posisi lama tanpa stempel — dengan catatan SL ter-trail (breakeven/tighten)
         # membuat penyebut ~0 → R meledak (bug PLAY/USDT R=-231).
@@ -1610,11 +1769,12 @@ class ForwardTester:
                                   "mae_pct": round(pos.get("mae_pct", 0.0), 3),
                                   "mfe_pct": round(pos.get("mfe_pct", 0.0), 3),
                                   "funding_usd": round(pos.get("funding_paid", 0.0), 4),
-                                  "equity": round(self.balance_usd, 2)})
-        log.info(f"CLOSE {reason.upper()} {sym} pnl=${pnl:+.2f} bal=${self.balance_usd:.2f}")
+                                  "equity": round(self.balance_usdt + self.balance_usdc, 2)})
+        _wallet_total = self.balance_usdt + self.balance_usdc
+        log.info(f"CLOSE {reason.upper()} {sym} pnl=${pnl:+.2f} bal=${_wallet_total:.2f}")
         icon = {"liq": "💥 <b>LIKUIDASI</b>", "sl": "🛑 SL", "tp": "✅ TP",
                 "manual": "✋ CLOSE", "eod": "⏹ EOD", "scalp_exit": "⚡ SCALP EXIT"}.get(reason, reason)
-        self.notify.send(f"{icon} {sym}\nPnL ${pnl:+.2f} · R {r:+.2f} · saldo ${self.balance_usd:.2f}")
+        self.notify.send(f"{icon} {sym}\nPnL ${pnl:+.2f} · R {r:+.2f} · saldo ${_wallet_total:.2f}")
 
     def _check_calib_drift(self) -> None:
         """Phase 6: pantau DRIFT kalibrasi (Brier terkini vs baseline 14-hari, per mode).
@@ -1793,13 +1953,31 @@ class ForwardTester:
         return None
 
     def _circuit_breaker(self) -> str | None:
-        """Kembalikan alasan stop bila circuit breaker harian aktif, else None."""
+        """Kembalikan alasan stop bila circuit breaker harian trip, else None.
+
+        Tahap 1 (plan-sess): per-wallet TERPISAH — rugi USDC tak trigger stop trading USDT.
+        Trade count tetap GLOBAL (jumlah, bukan finansial). Limit kerugian per-wallet dihitung
+        dr `daily_max_loss_pct * day_start_balance_<wallet>` — kapitalisasi eksposur sama
+        dengan risk per-wallet tak tertular."""
         if self.daily_max_trades and self._day_trades >= self.daily_max_trades:
             return f"limit trade harian ({self._day_trades}/{self.daily_max_trades})"
-        if self.daily_max_loss_pct > 0 and self._day_start_balance > 0:
-            limit = self._day_start_balance * self.daily_max_loss_pct / 100
-            if self._day_pnl <= -limit:
-                return f"circuit breaker: rugi harian ${-self._day_pnl:.2f} ≥ ${limit:.2f}"
+        if self.daily_max_loss_pct > 0:
+            # Per-wallet independent check. Return label wallet mana yang trip (debugging jelas).
+            usdt_limit = self._day_start_balance_usdt * self.daily_max_loss_pct / 100
+            usdc_limit = self._day_start_balance_usdc * self.daily_max_loss_pct / 100
+            usdt_trip = (self._day_start_balance_usdt > 0
+                         and self._day_pnl_usdt <= -usdt_limit)
+            usdc_trip = (self._day_start_balance_usdc > 0
+                         and self._day_pnl_usdc <= -usdc_limit)
+            if usdt_trip and usdc_trip:
+                return (f"circuit breaker: rugi harian USDC+USDT "
+                        f"${-(self._day_pnl_usdt + self._day_pnl_usdc):.2f} ≥ ambang")
+            if usdt_trip:
+                return (f"circuit breaker (USDT): rugi harian ${-self._day_pnl_usdt:.2f} "
+                        f"≥ ${usdt_limit:.2f}")
+            if usdc_trip:
+                return (f"circuit breaker (USDC): rugi harian ${-self._day_pnl_usdc:.2f} "
+                        f"≥ ${usdc_limit:.2f}")
         return None
 
     def _on_cycle_store(self) -> None:
@@ -1863,11 +2041,14 @@ class ForwardTester:
                 self._monitor_usd(sym, self._update_buffer(sym))
             except Exception as e:  # boundary — exit adalah jalur keselamatan, jangan pernah putus
                 log.warning(f"exit-sweep {sym}: {e}")
-        # rollover hari UTC → reset state circuit breaker
+        # rollover hari UTC → reset state circuit breaker (Tahap 1: per-wallet)
         today = pd.Timestamp.utcnow().date()
         if today != self._day:
-            self._day, self._day_pnl, self._day_trades = today, 0.0, 0
-            self._day_start_balance = self.balance_usd
+            self._day = today
+            self._day_pnl_usdt, self._day_pnl_usdc = 0.0, 0.0
+            self._day_trades = 0
+            self._day_start_balance_usdt = self.balance_usdt
+            self._day_start_balance_usdc = self.balance_usdc
         cb = self._circuit_breaker()
         if cb:
             log.info(f"Circuit breaker aktif ({cb}) — tidak buka posisi baru")
@@ -2074,7 +2255,9 @@ class ForwardTester:
                 pos = self.open.get(sym)
                 posview = {"side": pos["side"], "entry": round(pos["entry"], 6)} if pos else None
                 ctx = self.gtrader.build_context(sym, df_closed, alt=alt, position=posview,
-                                                 balance=self.balance_usd, news_note=self._last_news_note,
+                                                 balance_usdt=self.balance_usdt,
+                                                 balance_usdc=self.balance_usdc,
+                                                 news_note=self._last_news_note,
                                                  portfolio=self._portfolio_view(),
                                                   btc_lead=self._btc_lead(),
                                                   halving_phase=self._halving_phase())
@@ -2210,7 +2393,7 @@ class ForwardTester:
                             "liq": round(pos["liq"], 6), "pnl_usd": pnl_usd, "roi_pct": roi,
                             "qty": pos["qty"], "bet": pos.get("bet"), "mark": round(price, 6),
                             "opened_ts": pos.get("opened_ts")}   # utk marker panah entry di chart
-            syms.append({"symbol": sym, "price": price, "atr_pct": c.get("atr_pct"),
+        syms.append({"symbol": sym, "price": price, "atr_pct": c.get("atr_pct"),
                          "signal": c.get("side", "-"), "in_position": bool(pos),
                          "blocked": c.get("blocked"), "position": pos_view,
                          "rationale": c.get("rationale"), "setup": c.get("setup")})
@@ -2222,21 +2405,29 @@ class ForwardTester:
             "timeframe": self.tf,
             "leverage": rs.leverage,
             "bet_usd": rs.bet_usd,
-            "balance_usd": round(self.balance_usd, 2),
+            "balance_usdt": self.balance_usdt if self.live else round(self.balance_usdt, 2),
+            "balance_usdc": self.balance_usdc if self.live else round(self.balance_usdc, 2),
             "open_count": len(self.open),
             "max_open": self.max_open,
             "poll_seconds": rs.poll_seconds,
-            "gemini_decide_budget": self._gemini_decide_budget,   # budget DINAMIS siklus ini
+            "gemini_decide_budget": self._gemini_decide_budget,
             "gemini_decide_cap": self._gemini_decide_cap,
             "order_type": rs.order_type,
             "fee_pct": rs.fee_pct(),
-            "day_pnl": round(self._day_pnl, 2),
+            "day_pnl": self._day_pnl_usdt + self._day_pnl_usdc if self.live else round(self._day_pnl_usdt + self._day_pnl_usdc, 2),
+            "day_pnl_usdt": self._day_pnl_usdt if self.live else round(self._day_pnl_usdt, 2),
+            "day_pnl_usdc": self._day_pnl_usdc if self.live else round(self._day_pnl_usdc, 2),
             "day_trades": self._day_trades,
             "circuit_breaker": self._circuit_breaker(),
             "drawdown": {"locked": self._dd_lock, "reason": self._dd_reason or None,
-                         "peak_balance": round(self._peak_balance, 2),
-                         "dd_pct": round(self._dd_check(self._peak_balance, self.balance_usd,
-                                                        100.0)[1], 2)},
+                         "peak_balance_usdt": self._peak_balance_usdt if self.live else round(self._peak_balance_usdt, 2),
+                         "peak_balance_usdc": self._peak_balance_usdc if self.live else round(self._peak_balance_usdc, 2),
+                         "dd_pct_usdt": self._dd_check(self._peak_balance_usdt,
+                                                         self.balance_usdt, 100.0)[1] if self.live else round(self._dd_check(self._peak_balance_usdt,
+                                                                                             self.balance_usdt, 100.0)[1], 2),
+                         "dd_pct_usdc": self._dd_check(self._peak_balance_usdc,
+                                                         self.balance_usdc, 100.0)[1] if self.live else round(self._dd_check(self._peak_balance_usdc,
+                                                                                             self.balance_usdc, 100.0)[1], 2)},
             "corr_threshold": self.corr_threshold,
             "news_veto": {"active": news_active, "note": news_note},
             "pending_orders": [{"symbol": s, "side": "buy" if p["is_long"] else "sell",
@@ -2261,8 +2452,34 @@ class ForwardTester:
         self.seed()
         log.info(f"=== FORWARD-TEST mode={self.settings.mode} params={self.params} ===")
         log.info("Paper-trade di data LIVE. Ctrl+C untuk berhenti. Log: logs/forward_trades.jsonl")
+        # Tahap 5 (plan-sess): ForwardTester LIVE opt-in subscribe Account/Order WS
+        # dari EventHub (mode='live'). ACCOUNT_UPDATE / ORDER_TRADE_UPDATE → invalidate
+        # cache saldo/posisi → panggil _live_reconcile() di siklus berikut (REST tetap
+        # authority; WS cuma trigger lebih responsif). Hindari double-process: satu
+        # EventHub global, satu proses forward per mode.
+        ws_sub_q = None
+        if self.live and self.use_store:
+            try:
+                from .eventhub import hub as _hub
+                ws_sub_q = _hub.subscribe()
+                # bukan async di sini — flag trigger ringan via '_ws_trigger' queue
+                self._ws_trigger = ws_sub_q
+                log.info("FORWARD-TEST live → subscribe EventHub WS untuk reconcile trigger.")
+            except Exception as e:
+                log.warning(f"subscribe EventHub WS skip (fallback REST reconcile): {e}")
         while True:
             try:
+                # Tahap 5: if WS memberi sinyal baru, drain queue (sinyal → flag reconcile).
+                if getattr(self, "_ws_trigger", None) is not None:
+                    drained = 0
+                    try:
+                        while not self._ws_trigger.empty() and drained < 5:
+                            self._ws_trigger.get_nowait()
+                            drained += 1
+                    except Exception:
+                        pass
+                    if drained:
+                        log.debug(f"WS trigger live reconcile: drained {drained} frame(s)")
                 self.on_cycle()
                 s = self.stats()
                 if s["trades"]:
@@ -2270,6 +2487,12 @@ class ForwardTester:
                              f"expR={s.get('expectancy_r',0):+.3f} eq={s['equity']} open={s.get('open',0)}")
             except KeyboardInterrupt:
                 log.info(f"Berhenti. Statistik akhir: {self.stats()}")
+                if ws_sub_q is not None:
+                    try:
+                        from .eventhub import hub as _hub
+                        _hub.unsubscribe(ws_sub_q)
+                    except Exception:
+                        pass
                 break
             except Exception as e:  # boundary — loop tak boleh mati
                 log.error(f"cycle error: {e}")
