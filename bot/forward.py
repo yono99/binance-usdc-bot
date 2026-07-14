@@ -2658,7 +2658,7 @@ class ForwardTester:
                             "liq": round(pos["liq"], 6), "pnl_usd": pnl_usd, "roi_pct": roi,
                             "qty": pos["qty"], "bet": pos.get("bet"), "mark": round(price, 6),
                             "opened_ts": pos.get("opened_ts")}   # utk marker panah entry di chart
-        syms.append({"symbol": sym, "price": price, "atr_pct": c.get("atr_pct"),
+            syms.append({"symbol": sym, "price": price, "atr_pct": c.get("atr_pct"),
                          "signal": c.get("side", "-"), "in_position": bool(pos),
                          "blocked": c.get("blocked"), "position": pos_view,
                          "rationale": c.get("rationale"), "setup": c.get("setup")})

@@ -55,6 +55,14 @@ export function PositionsPanel({
     { t: "Margin", render: (r) => "$" + f(r.position!.bet, 2) },
     { t: "Entry", render: (r) => fp(r.position!.entry) },
     { t: "Mark", render: (r) => fp(r.position!.mark ?? r.price) },
+    {
+      t: "SL",
+      render: (r) => <span className="neg">{fp(r.position!.sl)}</span>,
+    },
+    {
+      t: "TP",
+      render: (r) => <span className="pos">{fp(r.position!.tp)}</span>,
+    },
     { t: "Liq", render: (r) => <span className="neg">{fp(r.position!.liq)}</span> },
     {
       t: "PnL (ROI)",

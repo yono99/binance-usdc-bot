@@ -146,6 +146,18 @@ class RuntimeSettings:
     def is_dry(self) -> bool:
         return self.mode in ("dry", "test")
 
+    def credentials(self) -> tuple[str, str]:
+        """Bridge compat dengan bot.exchange.Exchange (butuh .credentials()).
+
+        BACAAN .env langsung: 'live' butuh key/secret nyata; dry/test = paper.
+        Catatan: kelas ini tidak menyimpan key — dibaca on-demand supaya restart
+        tak menyimpan secret di memori. Aman walau dipanggil tiap tick.
+        """
+        import os
+        if self.mode == "live":
+            return os.getenv("BINANCE_LIVE_KEY", ""), os.getenv("BINANCE_LIVE_SECRET", "")
+        return "", ""
+
     def clamp(self) -> "RuntimeSettings":
         self.technique = self.technique if self.technique in PRESETS else "auto"
         self.leverage = int(max(1, min(125, self.leverage)))

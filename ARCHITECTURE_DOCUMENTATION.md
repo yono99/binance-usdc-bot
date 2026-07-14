@@ -2,6 +2,17 @@
 
 > **Catatan**: Dokumentasi ini dibuat dari analisis penuh terhadap seluruh kodebase (70+ file Python, ~18.000 baris). Termasuk implementasi Phase 0-4 (2026-07-14) untuk memperbaiki bug kritis, membangun S/R detection, hard gates fade family, structured TP, dan pure trend-following system.
 
+> **Patch log 2026-07-14 (sesi-2)** — bug operasional yang ditemukan & diperbaiki:
+>
+> | Symptom | Root cause | Fix |
+> |---|---|---|
+> | `/api/account` → `AttributeError: 'RuntimeSettings' object has no attribute 'gemini_enabled'` | Proses `dashboard.py` lama memuat class `RuntimeSettings` dari stale `bot/__pycache__/settings_store.cpython-313.pyc` (lebih baru dari `.py`). Source sudah berisi commit `58261fb` (penambahan `gemini_keys`/`gemini_enabled`), tapi bytecode di-cache. | Hapus `bot/__pycache__/` setelah `git pull`; restart dashboard. |
+> | `/api/symbols` → `0 symbols` atau `'RuntimeSettings' object has no attribute 'credentials'` | Commit `1f26ebf` mengalihkan beberapa endpoint dari `bot.config.Settings` (yang punya `credentials()`) ke `bot.settings_store.RuntimeSettings` (yang tidak). `_get_ex()` butuh `settings.credentials()`. | Tambah method `credentials()` ke `RuntimeSettings` di `bot/settings_store.py:149` — membaca `.env` on-demand (live = key, dry/test = ""). Aman karena secret tidak disimpan di memori. |
+> | `/api/symbols` cuma return 39 pair (hanya USDC-M), padahal screener memproses 74 pair USDC+USDT | Filter `settle == "USDC" and swap` di `dashboard.py:460` terlalu sempit. | Ubah filter mengikuti `Exchange.perp_symbols`: `swap, settle ∈ {USDC,USDT}, active, underlyingType == "COIN"` (eksklusi saham/komoditas tokenisasi). Hasil: 566 pair. |
+> | `/api/ohlcv` → `'RuntimeSettings' object has no attribute 'raw'` | Sama dengan `/api/symbols`: `load_settings().raw["signals"]` setelah refactor 1f26ebf. `RuntimeSettings` tidak punya `.raw`; kontrak itu milik `bot.config.Settings`. | `dashboard.py:489-495` — pakai `bot.config.load_settings()` untuk akses `["signals"]`; tetap panggil `settings_store.load_settings()` dulu agar KV/runtime di-warm. Bug indent serupa di `_candle_close_watcher()` di `dashboard.py:206` juga diperbaiki. |
+> | `forward.py:_write_status()` hanya menulis 1 simbol di `status["symbols"]` walaupun `self.symbols` 80+ pair | Crash indentasi di `bot/forward.py:2661`: `syms.append(...)` di-indent 8 spasi (level `for`), bukan 12 spasi (level dalam loop). Akibat: `syms.append` hanya dieksekusi sekali setelah loop dengan variabel sisa (`sym`, `pos`, `pos_view`) dari iterasi terakhir. Posisi VANRY & TRB di `self.open` tidak tertulis di status KV → `/api/positions` 0 entri, `PositionsPanel` kosong. | `bot/forward.py:2661` — kena indent 4 spasi ke kanan. Setelah fix: `_write_status` menghasilkan `len(self.symbols)` entri di `symbols[].in_position`. |
+> | `PositionsPanel` tidak menampilkan kolom SL & TP, padahal user expects "close loss dan TP bagi 2 posisi" | Tabel `posCols` di `web/src/components/PositionsPanel.tsx:47-76` hanya punya Cols Pair/Arah/Qty/Margin/Entry/Mark/Liq/PnL. | Tambah col `SL` (span className="neg") & col `TP` (span className="pos") di `PositionsPanel.tsx:60-67`. |
+
 ---
 
 ## 1. ARSITEKTUR HIGH-LEVEL (Updated)

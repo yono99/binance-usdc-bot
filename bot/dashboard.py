@@ -203,7 +203,9 @@ async def _candle_close_watcher() -> None:
     from .settings_store import load_settings
     if _CANDLE_WATCH_INTERVAL_S <= 0:
         return
-    sig = load_settings().raw["signals"]
+    load_settings()                       # warm up runtime (side effect)
+    from .config import load_settings as _load_cfg
+    sig = _load_cfg().raw["signals"]
     ema_fast_p, ema_mid_p, ema_slow_p, rsi_p = (
         sig["ema_fast"], sig["ema_mid"], sig["ema_slow"], sig["rsi_period"]
     )
@@ -451,13 +453,22 @@ _symbols_cache: dict = {"ts": 0.0, "data": None}
 
 @app.get("/api/symbols")
 def api_symbols() -> JSONResponse:
-    """Daftar pair USDC-M perpetual yang tersedia (untuk pemilih + pencarian di UI)."""
+    """Daftar pair perpetual aktif yang tersedia (USDC + USDT, tipe COIN) untuk
+    pemilih & pencarian di UI. Cache 10 menit. Filter underlyingType=COIN agar
+    saham/komoditas tokenisasi (MSTR/XAU/SOXL…) tak muncul — berbeda kelas aset.
+    """
     import time
     if _symbols_cache["data"] and time.time() - _symbols_cache["ts"] < 600:
         return JSONResponse(_symbols_cache["data"])
     try:
         m = _get_ex().client.markets
-        syms = sorted(s for s, v in m.items() if v.get("settle") == "USDC" and v.get("swap"))
+        syms = sorted(
+            s for s, v in m.items()
+            if v.get("swap")
+            and v.get("settle") in ("USDC", "USDT")
+            and v.get("active", True)
+            and (v.get("info", {}) or {}).get("underlyingType", "COIN") == "COIN"
+        )
     except Exception as e:  # boundary
         return JSONResponse({"symbols": [], "error": str(e)[:140]})
     data = {"symbols": syms}
@@ -479,7 +490,11 @@ def api_ohlcv(symbol: str, tf: str = "15m", limit: int = 120) -> JSONResponse:
                 for i, o, h, low, c in zip(df.index, df["open"], df["high"], df["low"], df["close"])]
         from . import indicators as ind
         from .settings_store import load_settings
-        sig = load_settings().raw["signals"]
+        load_settings()                       # warm up KV/runtime (side effect)
+        # settings_store.RuntimeSettings TIDAK punya .raw (kontrak cfg ada di bot.config.Settings).
+        # Pakai config.load_settings() yang menjamin akses settings.yaml ["signals"].
+        from .config import load_settings as _load_cfg
+        sig = _load_cfg().raw["signals"]
         close = df["close"]
         rnd = lambda s: [round(float(x), 6) for x in s]
         data = {"symbol": symbol, "tf": tf, "bars": bars,
