@@ -200,7 +200,7 @@ async def _candle_close_watcher() -> None:
     frontend SSE update indikator tanpa perlu fetch REST ulang."""
     from . import chartstore
     from . import indicators as ind
-    from .config import load_settings
+    from .settings_store import load_settings
     if _CANDLE_WATCH_INTERVAL_S <= 0:
         return
     sig = load_settings().raw["signals"]
@@ -394,7 +394,7 @@ def api_account() -> JSONResponse:
     import time
     if _acct["data"] and time.time() - _acct["ts"] < 30:
         return JSONResponse(_acct["data"])
-    from .config import load_settings
+    from .settings_store import load_settings
     s = load_settings()
     if s.mode == "live" and os.getenv("BINANCE_LIVE_KEY"):
         try:
@@ -420,7 +420,7 @@ def api_live_balance() -> JSONResponse:
     """Ambil saldo USDT & USDC REAL dari Binance LIVE (mode=live).
     HANYA berfungsi di mode LIVE. Return Decimal string untuk presisi penuh.
     Digunakan frontend untuk auto-fill & disable input manual."""
-    from .config import load_settings
+    from .settings_store import load_settings
     s = load_settings()
     if s.mode != "live":
         return JSONResponse({"valid": False, "error": "Hanya mode LIVE", "mode": s.mode})
@@ -440,7 +440,7 @@ _ohlcv_cache: dict = {}
 
 def _get_ex():
     if _ex_cache["ex"] is None:
-        from .config import load_settings
+        from .settings_store import load_settings
         from .exchange import Exchange
         _ex_cache["ex"] = Exchange(load_settings())
     return _ex_cache["ex"]
@@ -478,7 +478,7 @@ def api_ohlcv(symbol: str, tf: str = "15m", limit: int = 120) -> JSONResponse:
                  "l": float(low), "c": float(c)}
                 for i, o, h, low, c in zip(df.index, df["open"], df["high"], df["low"], df["close"])]
         from . import indicators as ind
-        from .config import load_settings
+        from .settings_store import load_settings
         sig = load_settings().raw["signals"]
         close = df["close"]
         rnd = lambda s: [round(float(x), 6) for x in s]
@@ -711,7 +711,7 @@ def api_open_orders() -> JSONResponse:
     import time as _t
     if _open_orders_cache["data"] and _t.time() - _open_orders_cache["ts"] < 8:
         return JSONResponse(_open_orders_cache["data"])
-    from .config import load_settings
+    from .settings_store import load_settings
     s = load_settings()
     if s.is_live and os.environ.get("BINANCE_LIVE_KEY"):
         try:
@@ -754,7 +754,7 @@ def api_cancel_order(payload: dict) -> JSONResponse:
     if not sym or not oid:
         return JSONResponse({"ok": False, "error": "symbol & order_id wajib"})
     import os
-    from .config import load_settings
+    from .settings_store import load_settings
     s = load_settings()
     if not s.is_live or not os.environ.get("BINANCE_LIVE_KEY"):
         return JSONResponse({"ok": False, "error": "cancel-order hanya berlaku di mode live"})
@@ -780,7 +780,7 @@ def api_positions() -> JSONResponse:
     import time as _t
     if _positions_cache["data"] and _t.time() - _positions_cache["ts"] < 6:
         return JSONResponse(_positions_cache["data"])
-    from .config import load_settings
+    from .settings_store import load_settings
     s = load_settings()
     if s.is_live and os.environ.get("BINANCE_LIVE_KEY"):
         try:
@@ -881,7 +881,7 @@ def api_gemini_trader(mode: str | None = None) -> JSONResponse:
     from .gemini_trader import track_record
     gcfg = load_settings().__class__   # gunakan cfg: ambil dari settings_store cache path
     # share flag via config helper ringan (lihat bot/config.get gemini.share_lessons_across_modes)
-    from .config import load_settings as _load_cfg_settings
+    from .settings_store import load_settings as _load_cfg_settings
     settings = _load_cfg_settings()
     cfg = settings.raw if hasattr(settings, "raw") and settings.raw else {}
     share = bool(cfg.get("gemini", {}).get("share_lessons_across_modes", False))
@@ -900,7 +900,7 @@ def api_gemini_models() -> JSONResponse:
         return JSONResponse(_gemini_models_cache["data"])
     models: list[str] = []
     try:
-        from .config import load_settings as _load
+        from .settings_store import load_settings as _load
         from google import genai
         s = _load()
         if s.gemini_keys:
@@ -994,7 +994,7 @@ def api_flat_shadow(mode: str = None) -> JSONResponse:
     terlewat) keseluruhan / per-regime / per-conviction + verdict pra-registrasi.
     Tak memblokir apa pun (shadow)."""
     from . import flat_shadow
-    from .config import load_settings
+    from .settings_store import load_settings
     from .settings_store import _env_mode
     m = mode if mode in ("dry", "test", "live") else (get_active_mode() or _env_mode())
     return JSONResponse(_json_safe(flat_shadow.report(m, load_settings().raw)))
