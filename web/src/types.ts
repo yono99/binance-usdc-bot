@@ -213,7 +213,11 @@ export interface Trade {
 }
 
 export interface TradesResp {
-  count: number;
+  total: number;
+  page: number;
+  page_size: number;
+  max_page: number;
+  total_pages: number;
   trades: Trade[];
 }
 
