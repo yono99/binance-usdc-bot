@@ -24,7 +24,7 @@ export function PaginatedTable<T>({
   return (
     <>
       <Table cols={cols} rows={slice} rowCls={rowCls} empty={empty} />
-      {rows.length > 10 && (
+      {rows.length > size && (
         <Pager total={rows.length} page={page} size={size} onPage={setPage} onSize={setSize} />
       )}
     </>
