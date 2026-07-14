@@ -1,0 +1,281 @@
+async function load(){
+  const s=await (await fetch('/api/stats')).json();
+  const pf=s.profit_factor==null?'—':(s.profit_factor>1e6?'∞':f(s.profit_factor));
+  document.getElementById('cards').innerHTML=
+    card('Trades',s.trades)+
+    card('Liquidations',s.liquidations||0,(s.liquidations>0?'neg':''))+
+    card('Win Rate',f(s.win_rate,1)+'%')+
+    card('Expectancy R',(s.expectancy_r>0?'+':'')+f(s.expectancy_r,3),cls(s.expectancy_r))+
+    card('Profit Factor',pf)+
+    card('Equity',f(s.equity,2))+
+    card('Return',(s.return_pct>0?'+':'')+f(s.return_pct,2)+'%',cls(s.return_pct));
+  document.getElementById('open').innerHTML=table(
+    [{t:'Simbol',k:'symbol'},{t:'Sisi',k:'side',cls:r=>r.side==='long'?'pos':'neg'},
+     {t:'Entry',f:r=>f(r.entry,4)},{t:'SL',f:r=>f(r.sl,4)},{t:'TP',f:r=>f(r.tp,4)}],s.open_positions);
+  document.getElementById('sym').innerHTML=table(
+    [{t:'Simbol',k:'symbol'},{t:'Trades',k:'trades'},{t:'Win%',f:r=>f(r.win_rate,1)},
+     {t:'Σ R',f:r=>(r.sum_r>0?'+':'')+f(r.sum_r,3),cls:r=>cls(r.sum_r)}],s.per_symbol);
+  document.getElementById('recent').innerHTML=table(
+    [{t:'Waktu',f:r=>(r.ts||'').slice(11,19)},{t:'Simbol',k:'symbol'},
+     {t:'Alasan',f:r=>r.reason==='liq'?'⚠ LIKUIDASI':r.reason},
+     {t:'R',f:r=>(r.r>0?'+':'')+f(r.r,3),cls:r=>cls(r.r)},{t:'Equity',f:r=>f(r.equity,2)}],
+    s.recent, r=>r.reason==='liq'?'liqrow':'');
+  const ctx=document.getElementById('eq');
+  const data=s.equity_curve, labels=data.map((_,i)=>i);
+  const liq=new Set(s.liq_points||[]);
+  const radii=data.map((_,i)=>liq.has(i)?5:0);
+  const colors=data.map((_,i)=>liq.has(i)?'#ef4444':'#6366f1');
+  if(chart){
+    chart.data.labels=labels;
+    const d=chart.data.datasets[0];
+    d.data=data;d.pointRadius=radii;d.pointBackgroundColor=colors;d.pointBorderColor=colors;
+    chart.update();
+  } else chart=new Chart(ctx,{type:'line',data:{labels,datasets:[{data,borderColor:'#6366f1',
+    backgroundColor:'rgba(99,102,241,.15)',fill:true,tension:.25,pointRadius:radii,
+    pointBackgroundColor:colors,pointBorderColor:colors,pointHoverRadius:6,borderWidth:2}]},
+    options:{plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>
+      (liq.has(c.dataIndex)?'⚠ LIKUIDASI · ':'')+'equity '+Number(c.parsed.y).toFixed(2)}}},
+      scales:{x:{display:false},y:{grid:{color:'#243049'},ticks:{color:'#8aa0c0'}}}}});
+  document.getElementById('upd').textContent='diperbarui '+new Date().toLocaleTimeString();
+}
+function riskWarn(lev, liq){
+  const w=document.getElementById('warn');
+  if(lev>=50) w.innerHTML=`<div class="danger">⚠ Leverage ${lev}x: gerakan melawan ~${liq}% = LIKUIDASI (modal habis). SL berbasis ATR biasanya lebih lebar, jadi posisi kena likuidasi lebih dulu. Ini judi, bukan trading. Backtest strategi ini masih impas.</div>`;
+  else if(lev>=20) w.innerHTML=`<div class="danger">⚠ Leverage ${lev}x berisiko tinggi: likuidasi pada gerakan ~${liq}%.</div>`;
+  else w.innerHTML='';
+}
+async function loadSettings(){
+  const s=await (await fetch('/api/settings')).json();
+  const sel=document.getElementById('technique');
+  sel.innerHTML=s.techniques.map(t=>`<option value="${t}">${t}</option>`).join('');
+  document.getElementById('enabled').value=String(s.enabled);
+  sel.value=s.technique;
+  document.getElementById('symbols').value=(s.symbols||[]).join(',');
+  document.getElementById('leverage').value=s.leverage;
+  document.getElementById('bet_usd').value=s.bet_usd;
+  
+  // LIVE MODE: saldo diambil OTOMATIS dari Binance (tidak bisa diinput manual)
+  const isLive = s.mode === 'live';
+  const balUsdtEl = document.getElementById('balance_usdt');
+  const balUsdcEl = document.getElementById('balance_usdc');
+  
+  if (isLive) {
+    balUsdtEl.disabled = true;
+    balUsdcEl.disabled = true;
+    balUsdtEl.title = "LIVE: Saldo diambil otomatis dari Binance API";
+    balUsdcEl.title = "LIVE: Saldo diambil otomatis dari Binance API";
+    // Auto-fetch live balances
+    try {
+      const r = await (await fetch('/api/live-balance')).json();
+      if (r.valid) {
+        balUsdtEl.value = r.balance_usdt;
+        balUsdcEl.value = r.balance_usdc;
+        // Add live indicator
+        balUsdtEl.style.backgroundColor = '#1e3a2e';
+        balUsdcEl.style.backgroundColor = '#1e3a2e';
+        balUsdtEl.style.color = '#86efac';
+        balUsdcEl.style.color = '#86efac';
+      }
+    } catch (e) {
+      console.warn('Gagal fetch live balance:', e);
+    }
+  } else {
+    balUsdtEl.disabled = false;
+    balUsdcEl.disabled = false;
+    balUsdtEl.value = s.balance_usdt;
+    balUsdcEl.value = s.balance_usdc;
+    balUsdtEl.style.backgroundColor = '';
+    balUsdcEl.style.backgroundColor = '';
+    balUsdtEl.style.color = '';
+    balUsdcEl.style.color = '';
+    balUsdtEl.title = '';
+    balUsdcEl.title = '';
+  }
+  
+  document.getElementById('target_profit_pct').value=s.target_profit_pct;
+  document.getElementById('max_open_positions').value=s.max_open_positions;
+  document.getElementById('daily_max_loss_pct').value=s.daily_max_loss_pct;
+  document.getElementById('daily_max_trades').value=s.daily_max_trades;
+  document.getElementById('poll_seconds').value=s.poll_seconds;
+  document.getElementById('tf').value=s.timeframe;
+  riskWarn(s.leverage, s.liq_pct);
+  const csel=document.getElementById('chartsym');
+  if(!csel.options.length && s.symbols && s.symbols.length)
+    csel.innerHTML=s.symbols.map(x=>`<option>${x}</option>`).join('');
+}
+let pxChart, rsiChart;
+async function loadChart(){
+  const sym=document.getElementById('chartsym').value; if(!sym)return;
+  const tf=document.getElementById('charttf').value||'15m';
+  const d=await (await fetch('/api/ohlcv?symbol='+encodeURIComponent(sym)+'&tf='+tf+'&limit=120')).json();
+  if(!d.bars||!d.bars.length)return;
+  const ds=[{label:sym,type:'candlestick',data:d.bars,
+             color:{up:'#22c55e',down:'#ef4444',unchanged:'#94a3b8'},
+             borderColor:{up:'#22c55e',down:'#ef4444',unchanged:'#94a3b8'}}];
+  const x0=d.bars[0].x, x1=d.bars[d.bars.length-1].x;
+  const mkema=(arr,col)=>({type:'line',label:'',data:arr.map((y,i)=>({x:d.bars[i].x,y})),
+    borderColor:col,borderWidth:1,pointRadius:0,tension:.2});
+  if(d.ema_fast){
+    ds.push(mkema(d.ema_fast,'#eab308'),mkema(d.ema_mid,'#3b82f6'),mkema(d.ema_slow,'#a855f7'));
+    document.getElementById('emacap').innerHTML=
+      `EMA${d.periods.fast} <span style="color:#eab308">━</span>  EMA${d.periods.mid} <span style="color:#3b82f6">━</span>  EMA${d.periods.slow} <span style="color:#a855f7">━</span>`;
+  }
+  const st=window.lastStatus;
+  const sm=st&&st.symbols&&st.symbols.find(x=>x.symbol===sym&&x.in_position);
+  if(sm&&sm.position){const p=sm.position;
+    const hl=(v,col,dash)=>({type:'line',label:'',data:[{x:x0,y:v},{x:x1,y:v}],
+      borderColor:col,borderWidth:1,pointRadius:0,borderDash:dash||[]});
+    ds.push(hl(p.entry,'#94a3b8',[4,3]),hl(p.sl,'#ef4444'),hl(p.tp,'#22c55e'),hl(p.liq,'#b91c1c',[2,2]));
+  }
+  const opts={plugins:{legend:{display:false},tooltip:{enabled:true}},
+    scales:{x:{type:'time',grid:{display:false},ticks:{color:'#8aa0c0',maxRotation:0}},
+            y:{grid:{color:'#243049'},ticks:{color:'#8aa0c0'}}}};
+  if(pxChart){pxChart.data.datasets=ds;pxChart.update();}
+  else pxChart=new Chart(document.getElementById('px'),{type:'candlestick',data:{datasets:ds},options:opts});
+  if(d.rsi){
+    const rd=d.rsi.map((y,i)=>({x:d.bars[i].x,y}));
+    const flat=v=>[{x:x0,y:v},{x:x1,y:v}];
+    const rds=[{label:'RSI',data:rd,borderColor:'#06b6d4',borderWidth:1.2,pointRadius:0,tension:.2},
+      {label:'',data:flat(70),borderColor:'#ef4444',borderWidth:.6,pointRadius:0,borderDash:[3,3]},
+      {label:'',data:flat(30),borderColor:'#22c55e',borderWidth:.6,pointRadius:0,borderDash:[3,3]}];
+    const ropts={plugins:{legend:{display:false},tooltip:{enabled:false}},
+      scales:{x:{type:'time',display:false},y:{min:0,max:100,grid:{color:'#243049'},ticks:{color:'#8aa0c0',stepSize:50}}}};
+    if(rsiChart){rsiChart.data.datasets=rds;rsiChart.update();}
+    else rsiChart=new Chart(document.getElementById('rsi'),{type:'line',data:{datasets:rds},options:ropts});
+  }
+}
+async function closePos(sym){
+  if(!confirm('Tutup paksa posisi '+sym+'? (diproses ≤1 siklus)'))return;
+  await fetch('/api/close',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({symbol:sym})});
+  loadStatus();
+}
+async function closeAll(){
+  if(!confirm('Tutup SEMUA posisi? (diproses ≤1 siklus)'))return;
+  await fetch('/api/close-all',{method:'POST'});
+  loadStatus();
+}
+document.getElementById('tgbtn').addEventListener('click',async()=>{
+  const el=document.getElementById('tgres'); el.textContent='mengirim…';
+  try{
+    const r=await (await fetch('/api/notify-test',{method:'POST'})).json();
+    el.innerHTML=r.ok?'<span class="pos">terkirim ✓ (cek Telegram)</span>':`<span class="neg">${r.error||'gagal'}</span>`;
+  }catch(e){el.innerHTML='<span class="neg">error koneksi</span>';}
+});
+document.getElementById('chartsym').addEventListener('change',loadChart);
+document.getElementById('charttf').addEventListener('change',loadChart);
+document.getElementById('vbtn').addEventListener('click',async()=>{
+  const body={key:document.getElementById('vkey').value.trim(),secret:document.getElementById('vsecret').value.trim()};
+  const el=document.getElementById('vres'); el.textContent='memvalidasi…';
+  try{
+    const r=await (await fetch('/api/validate-key',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+    el.innerHTML=r.valid?`<span class="pos">VALID — saldo $${f(r.balance_usdc,2)}</span>`:`<span class="neg">INVALID: ${r.error||'gagal'}</span>`;
+  }catch(e){el.innerHTML='<span class="neg">error koneksi</span>';}
+});
+document.getElementById('leverage').addEventListener('input',e=>{
+  const lev=+e.target.value||1; riskWarn(lev, (Math.max(1/lev-0.005,0.0005)*100).toFixed(3));
+});
+document.getElementById('save').addEventListener('click',async()=>{
+  const body={
+    enabled:document.getElementById('enabled').value==='true',
+    technique:document.getElementById('technique').value,
+    symbols:document.getElementById('symbols').value,
+    leverage:+document.getElementById('leverage').value,
+    bet_usd:+document.getElementById('bet_usd').value,
+    balance_usdt:+document.getElementById('balance_usdt').value,
+    balance_usdc:+document.getElementById('balance_usdc').value,
+    target_profit_pct:+document.getElementById('target_profit_pct').value,
+    max_open_positions:+document.getElementById('max_open_positions').value,
+    daily_max_loss_pct:+document.getElementById('daily_max_loss_pct').value,
+    daily_max_trades:+document.getElementById('daily_max_trades').value,
+    poll_seconds:+document.getElementById('poll_seconds').value,
+  };
+  const s=await (await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+  window.pendingBalUsdt=s.balance_usdt;
+  window.pendingBalUsdc=s.balance_usdc;
+  document.getElementById('tf').value=s.timeframe;
+  riskWarn(s.leverage, s.liq_pct);
+  const el=document.getElementById('saved'); el.textContent=' tersimpan ✓ (bot menerapkan tiap siklus)';
+  setTimeout(()=>el.textContent='',4000);
+});
+async function loadStatus(){
+  const a=await (await fetch('/api/account')).json();
+  const s=await (await fetch('/api/status')).json();
+  window.lastStatus=s;
+  // form Saldo = saldo hidup (termasuk PnL); jangan timpa saat user mengetik
+  // atau saat masih menunggu bot menerapkan nilai yang baru disimpan (pendingBal*).
+  const balUsdtEl=document.getElementById('balance_usdt');
+  const balUsdcEl=document.getElementById('balance_usdc');
+  if(window.pendingBalUsdt!=null && Math.abs((s.balance_usdt??0)-window.pendingBalUsdt)<1e-9) window.pendingBalUsdt=null;
+  if(window.pendingBalUsdc!=null && Math.abs((s.balance_usdc??0)-window.pendingBalUsdc)<1e-9) window.pendingBalUsdc=null;
+  if(s.balance_usdt!=null && document.activeElement!==balUsdtEl && window.pendingBalUsdt==null) balUsdtEl.value=s.balance_usdt;
+  if(s.balance_usdc!=null && document.activeElement!==balUsdcEl && window.pendingBalUsdc==null) balUsdcEl.value=s.balance_usdc;
+  const api=a.api_valid===true?'<span class="pos">VALID</span>':(a.api_valid===false?'<span class="neg">INVALID</span>':'paper (tanpa key)');
+  let bal=a.balance_usdc!=null||a.balance_usdt!=null
+    ?('USDT $'+fbal(a.balance_usdt)+' · USDC $'+fbal(a.balance_usdc)+(a.balance_total!=null?(' · Total $'+fbal(a.balance_total)):''))
+    :('USDT $'+fbal(s.balance_usdt)+' · USDC $'+fbal(s.balance_usdc)+(s.balance_usdt!=null||s.balance_usdc!=null?(' <span class="sub">paper</span>'):'—'));
+  document.getElementById('acct').innerHTML=
+    `Mode: <b>${a.mode}</b> · API: ${api} · Saldo: <b>${bal}</b> · `+
+    `Gemini: ${a.gemini_enabled?('<span class="pos">on</span>, '+a.gemini_keys+' key'):'<span class="sub">off</span>'}`+
+    (a.error?`<div class="danger">${a.error}</div>`:'');
+  if(!s.ts){
+    document.getElementById('botstatus').innerHTML='<div class="empty">Bot belum jalan — `python forwardtest.py --poll 30 --use-store`</div>';
+    document.getElementById('pairs').innerHTML='';return;
+  }
+  const nv=s.news_veto&&s.news_veto.active?`<span class="neg">VETO (${s.news_veto.note})</span>`:'<span class="pos">clear</span>';
+  document.getElementById('botstatus').innerHTML=
+    `Status: ${s.enabled?'<span class="pos">ON</span>':'<span class="neg">OFF</span>'} · Teknik: <b>${s.technique}</b> · `+
+    `TF: ${s.timeframe} · Leverage: <b>${s.leverage}x</b> · Bet: $${f(s.bet_usd,2)} · Saldo: <b>USDT $${fbal(s.balance_usdt)} · USDC $${fbal(s.balance_usdc)}</b> · `+
+    `Posisi: ${s.open_count}/${s.max_open} · News: ${nv} · <span class="sub">update ${(s.ts||'').slice(11,19)} UTC</span>`;
+  document.getElementById('pairs').innerHTML=table(
+    [{t:'Pair',k:'symbol'},
+     {t:'Harga',f:r=>r.price!=null?f(r.price,4):'—'},
+     {t:'ATR%',f:r=>r.atr_pct!=null?f(r.atr_pct,2):'—'},
+     {t:'Sinyal',f:r=>r.signal||'—',cls:r=>r.signal==='LONG'?'pos':(r.signal==='SHORT'?'neg':'')},
+     {t:'Posisi (PnL)',f:r=>r.in_position?`${r.position.side.toUpperCase()} ${(r.position.pnl_usd>=0?'+':'')+f(r.position.pnl_usd,2)}`:'—',
+      cls:r=>r.in_position?(r.position.pnl_usd>=0?'pos':'neg'):''},
+     {t:'Keterangan',f:r=>r.blocked||'—'},
+     {t:'Aksi',f:r=>r.in_position?`<button class="btnsm" onclick="closePos('${r.symbol}')">Close</button>`:'—'}],
+    s.symbols||[]);
+}
+function tradeQ(){
+  const p=new URLSearchParams();
+  const s=document.getElementById('fsym').value.trim(); if(s)p.set('symbol',s);
+  const r=document.getElementById('freason').value; if(r)p.set('reason',r);
+  const a=document.getElementById('ffrom').value; if(a)p.set('dfrom',a);
+  const b=document.getElementById('fto').value; if(b)p.set('dto',b);
+  return p.toString();
+}
+async function loadTrades(){
+  const q=tradeQ();
+  document.getElementById('fcsv').href='/api/trades.csv'+(q?'?'+q:'');
+  const d=await (await fetch('/api/trades'+(q?'?'+q:''))).json();
+  document.getElementById('tcount').textContent=d.count+' trade';
+  document.getElementById('thist').innerHTML=table(
+    [{t:'Close',f:r=>(r.close_ts||'').slice(0,16).replace('T',' ')},
+     {t:'Pair',k:'symbol'},
+     {t:'Side',f:r=>(r.side||'').toUpperCase(),cls:r=>r.side==='long'?'pos':(r.side==='short'?'neg':'')},
+     {t:'Reason',f:r=>r.reason==='liq'?'⚠ LIQ':(r.reason||'—')},
+     {t:'R',f:r=>r.r!=null?((r.r>0?'+':'')+f(r.r,3)):'—',cls:r=>cls(r.r||0)},
+     {t:'PnL$',f:r=>r.pnl_usd!=null?((r.pnl_usd>=0?'+':'')+f(r.pnl_usd,2)):'—',cls:r=>r.pnl_usd!=null?(r.pnl_usd>=0?'pos':'neg'):''},
+     {t:'Entry',f:r=>r.entry!=null?f(r.entry,4):'—'},
+     {t:'Exit',f:r=>r.exit!=null?f(r.exit,4):'—'},
+     {t:'Equity',f:r=>r.equity!=null?f(r.equity,2):'—'},
+     {t:'',f:r=>r.id!=null?`<button class="del" onclick="delTrade(${r.id})" title="Hapus trade ini">✕</button>`:''}],
+    d.trades, r=>r.reason==='liq'?'liqrow':'');
+}
+async function delTrade(id){
+  if(!confirm('Hapus trade ini dari riwayat?'))return;
+  await fetch('/api/trades/'+id,{method:'DELETE'});
+  loadTrades();load();
+}
+async function clearTrades(){
+  if(!confirm('Hapus SELURUH riwayat trade? Tidak bisa dibatalkan.'))return;
+  await fetch('/api/trades/clear',{method:'POST'});
+  loadTrades();load();
+}
+document.getElementById('fbtn').addEventListener('click',loadTrades);
+document.getElementById('clrhist').addEventListener('click',clearTrades);
+loadSettings();
+function refresh(){load();loadStatus();loadChart();loadTrades();}
+refresh();setInterval(refresh,10000);
+</script>
