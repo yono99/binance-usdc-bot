@@ -29,6 +29,16 @@ class Exchange:
         else:
             log.info("Exchange: DRY — data publik nyata, order disimulasi")
         self.markets = self.client.load_markets()
+        self._markets_loaded_at = pd.Timestamp.utcnow()
+
+    def reload_markets(self) -> None:
+        """Reload markets from Binance to pick up new/delisted pairs."""
+        try:
+            self.markets = self.client.load_markets()
+            self._markets_loaded_at = pd.Timestamp.utcnow()
+            log.info(f"Markets reloaded: {len(self.markets)} symbols")
+        except Exception as e:
+            log.warning(f"reload_markets gagal: {e}")
 
     def usdc_symbols(self) -> list[str]:
         """Semua pair USDC-M perpetual yang tersedia (untuk mode 'screening semua')."""

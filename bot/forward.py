@@ -961,8 +961,12 @@ class ForwardTester:
 
     def _apply_settings(self) -> RuntimeSettings:
         rs = load_settings(self.settings.mode if self.pin_mode else None)
-        eff = rs.mode or self.settings.mode               # mode diminta dari UI (atau .env)
+        from .settings_store import get_active_mode, _eff_mode
+        requested = self.settings.mode if self.pin_mode else get_active_mode()
+        eff = _eff_mode(requested)
+        log.info(f"_apply_settings: requested={requested!r}, eff={eff!r}, _eff_mode={self._eff_mode!r}, pin_mode={self.pin_mode}")
         if eff != self._eff_mode and not self.pin_mode:   # pinned: tak pernah switch
+            log.warning(f"MODE SWITCH: {self._eff_mode} -> {eff}")
             self._switch_mode(eff)
         resolved = rs.symbols or self.ex.perp_symbols(
             tuple(self.cfg["market"].get("settles", ["USDC"])))   # kosong = semua settle config
@@ -2728,6 +2732,7 @@ class ForwardTester:
                 log.info("FORWARD-TEST live → subscribe EventHub WS untuk reconcile trigger.")
             except Exception as e:
                 log.warning(f"subscribe EventHub WS skip (fallback REST reconcile): {e}")
+        _last_market_reload = 0.0
         while True:
             try:
                 # Tahap 5: if WS memberi sinyal baru, drain queue (sinyal → flag reconcile).
@@ -2741,6 +2746,17 @@ class ForwardTester:
                         pass
                     if drained:
                         log.debug(f"WS trigger live reconcile: drained {drained} frame(s)")
+                
+                # Periodic market reload (setiap 1 jam) untuk pair baru/delisted
+                import time as _time
+                now = _time.time()
+                if now - _last_market_reload >= 3600:
+                    try:
+                        self.ex.reload_markets()
+                    except Exception as e:
+                        log.warning(f"periodic reload_markets gagal: {e}")
+                    _last_market_reload = now
+
                 self.on_cycle()
                 s = self.stats()
                 if s["trades"]:

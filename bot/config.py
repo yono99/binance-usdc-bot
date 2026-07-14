@@ -55,7 +55,16 @@ def _warn_bad_gemini_keys(keys: list[str]) -> None:
 
 
 def load_settings() -> Settings:
-    mode = (os.getenv("MODE", "dry") or "dry").strip().lower()
+    # Tahap 1 (plan-sess): mode efective dibaca dari KV 'active_mode' (pilihan UI)
+    # bila tersedia; bila tak ada → fallback ke .env. Tanpa patch ini, dashboard
+    # yang import dari .config selalu kena .env MODE=live walau UI pilih 'dry'.
+    try:
+        from .store import get_kv
+        kv_mode = (get_kv("active_mode") or {}).get("mode", "") or ""
+    except Exception:
+        kv_mode = ""
+    env_mode = (os.getenv("MODE", "dry") or "dry").strip().lower()
+    mode = kv_mode or env_mode
     if mode not in ("dry", "test", "live"):
         raise ValueError(f"MODE tidak valid: {mode!r} (dry|test|live)")
 
