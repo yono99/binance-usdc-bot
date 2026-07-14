@@ -119,6 +119,8 @@ class RuntimeSettings:
     usdc_taker_fee_pct: float = 0.04            # fee taker USDC-M (%) — promo diskon (bukan 0%)
     gemini_model: str = ""                      # model Gemini (kosong = default config.yaml)
     mode: str = ""                              # kosong = ikut .env | dry | test | live (UANG NYATA)
+    gemini_keys: list[str] = field(default_factory=list)
+    gemini_enabled: bool = False
     # --- Agent otonom (toggle dari UI; OR dengan config.yaml; hot-reload) ---
     agent_full_auto: bool = False               # satu saklar: tool_loop + autonomous + planner
     agent_tool_loop: bool = False               # nalar + panggil tool iteratif
@@ -135,6 +137,14 @@ class RuntimeSettings:
     # --- Phase 6: pemantau drift kalibrasi (ALARM saja, TANPA auto-ubah threshold) ---
     calib_drift_margin: float = 0.05             # Brier terkini − baseline 14h > ini → drift
     calib_drift_min_n: int = 20                  # min sampel trade terkini sebelum menilai
+
+    @property
+    def is_live(self) -> bool:
+        return self.mode == "live"
+
+    @property
+    def is_dry(self) -> bool:
+        return self.mode in ("dry", "test")
 
     def clamp(self) -> "RuntimeSettings":
         self.technique = self.technique if self.technique in PRESETS else "auto"
