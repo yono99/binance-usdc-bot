@@ -11,7 +11,9 @@ export function TradeHistory({ tick }: { tick: number }) {
   const [freason, setFreason] = useState("");
   const [ffrom, setFfrom] = useState("");
   const [fto, setFto] = useState("");
-  const [data, setData] = useState<TradesResp>({ count: 0, trades: [] });
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(5);
+  const [data, setData] = useState<TradesResp>({ count: 0, trades: [], total_pages: 1 });
 
   const query = () => {
     const p = new URLSearchParams();
@@ -19,6 +21,8 @@ export function TradeHistory({ tick }: { tick: number }) {
     if (freason) p.set("reason", freason);
     if (ffrom) p.set("dfrom", ffrom);
     if (fto) p.set("dto", fto);
+    p.set("page", String(page));
+    p.set("page_size", "100"); // fetch up to 100, PaginatedTable will slice to 5 per page
     return p.toString();
   };
 
@@ -28,6 +32,11 @@ export function TradeHistory({ tick }: { tick: number }) {
   useEffect(() => {
     load();
   }, [tick]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // reset ke halaman 1 saat filter berubah
+  useEffect(() => {
+    setPage(1);
+  }, [fsym, freason, ffrom, fto]);
 
   const del = async (id: number) => {
     if (!confirm("Hapus trade ini dari riwayat?")) return;
@@ -52,6 +61,9 @@ export function TradeHistory({ tick }: { tick: number }) {
     { t: "Equity", render: (r) => f(r.equity, 2) },
     { t: "", render: (r) => (r.id != null ? <button className="del" title="Hapus trade ini" onClick={() => del(r.id!)}>✕</button> : "") },
   ];
+
+  // gunakan data.trades yg sudah di-fetch (max 100) — PaginatedTable akan slice per 5
+  const displayRows = data.trades;
 
   return (
     <div className="panel">
@@ -90,7 +102,12 @@ export function TradeHistory({ tick }: { tick: number }) {
       </button>{" "}
       <span className="sub">{data.count} trade</span>
       <div style={{ marginTop: 10 }}>
-        <PaginatedTable cols={cols} rows={data.trades} rowCls={(r) => (r.reason === "liq" ? "liqrow" : "")} />
+        <PaginatedTable
+          cols={cols}
+          rows={displayRows}
+          rowCls={(r) => (r.reason === "liq" ? "liqrow" : "")}
+          initialSize={5}
+        />
       </div>
     </div>
   );
