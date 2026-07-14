@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, cls, f } from "./api";
+import { api, cls, f, fp, fmtWIB, fmtWIBdate } from "./api";
 import { useEventSource, usePoll } from "./hooks";
 import type { Account, OpenOrder, Stats, Status } from "./types";
 import { StatsCards } from "./components/StatsCards";
@@ -120,7 +120,7 @@ function StatsTables({ s }: { s: Stats }) {
     { t: "Σ R", render: (r) => (r.sum_r > 0 ? "+" : "") + f(r.sum_r, 3), cls: (r) => cls(r.sum_r) },
   ];
   const recentCols: Col<Stats["recent"][number]>[] = [
-    { t: "Waktu", render: (r) => (r.ts || "").slice(11, 19) },
+    { t: "Waktu (WIB)", render: (r) => fmtWIB(r.ts) },
     { t: "Simbol", render: (r) => r.symbol },
     { t: "Alasan", render: (r) => (r.reason === "liq" ? "⚠ LIKUIDASI" : r.reason) },
     { t: "R", render: (r) => (r.r > 0 ? "+" : "") + f(r.r, 3), cls: (r) => cls(r.r) },

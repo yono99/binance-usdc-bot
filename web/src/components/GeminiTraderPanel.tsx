@@ -4,7 +4,24 @@ import type { GeminiTrader as GT } from "../types";
 import { Table, type Col } from "./Table";
 import { PaginatedTable } from "./PaginatedTable";
 
-const ts = (s: string) => (s || "").slice(0, 19).replace("T", " ");
+const MONTHS_ID = [
+  "Jan", "Feb", "Mar", "Apr", "Mei", "Jun",
+  "Jul", "Agu", "Sep", "Okt", "Nov", "Des",
+];
+
+function fmtWIB(s: string | null | undefined): string {
+  if (!s) return "—";
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return s.slice(0, 19).replace("T", " ");
+  const wib = new Date(d.getTime() + 7 * 60 * 60 * 1000);
+  const dd = String(wib.getUTCDate()).padStart(2, "0");
+  const mm = MONTHS_ID[wib.getUTCMonth()];
+  const yy = wib.getUTCFullYear();
+  const hh = String(wib.getUTCHours()).padStart(2, "0");
+  const mi = String(wib.getUTCMinutes()).padStart(2, "0");
+  const ss = String(wib.getUTCSeconds()).padStart(2, "0");
+  return `${dd} ${mm} ${yy}, ${hh}:${mi}:${ss} WIB`;
+}
 
 function Card({ lbl, val, c = "" }: { lbl: string; val: string | number; c?: string }) {
   return (
@@ -42,7 +59,7 @@ export function GeminiTraderPanel() {
   ];
 
   const decCols: Col<GT["recent"][number]>[] = [
-    { t: "Waktu", render: (r) => ts(r.ts) },
+    { t: "Waktu (WIB)", render: (r) => fmtWIB(r.ts) },
     { t: "Simbol", render: (r) => r.symbol },
     { t: "Setup", render: (r) => r.setup },
     { t: "Sisi", render: (r) => (r.side || "").toUpperCase(), cls: (r) => (r.side === "long" ? "pos" : r.side === "short" ? "neg" : "") },

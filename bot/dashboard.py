@@ -257,21 +257,26 @@ app = FastAPI(title="Bot Monitor", lifespan=lifespan)
 def api_trades(symbol: str = None, reason: str = None, dfrom: str = None,
                dto: str = None, page: int = 1, page_size: int = 5) -> JSONResponse:
     """Riwayat trade dengan pagination.
-    Pagination: page (1-indexed), page_size (allowed: 5, 10, 20, 30, 100, default 5)."""
+    Pagination: page (1-indexed), page_size (allowed: 5, 10, 20, 30, 100, default 5).
+    Urutan: NEWEST first (DESC by close_ts/id). Sebelumnya ASC + reverse-after-slice
+    salah — slice memilih oldest, bukan newest untuk page 1."""
     allowed_page_sizes = {5, 10, 20, 30, 100}
     page_size = page_size if page_size in allowed_page_sizes else 5
     trades = filter_trades(build_trades(store.all_events(), _ui_mode()), symbol, reason, dfrom, dto)
     total = len(trades)
     page = max(1, page)
+    # Balik ke DESC dulu (newest first), BARU slice — agar page 1 = 5 terbaru.
+    desc = trades[::-1]
     start = (page - 1) * page_size
     end = start + page_size
-    paginated = trades[start:end]
+    paginated = desc[start:end]
     return JSONResponse({
         "total": total,
         "page": page,
+        "max_page": max(1, (total + page_size - 1) // page_size),
         "page_size": page_size,
         "total_pages": (total + page_size - 1) // page_size,
-        "trades": paginated[::-1]  # newest first
+        "trades": paginated
     })
 
 

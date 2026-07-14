@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, cls, f, fp } from "../api";
+import { api, cls, f, fp, fmtWIB } from "../api";
 import type { Trade, TradesResp } from "../types";
 import { type Col } from "./Table";
 import { PaginatedTable } from "./PaginatedTable";
@@ -41,7 +41,7 @@ export function TradeHistory({ tick }: { tick: number }) {
   };
 
   const cols: Col<Trade>[] = [
-    { t: "Close", render: (r) => (r.close_ts || "").slice(0, 16).replace("T", " ") },
+    { t: "Waktu (WIB)", render: (r) => fmtWIB(r.close_ts) },
     { t: "Pair", render: (r) => r.symbol },
     { t: "Side", render: (r) => (r.side || "").toUpperCase(), cls: (r) => (r.side === "long" ? "pos" : r.side === "short" ? "neg" : "") },
     { t: "Reason", render: (r) => (r.reason === "liq" ? "⚠ LIQ" : r.reason || "—") },

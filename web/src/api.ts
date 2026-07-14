@@ -86,3 +86,38 @@ export const fp = (n: number | null | undefined): string => {
 };
 export const cls = (v: number | null | undefined): string =>
   v == null ? "" : v > 0 ? "pos" : v < 0 ? "neg" : "";
+
+// Format ISO timestamp → Asia/Jakarta (UTC+07:00, tanpa DST)
+// Contoh output: "14 Jul 2026, 18:23 WIB" untuk tabel ringkas,
+// atau        "14 Jul 2026, 18:23:11" untuk sel lengkap.
+const _MONTHS_ID = [
+  "Jan", "Feb", "Mar", "Apr", "Mei", "Jun",
+  "Jul", "Agu", "Sep", "Okt", "Nov", "Des",
+];
+function _wibParts(iso: string | null | undefined): Date | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return new Date(d.getTime() + 7 * 60 * 60 * 1000);
+}
+export const fmtWIB = (iso: string | null | undefined): string => {
+  const w = _wibParts(iso);
+  if (!w) return iso || "—";
+  const dd = String(w.getUTCDate()).padStart(2, "0");
+  const mm = _MONTHS_ID[w.getUTCMonth()];
+  const yy = w.getUTCFullYear();
+  const hh = String(w.getUTCHours()).padStart(2, "0");
+  const mi = String(w.getUTCMinutes()).padStart(2, "0");
+  const ss = String(w.getUTCSeconds()).padStart(2, "0");
+  return `${dd} ${mm} ${yy}, ${hh}:${mi}:${ss} WIB`;
+};
+export const fmtWIBdate = (iso: string | null | undefined): string => {
+  const w = _wibParts(iso);
+  if (!w) return iso || "—";
+  const dd = String(w.getUTCDate()).padStart(2, "0");
+  const mm = _MONTHS_ID[w.getUTCMonth()];
+  const yy = w.getUTCFullYear();
+  const hh = String(w.getUTCHours()).padStart(2, "0");
+  const mi = String(w.getUTCMinutes()).padStart(2, "0");
+  return `${dd} ${mm} ${yy}, ${hh}:${mi} WIB`;
+};

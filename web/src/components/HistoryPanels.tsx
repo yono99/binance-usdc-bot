@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { api, f, fp } from "../api";
+import { api, f, fp, fmtWIB, fmtWIBdate } from "../api";
 import { usePoll } from "../hooks";
 import type { NewsLogEntry, ScreenLogEntry } from "../types";
 import { type Col } from "./Table";
@@ -14,6 +14,9 @@ const TZ: Record<string, string> = {
 };
 const fmtTime = (s: string, tz: string): string => {
   if (!s) return "—";
+  // WIB gunakan format Indonesia (dd Mmm yyyy, HH:mi:ss WIB) agar konsisten
+  if (tz === "WIB") return fmtWIB(s);
+  // Non-WIB: gunakan Intl.DateTimeFormat (format standar)
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return s.slice(0, 19).replace("T", " ");
   return new Intl.DateTimeFormat("sv-SE", {
