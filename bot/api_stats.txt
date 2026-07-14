@@ -1,0 +1,7 @@
+def api_stats() -> JSONResponse:
+    # _json_safe: profit_factor bisa inf (ada win, belum ada loss — PASTI terjadi
+    # di awal riwayat live) → tanpa sanitasi endpoint ini 500 tepat saat dibutuhkan.
+    return JSONResponse(_json_safe(compute_stats(mode=_ui_mode())))
+
+
+@app.get("/api/settings")

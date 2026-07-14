@@ -253,10 +253,24 @@ app = FastAPI(title="Bot Monitor", lifespan=lifespan)
 
 @app.get("/api/trades")
 def api_trades(symbol: str = None, reason: str = None, dfrom: str = None,
-               dto: str = None, limit: int = 100) -> JSONResponse:
-    limit = min(max(1, limit), 100)        # data dari SQLite maksimal 100
+               dto: str = None, page: int = 1, page_size: int = 5) -> JSONResponse:
+    """Riwayat trade dengan pagination.
+    Pagination: page (1-indexed), page_size (allowed: 5, 10, 20, 30, 100, default 5)."""
+    allowed_page_sizes = {5, 10, 20, 30, 100}
+    page_size = page_size if page_size in allowed_page_sizes else 5
     trades = filter_trades(build_trades(store.all_events(), _ui_mode()), symbol, reason, dfrom, dto)
-    return JSONResponse({"count": len(trades), "trades": trades[-limit:][::-1]})
+    total = len(trades)
+    page = max(1, page)
+    start = (page - 1) * page_size
+    end = start + page_size
+    paginated = trades[start:end]
+    return JSONResponse({
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": (total + page_size - 1) // page_size,
+        "trades": paginated[::-1]  # newest first
+    })
 
 
 @app.get("/api/trades.csv")
@@ -1101,6 +1115,8 @@ PAGE = """<!doctype html>
   <div class="cards" id="cards"></div>
   <div class="panel"><h2>Kurva Equity</h2><canvas id="eq" height="90"></canvas></div>
   <div class="panel"><h2>Posisi Terbuka</h2><div id="open"></div></div>
+  <div class="panel"><h2>Open Orders</h2><div id="open-orders"></div></div>
+  <div class="panel"><h2>
   <div class="panel"><h2>Per Simbol</h2><div id="sym"></div></div>
   <div class="panel"><h2>Trade Terakhir</h2><div id="recent"></div></div>
   <div class="panel"><h2>Riwayat Trade
@@ -1113,6 +1129,7 @@ PAGE = """<!doctype html>
     </div>
     <button id="fbtn">Filter</button> <button id="clrhist" class="danger">Hapus semua</button> <span id="tcount" class="sub"></span>
     <div id="thist" style="margin-top:10px"></div>
+    <div id="thist-pagination" style="margin-top:10px"></div>
   </div>
 </div>
 <script>
@@ -1365,7 +1382,30 @@ async function loadStatus(){
      {t:'Keterangan',f:r=>r.blocked||'—'},
      {t:'Aksi',f:r=>r.in_position?`<button class="btnsm" onclick="closePos('${r.symbol}')">Close</button>`:'—'}],
     s.symbols||[]);
+
+  loadOpenOrders();}
+async function loadOpenOrders(){
+  try{
+    const d=await (await fetch('/api/open-orders')).json();
+    const orders=d.orders||[];
+    if(!orders.length){
+      document.getElementById('open-orders').innerHTML='<div class="empty">Tidak ada order terbuka</div>';
+      return;
+    }
+    document.getElementById('open-orders').innerHTML=table(
+      [{t:'Pair',k:'symbol'},
+       {t:'Side',f:r=>r.side,cls:r=>r.side==='BUY'?'pos':(r.side==='SELL'?'neg':'')},
+       {t:'Type',k:'type'},
+       {t:'Kind',k:'kind'},
+       {t:'Price',f:r=>f(r.price,4)},
+       {t:'Qty',f:r=>f(r.qty,4)},
+       {t:'Filled',f:r=>f(r.filled,4)},
+       {t:'Status',k:'status'},
+       {t:'Reduce',f:r=>r.reduce_only?'YA':'TIDAK'}],
+      orders);
 }
+
+
 function tradeQ(){
   const p=new URLSearchParams();
   const s=document.getElementById('fsym').value.trim(); if(s)p.set('symbol',s);
@@ -1374,12 +1414,14 @@ function tradeQ(){
   const b=document.getElementById('fto').value; if(b)p.set('dto',b);
   return p.toString();
 }
-async function loadTrades(){
-  const q=tradeQ();
-  document.getElementById('fcsv').href='/api/trades.csv'+(q?'?'+q:'');
-  const d=await (await fetch('/api/trades'+(q?'?'+q:''))).json();
-  document.getElementById('tcount').textContent=d.count+' trade';
-  document.getElementById('thist').innerHTML=table(
+async function loadTrades(page = 1, pageSize = 5){
+  const q = tradeQ();
+  q.set('page', page);
+  q.set('page_size', pageSize);
+  document.getElementById('fcsv').href = '/api/trades.csv' + (q.toString() ? '?' + q.toString() : '');
+  const d = await (await fetch('/api/trades?' + q.toString())).json();
+  document.getElementById('tcount').textContent = d.total + ' trade';
+  document.getElementById('thist').innerHTML = table(
     [{t:'Close',f:r=>(r.close_ts||'').slice(0,16).replace('T',' ')},
      {t:'Pair',k:'symbol'},
      {t:'Side',f:r=>(r.side||'').toUpperCase(),cls:r=>r.side==='long'?'pos':(r.side==='short'?'neg':'')},
@@ -1391,7 +1433,31 @@ async function loadTrades(){
      {t:'Equity',f:r=>r.equity!=null?f(r.equity,2):'—'},
      {t:'',f:r=>r.id!=null?`<button class="del" onclick="delTrade(${r.id})" title="Hapus trade ini">✕</button>`:''}],
     d.trades, r=>r.reason==='liq'?'liqrow':'');
+  renderPagination(d, 'thist', 'loadTrades');
 }
+
+
+  // Generic pagination renderer
+  function renderPagination(data, containerId, loadFn) {
+    const totalPages = data.total_pages || 1;
+    const page = data.page || 1;
+    const pageSize = data.page_size || 5;
+    const total = data.total || 0;
+    const pageSizeOptions = [5, 10, 20, 30, 100];
+    const paginationHtml = `
+      <div style="display:flex;justify-content:center;gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center;">
+        <button class="btnsm" onclick="${loadFn}(${page - 1}, ${pageSize})" ${page <= 1 ? 'disabled' : ''}>← Prev</button>
+        <span style="align-self:center;color:#8aa0c0;">Page ${page} / ${totalPages} (${total} total)</span>
+        <button class="btnsm" onclick="${loadFn}(${page + 1}, ${pageSize})" ${page >= totalPages ? 'disabled' : ''}>Next →</button>
+        <label style="margin-left:16px;color:#8aa0c0;font-size:12px;">Page size:
+          <select onchange="${loadFn}(1, parseInt(this.value))" style="margin-left:4px;background:#0b1220;border:1px solid #243049;color:#e2e8f0;border-radius:4px;padding:2px 6px;">
+            ${pageSizeOptions.map(s => `<option value="${s}" ${s === pageSize ? 'selected' : ''}>${s}</option>`).join('')}
+          </select>
+        </label>
+      </div>`;
+    document.getElementById(containerId + '-pagination').innerHTML = paginationHtml;
+  }
+
 async function delTrade(id){
   if(!confirm('Hapus trade ini dari riwayat?'))return;
   await fetch('/api/trades/'+id,{method:'DELETE'});
@@ -1414,10 +1480,25 @@ refresh();setInterval(refresh,10000);
 # Endpoint JSON + halaman /agent mandiri (tak menyentuh SPA React → panel lama aman).
 
 @app.get("/api/decisions")
-def api_decisions(limit: int = 20) -> JSONResponse:
-    """Keputusan ReactAgent terakhir (alasan, confidence, sumber, outcome R)."""
+def api_decisions(page: int = 1, page_size: int = 5) -> JSONResponse:
+    """Keputusan ReactAgent terakhir (alasan, confidence, sumber, outcome R).
+    Pagination: page (1-indexed), page_size (allowed: 5, 10, 20, 30, 100, default 5)."""
     from . import decision_log
-    return JSONResponse({"decisions": decision_log.recent(min(max(1, limit), 200))})
+    allowed_page_sizes = {5, 10, 20, 30, 100}
+    page_size = page_size if page_size in allowed_page_sizes else 5
+    rows = decision_log.recent(200)
+    total = len(rows)
+    page = max(1, page)
+    start = (page - 1) * page_size
+    end = start + page_size
+    paginated = rows[start:end]
+    return JSONResponse({
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": (total + page_size - 1) // page_size,
+        "decisions": paginated
+    })
 
 
 @app.get("/api/lessons")
@@ -1462,10 +1543,25 @@ def api_agent_health(limit: int = 300) -> JSONResponse:
 
 
 @app.get("/api/evolution")
-def api_evolution(limit: int = 50) -> JSONResponse:
-    """Riwayat evolusi threshold (before/after, p-value, applied)."""
+def api_evolution(page: int = 1, page_size: int = 5) -> JSONResponse:
+    """Riwayat evolusi threshold (before/after, p-value, applied).
+    Pagination: page (1-indexed), page_size (allowed: 5, 10, 20, 30, 100, default 5)."""
     from . import evolve
-    return JSONResponse({"events": evolve.recent_events(min(max(1, limit), 200))})
+    allowed_page_sizes = {5, 10, 20, 30, 100}
+    page_size = page_size if page_size in allowed_page_sizes else 5
+    rows = evolve.recent_events(200)
+    total = len(rows)
+    page = max(1, page)
+    start = (page - 1) * page_size
+    end = start + page_size
+    paginated = rows[start:end]
+    return JSONResponse({
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": (total + page_size - 1) // page_size,
+        "events": paginated
+    })
 
 
 @app.get("/api/ab")
@@ -1529,72 +1625,73 @@ AGENT_PAGE = """<!doctype html><html lang="id"><head><meta charset="utf-8">
    <div id="agentctl" class="chips">memuat…</div>
    <div class="mut" style="margin-top:8px">full_auto = tool_loop + autonomous + planner. LIVE FLAT tetap butuh allow_live_trader.</div></div>
  <div class="card"><h2>A/B — rules vs rules+ReAct</h2><div id="ab" class="mut">memuat…</div></div>
- <div class="card"><h2>Keputusan Terakhir</h2><table id="dec"><thead><tr><th>waktu</th><th>simbol</th>
-   <th>aksi</th><th>conf</th><th>sumber</th><th>alasan</th><th>outcome</th><th>R</th></tr></thead><tbody></tbody></table></div>
+<div class="card"><h2>Keputusan Terakhir</h2><table id="dec"><thead><tr><th>waktu</th><th>simbol</th>
+    <th>aksi</th><th>conf</th><th>sumber</th><th>alasan</th><th>outcome</th><th>R</th></tr></thead><tbody></tbody></table>
+    <div id="dec-pagination" style="margin-top:10px"></div></div>
 <div class="card"><h2>Pelajaran Aktif</h2><table id="les"><thead><tr><th>pelajaran</th><th>regime</th>
     <th>akurasi</th><th>dipicu</th><th>sumber</th></tr></thead><tbody></tbody></table>
     <div id="les-pagination" style="margin-top:10px"></div></div>
   <div class="card"><h2>Evolusi Threshold (OOS)</h2><table id="evo"><thead><tr><th>waktu</th><th>param</th>
-    <th>lama→baru</th><th>OOS base→prop</th><th>p</th><th>applied</th></tr></thead><tbody></tbody></table></div>
+    <th>lama→baru</th><th>OOS base→prop</th><th>p</th><th>applied</th></tr></thead><tbody></tbody></table>
+    <div id="evo-pagination" style="margin-top:10px"></div></div>
 </div>
 <script>
 const $=s=>document.querySelector(s);
 const rcls=v=>v>0?'pos':(v<0?'neg':'');
-const esc=s=>(s==null?'':String(s)).replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+const esc=s=>(s==null?'':String(s)).replace(/[<>&]/g,c=>({'<':'<','>':'>','&':'&'}[c]));
 async function j(u){try{const r=await fetch(u);return await r.json()}catch(e){return null}}
 async function load(){
- const h=await j('/api/agent-health');
- if(h){$('#health').innerHTML=`<span>total: ${h.total}</span><span>LLM: ${h.llm}</span>`+
-   `<span>fallback: ${h.fallbacks}</span><span>fallback rate: ${(h.fallback_rate*100).toFixed(1)}%</span>`+
-   Object.entries(h.by_source||{}).map(([k,v])=>`<span>${esc(k)}: ${v}</span>`).join('');}
- const ab=await j('/api/ab');
- if(ab){const sig=ab.significant?'<span class=pos>YA</span>':'<span class=mut>tidak</span>';
-   $('#ab').innerHTML=`<b>verdict:</b> ${esc(ab.verdict)} <span class="mut">(${esc(ab.reason||'')})</span><br>`+
-   `rules: exp_R <b>${ab.exp_r_rules??'—'}</b> (n=${ab.n_total??0}) · `+
-   `rules+ReAct: exp_R <b>${ab.exp_r_rules_react??'—'}</b> (n=${ab.n_kept??0}) · `+
-   `ditolak: exp_R ${ab.exp_r_denied??'—'} (n=${ab.n_denied??0})<br>`+
-   `improvement: ${ab.improvement??'—'} · p=${ab.p_value??'—'} · signifikan: ${sig}<br>`+
-   `<b>risiko (Jalan A):</b> drawdown rules ${ab.risk_rules?ab.risk_rules.max_drawdown_r:'—'}R → `+
-   `rules+ReAct ${ab.risk_react?ab.risk_react.max_drawdown_r:'—'}R · `+
-   `kurangi risiko: ${ab.reduces_risk?'<span class=pos>YA</span>':'<span class=mut>tidak</span>'}`;}
- const d=await j('/api/decisions?limit=20');
- if(d){$('#dec tbody').innerHTML=(d.decisions||[]).map(x=>`<tr><td class="mut">${esc((x.ts||'').slice(0,19))}</td>`+
-   `<td>${esc(x.symbol)}</td><td><span class="pill">${esc(x.action)}</span></td><td>${(x.confidence??0)}</td>`+
-   `<td class="mut">${esc(x.source)}</td><td>${esc(x.reasoning)}</td><td>${esc(x.outcome??'')}</td>`+
-   `<td class="${rcls(x.outcome_r)}">${x.outcome_r==null?'':x.outcome_r}</td></tr>`).join('')||'<tr><td colspan=8 class=mut>belum ada keputusan</td></tr>';}
-const l=await j('/api/lessons');
-  if(l){
-    // Render lessons table
-    $('#les tbody').innerHTML=(l.lessons||[]).map(x=>{const t=x.times_triggered||0,c=x.times_correct||0;
-      const acc=t?(c/t*100).toFixed(0)+'%':'—';return `<tr><td>${esc(x.lesson)}</td><td class="mut">${esc(x.market_regime)}</td>`+
-      `<td>${acc} <span class="mut">(${c}/${t})</span></td><td>${t}</td><td class="mut">${esc(x.source)}</td></tr>`;}).join('')
-      ||'<tr><td colspan=5 class=mut>belum ada pelajaran</td></tr>';
-    
-    // Render pagination for lessons
-    renderLessonsPagination(l);
-  }
-  
-  // Render pagination for lessons (extracted function)
-  function renderLessonsPagination(l) {
-    const totalPages = l.total_pages || 1;
-    const page = l.page || 1;
-    const pageSize = l.page_size || 5;
-    const total = l.total || 0;
+  const h=await j('/api/agent-health');
+  if(h){$('#health').innerHTML=`<span>total: ${h.total}</span><span>LLM: ${h.llm}</span>`+
+    `<span>fallback: ${h.fallbacks}</span><span>fallback rate: ${(h.fallback_rate*100).toFixed(1)}%</span>`+
+    Object.entries(h.by_source||{}).map(([k,v])=>`<span>${esc(k)}: ${v}</span>`).join('');}
+  const ab=await j('/api/ab');
+  if(ab){const sig=ab.significant?'<span class=pos>YA</span>':'<span class=mut>tidak</span>';
+    $('#ab').innerHTML=`<b>verdict:</b> ${esc(ab.verdict)} <span class="mut">(${esc(ab.reason||'')})</span><br>`+
+    `rules: exp_R <b>${ab.exp_r_rules??'—'}</b> (n=${ab.n_total??0}) · `+
+    `rules+ReAct: exp_R <b>${ab.exp_r_rules_react??'—'}</b> (n=${ab.n_kept??0}) · `+
+    `ditolak: exp_R ${ab.exp_r_denied??'—'} (n=${ab.n_denied??0})<br>`+
+    `improvement: ${ab.improvement??'—'} · p=${ab.p_value??'—'} · signifikan: ${sig}<br>`+
+    `<b>risiko (Jalan A):</b> drawdown rules ${ab.risk_rules?ab.risk_rules.max_drawdown_r:'—'}R → `+
+    `rules+ReAct ${ab.risk_react?ab.risk_react.max_drawdown_r:'—'}R · `+
+    `kurangi risiko: ${ab.reduces_risk?'<span class=pos>YA</span>':'<span class=mut>tidak</span>'}`;}
+  await loadDecisions(1, 5);
+  await loadLessons(1, 5);
+  await loadEvolution(1, 5);
+}
+
+  // Generic pagination renderer
+  function renderPagination(data, containerId, loadFn) {
+    const totalPages = data.total_pages || 1;
+    const page = data.page || 1;
+    const pageSize = data.page_size || 5;
+    const total = data.total || 0;
     const pageSizeOptions = [5, 10, 20, 30, 100];
-    const pageSizeHtml = pageSizeOptions.map(s => 
-      `<option value="${s}" ${s === pageSize ? 'selected' : ''}>${s}</option>`).join('');
     const paginationHtml = `
       <div style="display:flex;justify-content:center;gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center;">
-        <button class="btnsm" onclick="loadLessons(${page - 1})" ${page <= 1 ? 'disabled' : ''}>← Prev</button>
+        <button class="btnsm" onclick="${loadFn}(${page - 1}, ${pageSize})" ${page <= 1 ? 'disabled' : ''}>← Prev</button>
         <span style="align-self:center;color:#8aa0c0;">Page ${page} / ${totalPages} (${total} total)</span>
-        <button class="btnsm" onclick="loadLessons(${page + 1})" ${page >= totalPages ? 'disabled' : ''}>Next →</button>
+        <button class="btnsm" onclick="${loadFn}(${page + 1}, ${pageSize})" ${page >= totalPages ? 'disabled' : ''}>Next →</button>
         <label style="margin-left:16px;color:#8aa0c0;font-size:12px;">Page size:
-          <select onchange="loadLessons(1, parseInt(this.value))" style="margin-left:4px;background:#0b1220;border:1px solid #243049;color:#e2e8f0;border-radius:4px;padding:2px 6px;">
+          <select onchange="${loadFn}(1, parseInt(this.value))" style="margin-left:4px;background:#0b1220;border:1px solid #243049;color:#e2e8f0;border-radius:4px;padding:2px 6px;">
             ${pageSizeOptions.map(s => `<option value="${s}" ${s === pageSize ? 'selected' : ''}>${s}</option>`).join('')}
           </select>
         </label>
       </div>`;
-    $('#les-pagination').innerHTML = paginationHtml;
+    $(`#${containerId}-pagination`).innerHTML = paginationHtml;
+  }
+
+  // Load decisions with pagination
+  async function loadDecisions(page = 1, pageSize = 5) {
+    const d = await j(`/api/decisions?page=${page}&page_size=${pageSize}`);
+    if(d) {
+      $('#dec tbody').innerHTML = (d.decisions||[]).map(x=>`<tr><td class="mut">${esc((x.ts||'').slice(0,19))}</td>`+
+        `<td>${esc(x.symbol)}</td><td><span class="pill">${esc(x.action)}</span></td><td>${(x.confidence??0)}</td>`+
+        `<td class="mut">${esc(x.source)}</td><td>${esc(x.reasoning)}</td><td>${esc(x.outcome??'')}</td>`+
+        `<td class="${rcls(x.outcome_r)}">${x.outcome_r==null?'':x.outcome_r}</td></tr>`).join('')
+        ||'<tr><td colspan=8 class=mut>belum ada keputusan</td></tr>';
+      renderPagination(d, 'dec', 'loadDecisions');
+    }
   }
 
   // Load lessons with pagination
@@ -1605,16 +1702,22 @@ const l=await j('/api/lessons');
         const acc=t?(c/t*100).toFixed(0)+'%':'—';return `<tr><td>${esc(x.lesson)}</td><td class="mut">${esc(x.market_regime)}</td>`+
         `<td>${acc} <span class="mut">(${c}/${t})</span></td><td>${t}</td><td class="mut">${esc(x.source)}</td></tr>`;}).join('')
         ||'<tr><td colspan=5 class=mut>belum ada pelajaran</td></tr>';
-      renderLessonsPagination(l);
+      renderPagination(l, 'les', 'loadLessons');
     }
   }
- const e=await j('/api/evolution?limit=30');
- if(e){$('#evo tbody').innerHTML=(e.events||[]).map(x=>`<tr><td class="mut">${esc((x.ts||'').slice(0,19))}</td>`+
-   `<td>${esc(x.param)}</td><td>${esc(x.old)} → ${esc(x.new??'—')}</td>`+
-   `<td>${esc(x.test_exp_r_baseline??'—')} → ${esc(x.test_exp_r_proposed??'—')}</td>`+
-   `<td>${esc(x.p_value??'—')}</td><td>${x.applied?'<span class=pos>YA</span>':'<span class=mut>tidak</span>'}</td></tr>`).join('')
-   ||'<tr><td colspan=6 class=mut>belum ada evolusi</td></tr>';}
-}
+
+  // Load evolution with pagination
+  async function loadEvolution(page = 1, pageSize = 5) {
+    const e = await j(`/api/evolution?page=${page}&page_size=${pageSize}`);
+    if(e) {
+      $('#evo tbody').innerHTML = (e.events||[]).map(x=>`<tr><td class="mut">${esc((x.ts||'').slice(0,19))}</td>`+
+        `<td>${esc(x.param)}</td><td>${esc(x.old)} → ${esc(x.new??'—')}</td>`+
+        `<td>${esc(x.test_exp_r_baseline??'—')} → ${esc(x.test_exp_r_proposed??'—')}</td>`+
+        `<td>${esc(x.p_value??'—')}</td><td>${x.applied?'<span class=pos>YA</span>':'<span class=mut>tidak</span>'}</td></tr>`).join('')
+        ||'<tr><td colspan=6 class=mut>belum ada evolusi</td></tr>';
+      renderPagination(e, 'evo', 'loadEvolution');
+    }
+  }
 const AGFLAGS=[["agent_manager_mode","Manager-mode"],["agent_full_auto","Full-auto"],
   ["agent_tool_loop","Tool-loop"],["agent_autonomous","Autonomous"],["agent_planner","Planner"],
   ["agent_ab_shadow","A/B shadow"],["news_veto","News-veto"]];

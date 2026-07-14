@@ -1,0 +1,12 @@
+Posisi Terbuka</h2><div id="open"></div></div>
+  <div class="panel"><h2>Per Simbol</h2><div id="sym"></div></div>
+  <div class="panel"><h2>Trade Terakhir</h2><div id="recent"></div></div>
+  <div class="panel"><h2>Riwayat Trade
+    <a id="fcsv" href="/api/trades.csv" style="float:right;font-size:13px">⬇ Export CSV</a></h2>
+    <div class="grid" style="margin-bottom:12px">
+      <label>Pair<input id="fsym" placeholder="mis. BTC"></label>
+      <label>Reason<select id="freason"><option value="">semua</option><option>tp</option><option>sl</option><option>liq</option><option>manual</option><option>eod</option></select></label>
+      <label>Dari<input id="ffrom" type="date"></label>
+      <label>Sampai<input id="fto" type="date"></label>
+    </div>
+    <button id="fbtn">Filter</button> <button i

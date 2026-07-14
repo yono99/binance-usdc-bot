@@ -1,0 +1,7 @@
+xit!=null?f(r.exit,4):'—'},
+     {t:'Equity',f:r=>r.equity!=null?f(r.equity,2):'—'},
+     {t:'',f:r=>r.id!=null?`<button class="del" onclick="delTrade(${r.id})" title="Hapus trade ini">✕</button>`:''}],
+    d.trades, r=>r.reason==='liq'?'liqrow':'');
+  renderPagination(d, 'thist', 'loadTrades');
+}
+
