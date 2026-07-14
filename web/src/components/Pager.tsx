@@ -1,4 +1,4 @@
-const SIZES = [10, 20, 30, 100];
+const SIZES = [5, 10, 20, 30, 100];
 
 function pageList(cur: number, total: number): (number | "…")[] {
   if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
