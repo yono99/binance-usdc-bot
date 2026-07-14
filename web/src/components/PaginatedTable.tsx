@@ -8,7 +8,7 @@ export function PaginatedTable<T>({
   rows,
   rowCls,
   empty,
-  initialSize = 10,
+  initialSize = 5,
 }: {
   cols: Col<T>[];
   rows: T[];

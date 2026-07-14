@@ -78,11 +78,11 @@ export function GeminiTraderPanel() {
       <div className="grid" style={{ marginBottom: 0 }}>
         <div>
           <div className="sub" style={{ marginBottom: 6 }}>Per setup</div>
-          <Table cols={setupCols} rows={data.per_setup} empty="Belum ada trade" />
+          <PaginatedTable cols={setupCols} rows={data.per_setup} empty="Belum ada trade" initialSize={5} />
         </div>
-        <div>
+<div>
           <div className="sub" style={{ marginBottom: 6 }}>Playbook teruji (lolos bukti)</div>
-          <Table cols={lessonCols} rows={data.active_lessons} empty="Belum ada pelajaran teruji" />
+          <PaginatedTable cols={lessonCols} rows={data.active_lessons} empty="Belum ada pelajaran teruji" initialSize={5} />
         </div>
       </div>
 
