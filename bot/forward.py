@@ -1579,18 +1579,9 @@ class ForwardTester:
         slip = 1 + self.slippage / 100 if is_long else 1 - self.slippage / 100
         entry = price * slip
         qty = (bet * rs.leverage) / entry
-        # Regime-adaptive SL/TP: range (ADX<18) → tight multipliers for small-target fades
+        # USE CONFIG SL/TP MULTIPLIERS FOR ALL REGIMES (1.75/2.6 per config.yaml)
         _sl_mult = self.bt.sl_mult
         _tp_mult = self.bt.tp_mult
-        _rb = self.buffers.get(sym)
-        if _rb is not None and len(_rb) >= 60:
-            try:
-                from .gemini_trader import _market_summary
-                if _market_summary(_rb.iloc[:-1], self.cfg).get("regime") == "range":
-                    _sl_mult = 1.0
-                    _tp_mult = 1.2
-            except Exception:
-                pass
         sl = entry - atr * _sl_mult if is_long else entry + atr * _sl_mult
         # ── SIDEWAYS SNIPER: micro-TP override untuk setup scalp_range di regime=range.
         # Saat gemini setup='scalp_range' & sideways_sniper aktif → override target_profit_pct
@@ -1686,20 +1677,11 @@ class ForwardTester:
                 tp = float(g_tp)                    # TP Gemini valid; selain itu pakai TP ATR
         # Fix A: LANTAI jarak SL — SKIP bila regime=range (SL ketat 1×ATR sengaja pendek;
         # lantai 1.75×ATR akan melebarkan kembali, membatalkan ketatnya range scalping).
-        # Lantai Kalibrasi untuk TREND/mixed (anti-SL-kemepet setelah candle raksasa).
+        # Lantai Kalibrasi untuk SEMUA regime (anti-SL-kemepet setelah candle raksasa).
         buf = self.buffers.get(sym)
         last_range = (float(buf["high"].iloc[-2] - buf["low"].iloc[-2])
                       if buf is not None and len(buf) >= 2 else 0.0)
-        _skip_floor = False
-        if buf is not None and len(buf) >= 60:
-            try:
-                from .gemini_trader import _market_summary
-                if _market_summary(buf.iloc[:-1], self.cfg).get("regime") == "range":
-                    _skip_floor = True
-            except Exception:
-                pass
-        if not _skip_floor:
-            sl = self._sl_floor(entry, is_long, sl, atr, last_range)
+        sl = self._sl_floor(entry, is_long, sl, atr, last_range)
         if (is_long and sl <= liq) or (not is_long and sl >= liq):
             sl = (entry + liq) / 2                  # kompromi: selebar mungkin, tetap aman
         # Tahap 2 (plan-sess): MARGIN ISOLATED — set leverage + margin_type SEBELUM order.

@@ -28,7 +28,7 @@ gemini:
   allow_live_trader: true
   batch_chunk_size: 12
   devil_advocate:
-    enabled: true
+    enabled: false
     model: ''
     veto_threshold: 0.7
   gemini_decide_cap: 100
@@ -73,7 +73,7 @@ risk:
   daily_max_trades: 20
   leverage: 3
   max_portfolio_exposure_pct: 30
-  sl_atr_mult: 1.5
+  sl_atr_mult: 1.75
   tp_atr_mult: 2.6
   trailing: true
   trailing_atr_mult: 1.2
@@ -88,12 +88,12 @@ screener:
   min_quote_volume_24h: 5000000
 signals:
   adx_period: 14
-  adx_trend_min: 20
+  adx_trend_min: 25
   atr_period: 14
   ema_fast: 9
   ema_mid: 21
   ema_slow: 50
-  entry_confidence: 0.55
+  entry_confidence: 0.65
   rsi_period: 14
   weights:
     momentum: 0.3

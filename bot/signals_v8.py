@@ -60,19 +60,23 @@ def _score_trend_v8(df: pd.DataFrame, c: dict) -> tuple[float, int]:
 
 
 def _score_pullback(df: pd.DataFrame, c: dict) -> tuple[float, int]:
-    """Pullback completion score: RSI normalization + MACD histogram turn.
+    """Pullback completion score: RSI normalization + MACD histogram turn + EMA alignment.
 
-    For LONG: RSI was oversold (<40) and now rising, MACD hist turning up
-    For SHORT: RSI was overbought (>60) and now falling, MACD hist turning down
+    For LONG: RSI < 35 (was 40) + MACD hist up 2 bars + close > EMA9
+    For SHORT: RSI > 65 (was 60) + MACD hist down 2 bars + close < EMA9
     """
     r = ind.rsi(df["close"], c["rsi_period"]).iloc[-1]
     _, _, hist = ind.macd(df["close"])
-    h_now, h_prev = hist.iloc[-1], hist.iloc[-2]
+    h_now, h_prev, h_prev2 = hist.iloc[-1], hist.iloc[-2], hist.iloc[-3]
+    close = df["close"].iloc[-1]
+    ef = ind.ema(df["close"], c["ema_fast"]).iloc[-1]  # EMA9
 
     direction = 0
-    if r < 40 and h_now > h_prev:          # was oversold, momentum turning up
+    # LONG: oversold + momentum turning up 2 bars + price above fast EMA
+    if r < 35 and h_now > h_prev and h_prev > h_prev2 and close > ef:
         direction = 1
-    elif r > 60 and h_now < h_prev:         # was overbought, momentum turning down
+    # SHORT: overbought + momentum turning down 2 bars + price below fast EMA
+    elif r > 65 and h_now < h_prev and h_prev < h_prev2 and close < ef:
         direction = -1
 
     if direction == 0:
@@ -84,16 +88,28 @@ def _score_pullback(df: pd.DataFrame, c: dict) -> tuple[float, int]:
 
 
 def _score_structure_v8(df: pd.DataFrame, direction: int) -> float:
-    """Structure: breakout confirmation in trend direction."""
+    """Structure: breakout confirmation in trend direction WITH volume & retest."""
     close = df["close"].iloc[-1]
+    open_ = df["open"].iloc[-1]
+    volume = df["volume"].iloc[-1]
+    avg_vol = df["volume"].iloc[-20:-1].mean()
+
     hi = df["high"].iloc[-20:-1].max()
     lo = df["low"].iloc[-20:-1].min()
     rng = (hi - lo) or 1e-9
 
-    if direction == 1 and close > hi:
-        return min((close - hi) / rng + 0.5, 1.0)
-    if direction == -1 and close < lo:
-        return min((lo - close) / rng + 0.5, 1.0)
+    if direction == 1:
+        # LONG: close > 20-bar high + volume confirmation + bullish candle
+        if close > hi and volume > avg_vol * 1.3 and close > open_:
+            breakout_strength = min((close - hi) / rng + 0.5, 1.0)
+            vol_bonus = min(volume / (avg_vol * 1.3), 1.5)
+            return min(breakout_strength * vol_bonus, 1.0)
+    elif direction == -1:
+        # SHORT: close < 20-bar low + volume confirmation + bearish candle
+        if close < lo and volume > avg_vol * 1.3 and close < open_:
+            breakout_strength = min((lo - close) / rng + 0.5, 1.0)
+            vol_bonus = min(volume / (avg_vol * 1.3), 1.5)
+            return min(breakout_strength * vol_bonus, 1.0)
     return 0.0
 
 
@@ -172,13 +188,10 @@ def evaluate_v8(symbol: str, df: pd.DataFrame, cfg: dict,
                       "below_threshold", long_score=round(float(long_score), 3),
                       short_score=round(float(short_score), 3), regime=regime)
 
-    # Dynamic SL/TP by regime
-    if regime == "trend":
-        sl_mult, tp_mult = 1.75, 2.6
-    elif regime == "range":
-        sl_mult, tp_mult = 1.0, 1.2
-    else:
-        sl_mult, tp_mult = 0.0, 0.0
+    # Dynamic SL/TP by regime — USE CONFIG VALUES (1.75/2.6 for ALL regimes)
+    # config.yaml risk.sl_atr_mult / risk.tp_atr_mult override this
+    sl_mult = cfg.get("risk", {}).get("sl_atr_mult", 1.75)
+    tp_mult = cfg.get("risk", {}).get("tp_atr_mult", 2.6)
 
     is_long = side == "long"
     sl = price - atr_val * sl_mult if is_long else price + atr_val * sl_mult
