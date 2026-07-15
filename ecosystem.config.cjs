@@ -14,7 +14,7 @@
 //
 // PENTING: jalankan TEPAT SATU proses bot (dua bot menulis DB sama → state bentrok).
 
-const PY = "python";  // Windows: gunakan Python system path
+const PY = "/root/binance-usdc-bot/venv/bin/python";  // Linux server (venv)
 
 module.exports = {
   apps: [
