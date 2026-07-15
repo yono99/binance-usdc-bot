@@ -61,12 +61,12 @@ PRESETS: dict[str, dict] = {
               "tp_atr_mult": 4.0, "use_htf": True, "regime": True,
               "use_funding": True, "use_oi": False, "use_of": False},
     # smart autopilot: v4 penuh, regime auto trend/mean-reversion
-    "auto": {"timeframe": "15m", "entry_confidence": 0.5, "sl_atr_mult": 1.5,
-             "tp_atr_mult": 2.5, "use_htf": True, "regime": True,
+    "auto": {"timeframe": "15m", "entry_confidence": 0.65, "sl_atr_mult": 1.75,
+             "tp_atr_mult": 2.6, "use_htf": True, "regime": True,
              "use_funding": True, "use_oi": False, "use_of": True},
     # Gemini praktisi trader: ARAH dari Gemini, SL/TP tetap ATR-deterministik (param di sini).
-    "gemini": {"timeframe": "15m", "entry_confidence": 0.5, "sl_atr_mult": 1.5,
-               "tp_atr_mult": 2.5, "use_htf": True, "regime": True,
+    "gemini": {"timeframe": "15m", "entry_confidence": 0.65, "sl_atr_mult": 1.75,
+               "tp_atr_mult": 2.6, "use_htf": True, "regime": True,
                "use_funding": True, "use_oi": False, "use_of": True},
 }
 
