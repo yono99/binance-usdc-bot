@@ -20,9 +20,13 @@ def main() -> None:
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8000)
     args = p.parse_args()
-    reset_all_enabled()
+    import os
+    if not os.getenv("SKIP_ENABLED_RESET"):
+        reset_all_enabled()
+        print("Startup: SEMUA mode di-reset ke OFF — nyalakan dari dashboard.")
+    else:
+        print("Startup: SKIP enabled reset (SKIP_ENABLED_RESET=1)")
     print(f"Dashboard: http://{args.host}:{args.port}")
-    print("Startup: SEMUA mode di-reset ke OFF — nyalakan dari dashboard.")
     uvicorn.run("bot.dashboard:app", host=args.host, port=args.port, log_level="warning")
 
 

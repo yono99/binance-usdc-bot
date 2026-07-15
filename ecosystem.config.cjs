@@ -27,8 +27,8 @@ module.exports = {
       autorestart: true,
       restart_delay: 5000,
       max_restarts: 10,
-      time: true,                 // timestamp di log PM2
-      env: { MODE: "dry" },       // paper — nol risiko uang; ganti ke "live" sadar penuh
+      time: true,
+      env: { MODE: "dry", SKIP_ENABLED_RESET: "1" },
     },
     {
       name: "dashboard",
@@ -40,6 +40,7 @@ module.exports = {
       restart_delay: 3000,
       max_restarts: 10,
       time: true,
+      env: { SKIP_ENABLED_RESET: "1" },
     },
   ],
 };

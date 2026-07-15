@@ -42,8 +42,13 @@ def parse_args():
 
 def main() -> None:
     args = parse_args()
-    reset_all_enabled()
-    log.info("Startup: SEMUA mode di-reset ke OFF — nyalakan dari dashboard.")
+    # Skip reset_all_enabled in production (PM2) - use SKIP_ENABLED_RESET=1 env var
+    import os
+    if not os.getenv("SKIP_ENABLED_RESET"):
+        reset_all_enabled()
+        log.info("Startup: SEMUA mode di-reset ke OFF — nyalakan dari dashboard.")
+    else:
+        log.info("Startup: SKIP enabled reset (SKIP_ENABLED_RESET=1)")
     settings = load_settings()
     if args.mode:
         import os
