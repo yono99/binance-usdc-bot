@@ -123,6 +123,7 @@ class ForwardTester:
         self._last_cfg_balance_usdc = 0.0
         self._last_news = None         # dedup histori news veto
         self._last_screen: dict = {}   # dedup histori screening per simbol
+        self._recently_closed: dict = {}  # sym -> timestamp: prevent duplicate close journal
         self._base_slippage = self.slippage   # slippage market; limit (maker) = 0
         # state circuit breaker harian (reset tiap hari UTC) — default sebelum restore
         self._day = pd.Timestamp.utcnow().date()
@@ -1787,6 +1788,13 @@ class ForwardTester:
                 self._live_close(sym, pos)
                 # Tahap 4a: catat cooldown/blacklist per-mode (DRY-only; live sudah rekonsiliasi).
             return
+        # Prevent duplicate close journaling (race condition / re-processing guard)
+        now = time.time()
+        last = self._recently_closed.get(sym, 0)
+        if now - last < 60:  # skip if same symbol closed within 60 seconds
+            log.warning(f"DUPLICATE CLOSE BLOCKED {sym}: last close {now - last:.0f}s ago (reason={reason})")
+            return
+        self._recently_closed[sym] = now
         pos = self.open.pop(sym)
         # Tahap 4a: cooldown/blacklist per-mode (DRY) — config rotate.cooldown_minutes &
         # blacklist_after_sl. Live juga di-catat tapi efektif di mode tersebut.
@@ -1867,6 +1875,9 @@ class ForwardTester:
         icon = {"liq": "💥 <b>LIKUIDASI</b>", "sl": "🛑 SL", "tp": "✅ TP",
                 "manual": "✋ CLOSE", "eod": "⏹ EOD", "scalp_exit": "⚡ SCALP EXIT"}.get(reason, reason)
         self.notify.send(f"{icon} {sym}\nPnL ${pnl:+.2f} · R {r:+.2f} · saldo ${_wallet_total:.2f}")
+        # Cleanup old entries (older than 5 minutes) to prevent memory leak
+        cutoff = time.time() - 300
+        self._recently_closed = {k: v for k, v in self._recently_closed.items() if v > cutoff}
 
     def _close_partial_usd(self, sym: str, price: float, pct: float, reason: str) -> None:
         """Close a fraction (pct) of position at given price.
