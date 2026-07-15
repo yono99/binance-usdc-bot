@@ -340,7 +340,12 @@ def reset_all_enabled() -> None:
     sadar dari dashboard. Mencegah bot auto-aktif pakai state enabled=True dari
     sesi sebelumnya (risiko: paper/live jalan tanpa pengawasan setelah restart).
     Field lain (leverage, bet, symbols, dll) tak direset — hanya saklar ON/OFF.
+
+    Skip jika env SKIP_ENABLED_RESET=1 (untuk PM2 production deployment).
     """
+    import os
+    if os.getenv("SKIP_ENABLED_RESET"):
+        return
     for m in ("dry", "test", "live"):
         try:
             rs = load_settings(m)
