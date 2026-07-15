@@ -14,7 +14,7 @@
 //
 // PENTING: jalankan TEPAT SATU proses bot (dua bot menulis DB sama → state bentrok).
 
-const PY = "./venv/bin/python";
+const PY = "python";  // Windows: gunakan Python system path
 
 module.exports = {
   apps: [

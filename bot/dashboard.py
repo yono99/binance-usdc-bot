@@ -1108,7 +1108,19 @@ PAGE = """<!doctype html>
       <label>Interval screening (dtk)<input id="poll_seconds" type="number" min="5" max="3600" step="1"></label>
       <label>Timeframe (otomatis)<input id="tf" disabled></label>
     </div>
-    <button id="save">Simpan pengaturan</button>
+    <details style="margin-top:14px"><summary style="cursor:pointer;color:#9aa0a6"><b>Confidence Gate (Gemini sizing)</b> &mdash; klik untuk buka</summary>
+      <div class="grid" style="margin-top:10px">
+        <label>Confidence min (0-1)<input id="conf_min" type="number" min="0" max="1" step="0.01"></label>
+        <label>Confidence full (0-1)<input id="conf_full" type="number" min="0" max="1" step="0.01"></label>
+        <label>Reduced size mult (0-1)<input id="conf_reduced_mult" type="number" min="0" max="1" step="0.01"></label>
+      </div>
+      <div class="sub" style="margin-top:6px">
+        Tier gerbang SIZE saat pakai Gemini trader: <code><conf_min</code> = ABSTAIN,
+        <code>&ge;conf_full</code> = 1.0&times;bet, di antaranya = <code>conf_reduced_mult</code>&times;bet.<br>
+        Bypass (full size selalu): set <code>conf_min=0</code>, <code>conf_full=1</code>, <code>conf_reduced_mult=1</code>.
+      </div>
+    </details>
+    <button id="save" style="margin-top:14px">Simpan pengaturan</button>
     <span id="saved" class="sub"></span>
   </div>
   <div class="panel"><h2>Akun / API</h2>
@@ -1266,6 +1278,9 @@ async function loadSettings(){
   document.getElementById('daily_max_trades').value=s.daily_max_trades;
   document.getElementById('poll_seconds').value=s.poll_seconds;
   document.getElementById('tf').value=s.timeframe;
+  if(document.getElementById('conf_min')) document.getElementById('conf_min').value=s.conf_min;
+  if(document.getElementById('conf_full')) document.getElementById('conf_full').value=s.conf_full;
+  if(document.getElementById('conf_reduced_mult')) document.getElementById('conf_reduced_mult').value=s.conf_reduced_mult;
   riskWarn(s.leverage, s.liq_pct);
   const csel=document.getElementById('chartsym');
   if(!csel.options.length && s.symbols && s.symbols.length)
@@ -1356,6 +1371,9 @@ document.getElementById('save').addEventListener('click',async()=>{
     daily_max_loss_pct:+document.getElementById('daily_max_loss_pct').value,
     daily_max_trades:+document.getElementById('daily_max_trades').value,
     poll_seconds:+document.getElementById('poll_seconds').value,
+    conf_min:+document.getElementById('conf_min').value,
+    conf_full:+document.getElementById('conf_full').value,
+    conf_reduced_mult:+document.getElementById('conf_reduced_mult').value,
   };
   const s=await (await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
   window.pendingBalUsdt=s.balance_usdt;
