@@ -342,38 +342,55 @@ def api_bot_status(mode: str = None) -> JSONResponse:
 
 @app.get("/api/setup-status")
 def api_setup_status() -> JSONResponse:
-    """Return v8 signal engine setup status: which setups are ACTIVE vs DISABLED."""
-    # v8 = Pure Trend Following only
+    """Return signal engine setup status: which setups are ACTIVE vs DISABLED.
+    Dynamic based on config.yaml (adx_range, sideways_sniper, etc)."""
+    from .config import load_settings
+    cfg = load_settings()
+    strat = cfg.get("strategy", {})
+    gem = cfg.get("gemini", {})
+    adx_range = strat.get("adx_range", 25)
+    sideways_sniper = gem.get("sideways_sniper", {}).get("enabled", False)
+
+    # Determine engine
+    is_v8 = adx_range >= 999
+    engine_name = "signals_v8.py (Pure Trend Following)" if is_v8 else "signals.py (Mixed v7)"
+
+    # Base setups
     setups = {
         "trend_continuation": {
             "status": "ACTIVE",
             "description": "Pullback complete + momentum resumes (EMA9/21/50 align + ADX + RSI<35/>65 + MACD 2-bar + volume+retest)",
-            "engine": "signals_v8.py",
+            "engine": engine_name,
             "risk": {"sl_atr": 1.75, "tp_atr": 2.6, "rr": 1.49}
         },
         "trend_pullback": {
-            "status": "DISABLED",
-            "reason": "Removed — expectancy -1.25R",
-            "engine": "signals_v8.py (killed)"
+            "status": "ACTIVE" if not is_v8 else "DISABLED",
+            "reason": "Removed — expectancy -1.25R" if is_v8 else "Mean-reversion within trend (ADX filter)",
+            "engine": engine_name,
         },
         "range_fade": {
-            "status": "DISABLED",
-            "reason": "Removed — range trading disabled (adx_range=999)",
-            "engine": "signals_v8.py (killed)"
+            "status": "ACTIVE" if not is_v8 else "DISABLED",
+            "reason": "Removed — range trading disabled (adx_range=999)" if is_v8 else "Fade S/R in range (requires valid level ±0.5×ATR)",
+            "engine": engine_name,
         },
         "scalp_range": {
-            "status": "DISABLED",
-            "reason": "Removed — range scalping disabled",
-            "engine": "signals_v8.py (killed)"
+            "status": "ACTIVE" if (not is_v8 and sideways_sniper) else "DISABLED",
+            "reason": "Removed — range scalping disabled" if is_v8 else ("Disabled — sideways_sniper=false" if not sideways_sniper else "Scalping tight range (ATR<0.3%, 1×ATR SL)"),
+            "engine": engine_name,
         },
         "breakout_continuation": {
             "status": "DISABLED",
-            "reason": "Removed",
-            "engine": "signals_v8.py (killed)"
-        }
+            "reason": "Removed — overlap with trend_continuation, high false breakout rate",
+            "engine": engine_name,
+        },
+        "btc_dominance_short": {
+            "status": "ACTIVE" if not is_v8 else "DISABLED",
+            "reason": "BTC dump ≥2% → SHORT alt (structural edge, beta>1)" if not is_v8 else "Not active in v8",
+            "engine": engine_name,
+        },
     }
     return JSONResponse({
-        "engine": "signals_v8.py (Pure Trend Following)",
+        "engine": engine_name,
         "active_count": sum(1 for s in setups.values() if s.get("status") == "ACTIVE"),
         "disabled_count": sum(1 for s in setups.values() if s.get("status") == "DISABLED"),
         "setups": setups
@@ -383,31 +400,36 @@ def api_setup_status() -> JSONResponse:
 @app.get("/api/setup-stats")
 def api_setup_stats(mode: str = None) -> JSONResponse:
     """Merge real trading stats per setup with engine ACTIVE/DISABLED status.
-    mode: 'dry' | 'test' | 'live' — filter by mode (default: active UI mode)."""
+    Dynamic based on config.yaml (adx_range, sideways_sniper)."""
     from .settings_store import _env_mode, get_active_mode
+    from .config import load_settings
     m = mode if mode in ("dry", "test", "live") else (get_active_mode() or _env_mode())
 
-    # Engine status (hardcoded in v8)
+    cfg = load_settings()
+    strat = cfg.get("strategy", {})
+    gem = cfg.get("gemini", {})
+    adx_range = strat.get("adx_range", 25)
+    sideways_sniper = gem.get("sideways_sniper", {}).get("enabled", False)
+    is_v8 = adx_range >= 999
+
     engine_status = {
         "trend_continuation": "enable",
-        "trend_pullback": "disable",
-        "range_fade": "disable",
-        "scalp_range": "disable",
+        "trend_pullback": "enable" if not is_v8 else "disable",
+        "range_fade": "enable" if not is_v8 else "disable",
+        "scalp_range": "enable" if (not is_v8 and sideways_sniper) else "disable",
         "breakout_continuation": "disable",
-        "btc_dominance_short": "disable",
+        "btc_dominance_short": "enable" if not is_v8 else "disable",
     }
 
-    # Alasan disable
     reasons = {
         "trend_continuation": "Pullback complete + momentum resumes",
-        "trend_pullback": "Terbukti -1.25R, dihapus dari v8",
-        "range_fade": "Range trading dimatikan (adx_range=999)",
-        "scalp_range": "Range scalping dimatikan",
+        "trend_pullback": "Mean-reversion within trend" if not is_v8 else "Terbukti -1.25R, dihapus dari v8",
+        "range_fade": "Fade S/R in range (requires valid level ±0.5×ATR)" if not is_v8 else "Range trading dimatikan (adx_range=999)",
+        "scalp_range": "Scalping tight range (ATR<0.3%, 1×ATR SL)" if (not is_v8 and sideways_sniper) else ("Range scalping dimatikan" if is_v8 else "Sideways sniper disabled"),
         "breakout_continuation": "Overlap dgn trend_continuation, false breakout tinggi",
-        "btc_dominance_short": "Belum diaktifkan — masih dalam evaluasi",
+        "btc_dominance_short": "BTC dump ≥2% → SHORT alt (structural edge)" if not is_v8 else "Belum diaktifkan — masih dalam evaluasi",
     }
 
-    # Real stats from settled Gemini decisions per setup
     setups = list(engine_status.keys())
     rows = []
     for s in setups:
