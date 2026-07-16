@@ -170,6 +170,16 @@ gemini:
 - [ ] Shadow running: exp_R rules vs rules+ReAct + risk metrics
 - [ ] Enforce only if: kept significantly > denied (p < 0.05)
 
+### 5.5 Entry Confluence Gate (3-Factor Shadow) ✅ DONE
+- [x] Faktor 1: `btc_macro_tier()` — BTC alignment tiered (full/reduced/blocked)
+- [x] Faktor 2: `pair_structure_confluence_ok()` — floor per-component trend+momentum
+- [x] Faktor 3: `nearest_level_quality()` — strong/secondary/null via time-at-price binning
+- [x] `entry_confluence_gate()` + `GateResult` + shadow table `entry_confluence_shadow`
+- [x] `ec_calibrate.py` — threshold optimization from settled trades (N≥30)
+- [x] Dashboard: `/api/entry-confluence-shadow` + `EntryConfluenceShadow.tsx` panel
+- [x] 38 unit tests (`tests/test_entry_confluence.py`) — BNB fixture, symmetry, DB
+- [ ] Evaluate: `exp_R(entered) > exp_R(skipped)` signifikan (p<0.05, N≥30) → promote to `mode: enforce`
+
 ---
 
 ## 🟤 PHASE 6: EXECUTION/LIQUIDITY EDGE (H30 — The Only Structural Edge Left)

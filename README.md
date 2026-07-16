@@ -69,6 +69,7 @@ python run.py               # loop penuh (simulasi)
 | `python sl_calibrate.py` | Kalibrasi lantai SL dari 1 thn data (MAE pemenang, ×ATR) |
 | `python h28_eval.py` | Progres/vonis t-test paper-test H28 (PREVIEW s/d 15 siklus) |
 | `python ab_report.py` | A/B: apakah layer agen (ReAct/rem) menambah nilai — diukur |
+| `python bot/ec_calibrate.py` | Kalibrasi Entry Confluence Gate threshold dari settled trades |
 | `pytest -q` | 113 unit test Python (termasuk anti-leakage, signifikansi, gerbang verdict) |
 | `cd core && cargo test` | 8 unit test Rust (hot-path) |
 | `docker compose up -d --build` | Deploy bot + collector + dashboard 24/7 |
@@ -78,7 +79,8 @@ python run.py               # loop penuh (simulasi)
 [RESEARCH_LOG.md](RESEARCH_LOG.md) (log tiap hipotesis) ·
 [GEMINI_TRADER.md](GEMINI_TRADER.md) (**Gemini praktisi trader** ber-memori & refleksi) ·
 [DASHBOARD.md](DASHBOARD.md) (dashboard web + SQLite + setting UI) ·
-[DEPLOY.md](DEPLOY.md) (Proxmox/Debian) · `core/README.md` (Rust core).
+[DEPLOY.md](DEPLOY.md) (Proxmox/Debian) · `core/README.md` (Rust core) ·
+[ENTRY_CONFLUENCE_GATE.md](ENTRY_CONFLUENCE_GATE.md) (3-factor shadow gate + calibration).
 
 ### Update 2026-07-02 — pengerasan utk tujuan "aset terus naik" (live-mikro)
 
@@ -101,20 +103,30 @@ mengaktifkan regime veto & news veto (`config.yaml: gemini.news_veto`) **dan
 strategy co-pilot riset** (`--copilot`, lihat [RESEARCH.md](RESEARCH.md)). Tanpa key →
 non-aktif (veto allow, co-pilot pakai interpretasi deterministik).
 
-### Update 2026-07-05 — kuota Gemini & toggle gate teknik non-gemini
+### Update 2026-07-16 — Entry Confluence Gate (3-Factor Shadow)
 
-Diagnosa: bot Gemini "sulit entry" bukan karena gate/confidence — **78% panggilan LLM
-gagal `429 RESOURCE_EXHAUSTED`**. Akarnya: model utama `gemini-2.5-flash` (free tier
-dipangkas Des'25) sudah sesak, sementara model `*-preview` masih longгар (3 Juli:
-preview 0 gagal vs 2.5-flash ~90% gagal). Bukan kapasitas key — 11 akun/key berotasi
-normal, modelnya yang salah pilih.
+**Masalah:** Backtest v7 (semua setup) `exp_R` negatif — bukan setup-specific, tapi **systemic entry/SL**. Entry di level palsu (contoh BNB 577/6-bar) + SL mepet + BTC lawan arah.
 
-| Perubahan | Detail | Kontrol |
+**Solusi:** Gate 3-faktor **SHADOW** (catat, jangan blokir) sebelum SL/sizing:
+1. **BTC Macro Alignment** — tier `full`/`reduced`/`blocked` per side (`bot/altdata.py`)
+2. **Pair Structure Confluence** — floor per-komponen trend + momentum (`bot/signals.py`)
+3. **Nearest Level Quality** — `strong`/`secondary`/`null` via time-at-price binning (`bot/levels.py`)
+
+| Fitur | Detail | Kontrol |
 |---|---|---|
-| Urutan model kuota-sehat | primary → `gemini-3-flash-preview`, fallback `3.1-flash-lite-preview` → `3.5-flash` → `2.5-flash` → `2.5-flash-lite`. Sehat dicoba dulu → 429 anjlok | `config.yaml: gemini.model` + `FALLBACK_MODELS` |
-| Validator terima key `AQ.` | format auth-key baru Google 2026 (`AQ.Ab8…`) tak lagi dicap "cacat"; jalan di endpoint native | `bot/config.py` |
-| Cooldown key persist | cooldown PANJANG (RPD habis / auth) disimpan ke SQLite (`kv: gemini_key_cooldowns`, hash key) → restart tak menghajar ulang key yg kuota hariannya habis; RPM 60s tak disimpan | otomatis (`bot/gemini_client.py`) |
-| 3 toggle gate (teknik NON-gemini) | `gate_overext` (RSI/jarak-EMA), `gate_runup` (anti-chase lonjakan), `gate_corr` (korelasi non-gemini) — **default OFF**, opt-in. Jalur Gemini **tak** memakai gate ini; guard korelasi Gemini tetap via `corr_threshold` (tak berubah) | `config.yaml: strategy.gate_*` |
+| `entry_confluence_gate()` | Gabungan 3 faktor → `decision="enter/skip"`, `size_mult`, `reason` | `bot/entry_confluence.py` |
+| Shadow logging | Tabel `entry_confluence_shadow` (SQLite auto-create) — `would_enter`, `actually_entered`, `outcome_r` | `bot/store.py` |
+| Wiring di forward loop | Dipanggil **setelah** Gemini decision, **sebelum** SL/sizing; log shadow, **TIDAK blokir** | `bot/forward.py` |
+| Calibration script | `python bot/ec_calibrate.py` → optimalkan threshold dari settled trades (N≥30) | `bot/ec_calibrate.py` |
+| Dashboard panel | `/api/entry-confluence-shadow` + `EntryConfluenceShadow.tsx` (ringkasan + records) | `dashboard.py`, `web/src/components/` |
+| Unit tests | 38 test (BNB fixture, acceptance, symmetry, DB) | `tests/test_entry_confluence.py` |
+
+**BNB Acceptance Test (dari TODO.md):**
+- Entry 577 (LONG, 6-bar) → Faktor 3 **blocks** (quality=None)
+- Entry 572-574 (LONG, 40-bar) → Faktor 3 **passes** (quality=strong)
+- Entry 579.7 (SHORT, 28-bar resistance) → Faktor 3 **passes** (quality=strong)
+
+> **Filosofi:** Shadow dulu, buktikan `exp_R(entered) > exp_R(skipped)` signifikan (p<0.05, N≥30), **baru** naik ke `mode: enforce`. Lihat [ENTRY_CONFLUENCE_GATE.md](ENTRY_CONFLUENCE_GATE.md).
 
 > Catatan model preview: kuota free-nya longгар SEKARANG, tapi Google bisa deprecate
 > kapan saja → fallback stabil (`3.5/2.5-flash`) sengaja disimpan sbagai jaring pengaman.

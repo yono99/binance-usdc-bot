@@ -165,6 +165,39 @@ Panel bergaya bursa dengan dua tab:
 - **Open Orders**: SL & TP tiap posisi sebagai conditional order (Pair · Tipe ·
   Arah · Harga trigger · Qty).
 
+## Panel Entry Confluence Shadow (`/entry-confluence-shadow`)
+
+Mengakses `GET /api/entry-confluence-shadow` → menampilkan statistik gate 3-faktor
+(shadow mode — **tidak memblokir** entry).
+
+**Tab Ringkasan:**
+| Metric | Arti |
+|---|---|
+| Total Logged | Jumlah record gate yang terekam |
+| Would Enter | Gate lolos (would_enter=1) |
+| Actually Entered | Di antaranya, yang benar-benar jadi trade (actually_entered=1) |
+| Skip Rate | Persentase gate skip (btc_blocked / structure_fail / no_valid_level) |
+| Avg Outcome R | Rata-rata `outcome_r` dari settled trades |
+| Win Rate | Persentase `outcome_r > 0` |
+
+**Tab Records (paginated):**
+| Kolom | Isi |
+|---|---|
+| TS | Timestamp gate |
+| Symbol | Pair |
+| Side | LONG / SHORT |
+| Setup | `range_fade` / `scalp_range` / `trend_pullback` / `trend_continuation` |
+| BTC Tier | `full` / `reduced` / `blocked` |
+| Struct Pass | ✓ / ✗ |
+| Loc Quality | `strong` / `secondary` / — |
+| Would Enter | ✓ / ✗ |
+| Actually Entered | ✓ / ✗ |
+| Conviction | `conviction` score (0–1) |
+| Outcome R | R-multiple (setelah trade settle) |
+| Reason | Alasan gate decision |
+
+Gunakan untuk kalibrasi (jalankan `python ec_calibrate.py` setelah N≥30 settled).
+
 ## Mode live (UANG NYATA) — toggle dari UI
 
 Selector **Mode** di Kontrol Bot: `ikut .env` / `dry` / `test` (paper) / **`live`**.
@@ -233,6 +266,7 @@ Aktifkan: `.env` → `GEMINI_ENABLED=true`, `GEMINI_API_KEYS=key1,key2,...`.
 | GET | `/api/gemini-models` | daftar model Gemini tersedia (dropdown+search) |
 | POST | `/api/close` · `/api/close-all` | tutup posisi (diproses ≤1 siklus) |
 | POST | `/api/validate-key` · `/api/notify-test` | validasi API key · test Telegram |
+| GET | `/api/entry-confluence-shadow` | statistik & record Entry Confluence Gate shadow |
 
 ---
 

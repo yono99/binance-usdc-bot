@@ -169,4 +169,4 @@ Riwayat evolusi. Endpoint JSON: `/api/decisions`, `/api/lessons`, `/api/agent-he
 
 ## Berkas terkait
 `bot/react_agent.py` · `bot/decision_log.py` · `bot/lessons.py` · `bot/evolve.py` ·
-gerbang di `bot/engine.py` & `bot/forward.py`.
+gerbang di `bot/engine.py` & `bot/forward.py` · **Entry Confluence Gate: `bot/entry_confluence.py` + `bot/ec_calibrate.py` + `tests/test_entry_confluence.py` + [ENTRY_CONFLUENCE_GATE.md](ENTRY_CONFLUENCE_GATE.md)**.

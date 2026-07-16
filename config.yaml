@@ -44,7 +44,7 @@ gemini:
   sideways_sniper:
     budget_boost_pct: 300
     devil_advocate_for_scalp: false
-    enabled: false
+    enabled: true
     micro_tp_pct_max: 0.3
     micro_tp_pct_min: 0.005
     pregate_atr_pct_range: 0.003
@@ -100,7 +100,7 @@ signals:
     structure: 0.3
     trend: 0.4
 strategy:
-  adx_range: 999
+  adx_range: 25
   adx_strong: 25
   basis_z_window: 48
   cascade_close_loc: 0.35

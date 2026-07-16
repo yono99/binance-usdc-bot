@@ -76,6 +76,7 @@
 - **Structured TP + Partial Close** (Layer 5→6): min(structural, 5% cap) + 75/25 split
 - **Dynamic RR by Regime** (Layer 5): Trend RR~1.5, Range RR~1.2, Chaos NO ENTRY
 - **Pure Trend Following** (Layer 4): Only `trend_continuation` setup, BTC as primary filter
+- **Entry Confluence Gate** (Layer 4→5): 3-factor shadow gate — BTC macro tier + Pair structure confluence + Nearest level quality — logs to `entry_confluence_shadow`, calibrates via `ec_calibrate.py`, dashboard panel
 
 ---
 
@@ -347,15 +348,16 @@ Existing flags still apply. Phase 4 config disables tool_loop/autonomous for pur
 
 ---
 
-## 9. SHADOW GATES — UNCHANGED
+## 9. SHADOW GATES — UPDATED
 
 All running as SHADOW (measure only):
 - VRP Brake (H28): exp_R brake-on vs off
 - MTF Agreement: win_rate agree vs disagree + Brier
 - Flat Shadow: miss_rate per regime/conviction
 - A/B ReAct: exp_R rules vs rules+ReAct
+- **Entry Confluence Gate**: 3-factor (BTC macro + Pair structure + Level quality) → `entry_confluence_shadow` table, calibrate via `ec_calibrate.py`, dashboard panel
 
-**Enforce only after**: p_adj < 0.05 AND positive evidence
+**Enforce only after**: p_adj < 0.05 AND positive evidence (N≥30 settled)
 
 ---
 
@@ -387,6 +389,7 @@ All running as SHADOW (measure only):
 | `h30_hist.py` / `h30_sim.py` | H30 spread capture replay |
 | `chart_ingest.py` | Fill chartstore (1w/1M pagination) |
 | `l2collect.py` | L2 orderbook collection (RUNNING) |
+| `bot/ec_calibrate.py` | Entry Confluence Gate threshold calibration |
 
 ---
 
@@ -465,6 +468,7 @@ All running as SHADOW (measure only):
 3. ✅ **Fade Family v2 Hard Gates**: S/R proximity + BTC confirm + Cleanliness
 4. ✅ **Structured TP + Partial Close**: min(level, 5% cap) + 75/25 trailing
 5. ✅ **Pure Trend Following**: `signals_v8.py` — only trend_continuation, BTC primary filter
+6. ✅ **Entry Confluence Gate (3-Factor Shadow)**: BTC macro tier + Pair structure confluence + Nearest level quality — shadow logging to `entry_confluence_shadow` table, calibration script, dashboard panel ([ENTRY_CONFLUENCE_GATE.md](ENTRY_CONFLUENCE_GATE.md))
 
 ### Rekomendasi:
 1. **JALANKAN PAPER TEST SEKARANG**: `python dashboard.py` + `python forwardtest.py --poll 30 --use-store`
@@ -502,6 +506,14 @@ All running as SHADOW (measure only):
 | | - Fix `/api/trades` pagination DESC ordering (newest first on page 1) |
 | | - Add `fmtWIB`/`fmtWIBdate` helpers (UTC+7, Indonesian month names) |
 | | - Apply WIB timestamps to TradeHistory, Recent Trades, News/Screen logs |
+| 2026-07-16 | **Entry Confluence Gate (3-Factor Shadow)**: |
+| | - Faktor 1: `btc_macro_tier()` — BTC alignment tiered (full/reduced/blocked) |
+| | - Faktor 2: `pair_structure_confluence_ok()` — floor per-component trend+momentum |
+| | - Faktor 3: `nearest_level_quality()` — strong/secondary/null via binning |
+| | - `entry_confluence_gate()` + `GateResult` + shadow table `entry_confluence_shadow` |
+| | - `ec_calibrate.py` — threshold optimization from settled trades (N≥30) |
+| | - Dashboard: `/api/entry-confluence-shadow` + `EntryConfluenceShadow.tsx` panel |
+| | - 38 unit tests (`tests/test_entry_confluence.py`) — BNB fixture, symmetry, DB |
 
 ---
 
