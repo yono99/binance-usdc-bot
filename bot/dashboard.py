@@ -394,6 +394,17 @@ def api_setup_stats(mode: str = None) -> JSONResponse:
         "range_fade": "disable",
         "scalp_range": "disable",
         "breakout_continuation": "disable",
+        "btc_dominance_short": "disable",
+    }
+
+    # Alasan disable
+    reasons = {
+        "trend_continuation": "Pullback complete + momentum resumes",
+        "trend_pullback": "Terbukti -1.25R, dihapus dari v8",
+        "range_fade": "Range trading dimatikan (adx_range=999)",
+        "scalp_range": "Range scalping dimatikan",
+        "breakout_continuation": "Overlap dgn trend_continuation, false breakout tinggi",
+        "btc_dominance_short": "Belum diaktifkan — masih dalam evaluasi",
     }
 
     # Real stats from settled Gemini decisions per setup
@@ -407,7 +418,8 @@ def api_setup_stats(mode: str = None) -> JSONResponse:
             "win_rate": round(st.get("win_rate", 0.0), 1),
             "exp_r": round(st.get("exp_r", 0.0), 3),
             "sl_hit_rate": round(st.get("sl_hit_rate", 0.0), 1),
-            "status": engine_status[s]
+            "status": engine_status[s],
+            "reason": reasons.get(s, ""),
         })
 
     return JSONResponse({

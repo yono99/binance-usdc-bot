@@ -44,11 +44,10 @@ export function SetupPerformance() {
   }
 
   const cols: Col<SetupStatsEntry>[] = [
-    { t: "Setup", render: (r) => r.setup },
+    { t: "Setup", render: (r) => <span title={r.reason}>{r.setup}</span> },
     { t: "Trades", render: (r) => r.trades },
     { t: "Win%", render: (r) => f(r.win_rate, 1) + "%" },
     { t: "exp_R", render: (r) => (r.exp_r > 0 ? "+" : "") + f(r.exp_r, 3), cls: (r) => cls(r.exp_r) },
-    { t: "SL Hit%", render: (r) => f(r.sl_hit_rate, 1) + "%" },
     { t: "Status", render: (r) => r.status, cls: (r) => (r.status === "enable" ? "pos" : "neg") },
   ];
 

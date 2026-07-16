@@ -284,6 +284,7 @@ export interface SetupStatsEntry {
   exp_r: number;
   sl_hit_rate: number;
   status: "enable" | "disable";
+  reason: string;
 }
 
 export interface SetupStatsResp {
