@@ -1,5 +1,0 @@
-def _open(self, symbol: str, sig, row, ts, idx) -> dict:
-        # taker: masuk di OPEN bar berikutnya + slippage merugikan
-        entry = row["open"] * (1 + self.slip) if sig.side == "long" else row["open"] * (1 - self.slip)
-        return self._open_at(symbol, sig, entry, ts, idx)
-
