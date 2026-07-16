@@ -22,11 +22,11 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from .logger import log
-from .settings_store import (PRESETS, RuntimeSettings, get_active_mode, load_settings,
-                             save_settings, set_active_mode)
-from . import store
-from .eventhub import hub, KEEPALIVE_S
+from bot.logger import log
+from bot.settings_store import (PRESETS, RuntimeSettings, get_active_mode, load_settings,
+                               save_settings, set_active_mode)
+from bot import store
+from bot.eventhub import hub, KEEPALIVE_S
 
 ROOT = Path(__file__).resolve().parent.parent
 JOURNAL = ROOT / "logs" / "trades.jsonl"
@@ -198,13 +198,13 @@ async def _candle_close_watcher() -> None:
     ganti (close). Kalau ya → broadcast event 'candle'={symbol, tf, bar, emas, rsi}.
     Per simbol yg punya coverage di market.db. EMA/RSI dihitung server-side supaya
     frontend SSE update indikator tanpa perlu fetch REST ulang."""
-    from . import chartstore
-    from . import indicators as ind
-    from .settings_store import load_settings
+    from bot import chartstore
+    from bot import indicators as ind
+    from bot.settings_store import load_settings
     if _CANDLE_WATCH_INTERVAL_S <= 0:
         return
     load_settings()                       # warm up runtime (side effect)
-    from .config import load_settings as _load_cfg
+    from bot.config import load_settings as _load_cfg
     sig = _load_cfg().raw["signals"]
     ema_fast_p, ema_mid_p, ema_slow_p, rsi_p = (
         sig["ema_fast"], sig["ema_mid"], sig["ema_slow"], sig["rsi_period"]
@@ -317,7 +317,7 @@ def api_bot_status(mode: str = None) -> JSONResponse:
     """Status bot per-mode ('status:<mode>'). Tanpa ?mode= → mode aktif UI.
     NO FALLBACK to old 'status' key for live mode (old format has balance_usd).
     For dry/test: convert legacy balance_usd to balance_usdt/balance_usdc if needed."""
-    from .settings_store import _env_mode
+    from bot.settings_store import _env_mode
     m = mode if mode in ("dry", "test", "live") else (get_active_mode() or _env_mode())
     st = store.get_kv(f"status:{m}") or {}
     if m == "live":
@@ -344,7 +344,7 @@ def api_bot_status(mode: str = None) -> JSONResponse:
 def api_setup_status() -> JSONResponse:
     """Return signal engine setup status: which setups are ACTIVE vs DISABLED.
     Dynamic based on config.yaml (adx_range, sideways_sniper, etc)."""
-    from .config import load_settings
+    from bot.config import load_settings
     cfg = load_settings()
     strat = cfg.get("strategy", {})
     gem = cfg.get("gemini", {})
@@ -401,8 +401,8 @@ def api_setup_status() -> JSONResponse:
 def api_setup_stats(mode: str = None) -> JSONResponse:
     """Merge real trading stats per setup with engine ACTIVE/DISABLED status.
     Dynamic based on config.yaml (adx_range, sideways_sniper)."""
-    from .settings_store import _env_mode, get_active_mode
-    from .config import load_settings
+    from bot.settings_store import _env_mode, get_active_mode
+    from bot.config import load_settings
     m = mode if mode in ("dry", "test", "live") else (get_active_mode() or _env_mode())
 
     cfg = load_settings()
@@ -454,7 +454,7 @@ def api_setup_stats(mode: str = None) -> JSONResponse:
 def api_entry_confluence_shadow(limit: int = 200) -> JSONResponse:
     """Entry Confluence Gate shadow stats — pure measurement, tidak memblokir."""
     try:
-        from . import store
+        from bot import store
         data = store.entry_confluence_shadow_stats(limit=limit)
         agg = store.entry_confluence_agg()
         return JSONResponse({"records": data, "aggregation": agg})
@@ -466,7 +466,7 @@ def api_entry_confluence_shadow(limit: int = 200) -> JSONResponse:
 def _sse_snapshot() -> dict:
     """Snapshot awal saat client connect — state lengkap (stats/status/orders).
     Tanpa ini client hanya lihat delta dari titik connect, bukan state sekarang."""
-    from .settings_store import _env_mode
+    from bot.settings_store import _env_mode
     m = get_active_mode() or _env_mode()
     if m == "live":
         status = store.get_kv(f"status:{m}") or {}
@@ -525,11 +525,11 @@ def api_account() -> JSONResponse:
     import time
     if _acct["data"] and time.time() - _acct["ts"] < 30:
         return JSONResponse(_acct["data"])
-    from .settings_store import load_settings
+    from bot.settings_store import load_settings
     s = load_settings()
     if s.mode == "live" and os.getenv("BINANCE_LIVE_KEY"):
         try:
-            from .exchange import Exchange
+            from bot.exchange import Exchange
             b = Exchange(s).balances(0.0)
             # Return full precision (8 decimals) for live mode
             data = {"mode": "live", "api_valid": True,
@@ -551,12 +551,12 @@ def api_live_balance() -> JSONResponse:
     """Ambil saldo USDT & USDC REAL dari Binance LIVE (mode=live).
     HANYA berfungsi di mode LIVE. Return Decimal string untuk presisi penuh.
     Digunakan frontend untuk auto-fill & disable input manual."""
-    from .settings_store import load_settings
+    from bot.settings_store import load_settings
     s = load_settings()
     if s.mode != "live":
         return JSONResponse({"valid": False, "error": "Hanya mode LIVE", "mode": s.mode})
     try:
-        from .settings_store import fetch_live_balances
+        from bot.settings_store import fetch_live_balances
         bal = fetch_live_balances()
         return JSONResponse({"valid": True, "balance_usdt": bal["USDT"], "balance_usdc": bal["USDC"],
                              "balance_total": str(Decimal(bal["USDT"]) + Decimal(bal["USDC"])),
@@ -571,8 +571,8 @@ _ohlcv_cache: dict = {}
 
 def _get_ex():
     if _ex_cache["ex"] is None:
-        from .settings_store import load_settings
-        from .exchange import Exchange
+        from bot.settings_store import load_settings
+        from bot.exchange import Exchange
         _ex_cache["ex"] = Exchange(load_settings())
     return _ex_cache["ex"]
 
@@ -617,12 +617,12 @@ def api_ohlcv(symbol: str, tf: str = "15m", limit: int = 120) -> JSONResponse:
         bars = [{"x": int(i.timestamp() * 1000), "o": float(o), "h": float(h),
                  "l": float(low), "c": float(c)}
                 for i, o, h, low, c in zip(df.index, df["open"], df["high"], df["low"], df["close"])]
-        from . import indicators as ind
-        from .settings_store import load_settings
+        from bot import indicators as ind
+        from bot.settings_store import load_settings
         load_settings()                       # warm up KV/runtime (side effect)
         # settings_store.RuntimeSettings TIDAK punya .raw (kontrak cfg ada di bot.config.Settings).
         # Pakai config.load_settings() yang menjamin akses settings.yaml ["signals"].
-        from .config import load_settings as _load_cfg
+        from bot.config import load_settings as _load_cfg
         sig = _load_cfg().raw["signals"]
         close = df["close"]
         rnd = lambda s: [round(float(x), 6) for x in s]
@@ -644,7 +644,7 @@ def api_h28() -> JSONResponse:
     """MESIN H28 — STATUS PREVIEW (paper-only). Terlihat di semua mode; TIDAK
     men-trade uang sampai LOLOS_TAHAP_1 (pra-registrasi). Progres + t-test."""
     try:
-        from . import h28eval, h28live
+        from bot import h28eval, h28live
         status = h28eval.preview_status()
         status["mikro_live_toggle"] = {
             "enabled": h28live.is_enabled(),
@@ -662,7 +662,7 @@ def api_h28_toggle(payload: dict) -> JSONResponse:
     """Nyalakan/matikan EVALUASI basket mikro-live H28 (Opsi B). Tidak pernah
     menyalakan uang nyata sendirian — itu tetap butuh --live di CLI daemon."""
     try:
-        from . import h28live
+        from bot import h28live
         h28live.set_enabled(bool(payload.get("enabled", False)))
         return JSONResponse({"ok": True, "enabled": h28live.is_enabled()})
     except Exception as e:  # boundary
@@ -682,7 +682,7 @@ def api_candles(symbol: str, tf: str = "15m", limit: int = 500) -> JSONResponse:
         return JSONResponse({"symbol": symbol, "tf": tf,
                               "error": f"tf tak dikenal: {tf}", "candles": []})
     try:
-        from . import chartstore
+        from bot import chartstore
         df = chartstore.load(symbol, tf, limit=min(int(limit), 5000))
         candles = [[int(i.timestamp() * 1000), float(o), float(h), float(lo), float(c), float(v)]
                    for i, o, h, lo, c, v in zip(df.index, df["open"], df["high"],
@@ -696,7 +696,7 @@ def api_candles(symbol: str, tf: str = "15m", limit: int = 500) -> JSONResponse:
 def api_candles_coverage() -> JSONResponse:
     """Ringkasan isi chart store per (symbol, tf)."""
     try:
-        from . import chartstore
+        from bot import chartstore
         return JSONResponse({"coverage": chartstore.coverage()})
     except Exception as e:  # boundary
         return JSONResponse({"error": str(e)[:140], "coverage": []})
@@ -729,7 +729,7 @@ def api_live_balance() -> JSONResponse:
     """Ambil saldo LIVE (USDT & USDC) dari Binance dengan presisi Decimal penuh.
     HANYA untuk mode=live. Return string Decimal agar tidak kehilangan presisi."""
     import os
-    from .settings_store import fetch_live_balances
+    from bot.settings_store import fetch_live_balances
     s = load_settings()
     if s.mode != "live":
         return JSONResponse({"error": "Hanya untuk mode=live"}, status_code=400)
@@ -761,7 +761,7 @@ def api_close(payload: dict) -> JSONResponse:
 
 @app.post("/api/notify-test")
 def api_notify_test() -> JSONResponse:
-    from .notify import TelegramNotifier
+    from bot.notify import TelegramNotifier
     ok, err = TelegramNotifier().send_sync("✅ Test notifikasi dari dashboard bot USDC.")
     return JSONResponse({"ok": ok, "error": err})
 
@@ -855,7 +855,7 @@ def api_open_orders() -> JSONResponse:
     import time as _t
     if _open_orders_cache["data"] and _t.time() - _open_orders_cache["ts"] < 8:
         return JSONResponse(_open_orders_cache["data"])
-    from .settings_store import load_settings
+    from bot.settings_store import load_settings
     s = load_settings()
     if s.is_live and os.environ.get("BINANCE_LIVE_KEY"):
         try:
@@ -898,7 +898,7 @@ def api_cancel_order(payload: dict) -> JSONResponse:
     if not sym or not oid:
         return JSONResponse({"ok": False, "error": "symbol & order_id wajib"})
     import os
-    from .settings_store import load_settings
+    from bot.settings_store import load_settings
     s = load_settings()
     if not s.is_live or not os.environ.get("BINANCE_LIVE_KEY"):
         return JSONResponse({"ok": False, "error": "cancel-order hanya berlaku di mode live"})
@@ -924,7 +924,7 @@ def api_positions() -> JSONResponse:
     import time as _t
     if _positions_cache["data"] and _t.time() - _positions_cache["ts"] < 6:
         return JSONResponse(_positions_cache["data"])
-    from .settings_store import load_settings
+    from bot.settings_store import load_settings
     s = load_settings()
     if s.is_live and os.environ.get("BINANCE_LIVE_KEY"):
         try:
@@ -1022,17 +1022,17 @@ def api_gemini_trader(mode: str | None = None) -> JSONResponse:
 
     Tahap 0 (plan-sess): mode opsional ?mode=live → filter per-mode (default=lintas-
     mode untuk back-compat). share_across_modes untuk opt-in admin via config."""
-    from .gemini_trader import track_record
+    from bot.gemini_trader import track_record
     gcfg = load_settings().__class__   # gunakan cfg: ambil dari settings_store cache path
     # share flag via config helper ringan (lihat bot/config.get gemini.share_lessons_across_modes)
-    from .settings_store import load_settings as _load_cfg_settings
+    from bot.settings_store import load_settings as _load_cfg_settings
     settings = _load_cfg_settings()
     cfg = settings.raw if hasattr(settings, "raw") and settings.raw else {}
     share = bool(cfg.get("gemini", {}).get("share_lessons_across_modes", False))
     return JSONResponse(_json_safe(track_record(mode=mode, share_across_modes=share)))
 
 
-from .gemini_client import FALLBACK_MODELS as _STATIC_GEMINI_MODELS  # selaras elearning
+from bot.gemini_client import FALLBACK_MODELS as _STATIC_GEMINI_MODELS  # selaras elearning
 _gemini_models_cache: dict = {"ts": 0.0, "data": None}
 
 
@@ -1044,7 +1044,7 @@ def api_gemini_models() -> JSONResponse:
         return JSONResponse(_gemini_models_cache["data"])
     models: list[str] = []
     try:
-        from .settings_store import load_settings as _load
+        from bot.settings_store import load_settings as _load
         from google import genai
         s = _load()
         if s.gemini_keys:
@@ -1116,7 +1116,7 @@ def api_dd_reset(payload: dict = None) -> JSONResponse:
 def api_calibration(mode: str = None, n: int = 50, days: int = 14) -> JSONResponse:
     """Rolling Brier score per mode (default: 50 trade terakhir + 14 hari).
     Brier 0.25 = setara koin; makin kecil = confidence makin jujur."""
-    from .settings_store import _env_mode
+    from bot.settings_store import _env_mode
     m = mode if mode in ("dry", "test", "live") else (get_active_mode() or _env_mode())
     return JSONResponse(store.calibration_report(m, last_n=max(1, int(n)),
                                                  days=max(1, int(days))))
@@ -1126,8 +1126,8 @@ def api_calibration(mode: str = None, n: int = 50, days: int = 14) -> JSONRespon
 def api_mtf(mode: str = None, sample: int = 100) -> JSONResponse:
     """Report shadow gerbang kesepakatan multi-TF per mode (agree vs disagree).
     verdict INSUFFICIENT sampai total ≥ sample. Tak memblokir apa pun (shadow)."""
-    from . import mtf
-    from .settings_store import _env_mode
+    from bot import mtf
+    from bot.settings_store import _env_mode
     m = mode if mode in ("dry", "test", "live") else (get_active_mode() or _env_mode())
     return JSONResponse(mtf.report(m, sample=max(1, int(sample))))
 
@@ -1137,9 +1137,9 @@ def api_flat_shadow(mode: str = None) -> JSONResponse:
     """Report shadow keputusan FLAT Gemini: miss-rate (gerakan tradeable yang
     terlewat) keseluruhan / per-regime / per-conviction + verdict pra-registrasi.
     Tak memblokir apa pun (shadow)."""
-    from . import flat_shadow
-    from .settings_store import load_settings
-    from .settings_store import _env_mode
+    from bot import flat_shadow
+    from bot.settings_store import load_settings
+    from bot.settings_store import _env_mode
     m = mode if mode in ("dry", "test", "live") else (get_active_mode() or _env_mode())
     return JSONResponse(_json_safe(flat_shadow.report(m, load_settings().raw)))
 
@@ -1693,7 +1693,7 @@ refresh();setInterval(refresh,10000);
 def api_decisions(page: int = 1, page_size: int = 5) -> JSONResponse:
     """Keputusan ReactAgent terakhir (alasan, confidence, sumber, outcome R).
     Pagination: page (1-indexed), page_size (allowed: 5, 10, 20, 30, 100, default 5)."""
-    from . import decision_log
+    from bot import decision_log
     allowed_page_sizes = {5, 10, 20, 30, 100}
     page_size = page_size if page_size in allowed_page_sizes else 5
     rows = decision_log.recent(200)
@@ -1715,7 +1715,7 @@ def api_decisions(page: int = 1, page_size: int = 5) -> JSONResponse:
 def api_lessons(page: int = 1, page_size: int = 5) -> JSONResponse:
     """Pelajaran aktif + akurasi (times_correct/triggered) & berapa kali dipicu.
     Pagination: page (1-indexed), page_size (allowed: 5, 10, 20, 30, 100, default 5)."""
-    from . import lessons
+    from bot import lessons
     allowed_page_sizes = {5, 10, 20, 30, 100}
     page_size = page_size if page_size in allowed_page_sizes else 5
     rows = [l for l in lessons.load_all() if not l.get("retired")]
@@ -1738,7 +1738,7 @@ def api_lessons(page: int = 1, page_size: int = 5) -> JSONResponse:
 def api_agent_health(limit: int = 300) -> JSONResponse:
     """Rasio LLM tersedia vs fallback, dihitung dari sumber keputusan di decision_log."""
     from collections import Counter
-    from . import decision_log
+    from bot import decision_log
     rows = decision_log.recent(min(max(1, limit), 1000))
     total = len(rows)
     by_source = Counter(r.get("source", "?") for r in rows)
@@ -1756,7 +1756,7 @@ def api_agent_health(limit: int = 300) -> JSONResponse:
 def api_evolution(page: int = 1, page_size: int = 5) -> JSONResponse:
     """Riwayat evolusi threshold (before/after, p-value, applied).
     Pagination: page (1-indexed), page_size (allowed: 5, 10, 20, 30, 100, default 5)."""
-    from . import evolve
+    from bot import evolve
     allowed_page_sizes = {5, 10, 20, 30, 100}
     page_size = page_size if page_size in allowed_page_sizes else 5
     rows = evolve.recent_events(200)
@@ -1777,7 +1777,7 @@ def api_evolution(page: int = 1, page_size: int = 5) -> JSONResponse:
 @app.get("/api/ab")
 def api_ab() -> JSONResponse:
     """A/B: rules-saja vs rules+ReAct (butuh agent.ab_shadow & data shadow)."""
-    from . import ab
+    from bot import ab
     return JSONResponse(ab.report())
 
 
@@ -1806,7 +1806,7 @@ def api_set_agent_settings(payload: dict) -> JSONResponse:
 @app.get("/api/plan")
 def api_plan() -> JSONResponse:
     """Rencana sesi terakhir (planner): stance/bias/kuota."""
-    from . import decision_log
+    from bot import decision_log
     for row in decision_log.recent(200):
         if row.get("symbol") == "*PLAN*":
             return JSONResponse((row.get("market_state") or {}).get("plan", {}))
@@ -1972,3 +1972,4 @@ else:
     @app.get("/", response_class=HTMLResponse)
     def index() -> str:
         return PAGE
+
