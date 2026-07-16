@@ -321,7 +321,48 @@ def api_bot_status(mode: str = None) -> JSONResponse:
     m = mode if mode in ("dry", "test", "live") else (get_active_mode() or _env_mode())
     st = store.get_kv(f"status:{m}") or {}
     if m == "live":
-        return JSONResponse(st)
+return JSONResponse(st)
+
+
+@app.get("/api/setup-status")
+def api_setup_status() -> JSONResponse:
+    """Return v8 signal engine setup status: which setups are ACTIVE vs DISABLED."""
+    # v8 = Pure Trend Following only
+    active setups
+    setups = {
+        "trend_continuation": {
+            "status": "ACTIVE",
+            "description": "Pullback complete + momentum resumes (EMA9/21/50 align + ADX + RSI<35/>65 + MACD 2-bar + volume+retest)",
+            "engine": "signals_v8.py",
+            "risk": {"sl_atr": 1.75, "tp_atr": 2.6, "rr": 1.49}
+        },
+        "trend_pullback": {
+            "status": "DISABLED",
+            "reason": "Removed — expectancy -1.25R",
+            "engine": "signals_v8.py (killed)"
+        },
+        "range_fade": {
+            "status": "DISABLED",
+            "reason": "Removed — range trading disabled (adx_range=999)",
+            "engine": "signals_v8.py (killed)"
+        },
+        "scalp_range": {
+            "status": "DISABLED",
+            "reason": "Removed — range scalping disabled",
+            "engine": "signals_v8.py (killed)"
+        },
+        "breakout_continuation": {
+            "status": "DISABLED",
+            "reason": "Removed",
+            "engine": "signals_v8.py (killed)"
+        }
+    }
+    return JSONResponse({
+        "engine": "signals_v8.py (Pure Trend Following)",
+        "active_count": sum(1 for s in setups.values() if s.get("status") == "ACTIVE"),
+        "disabled_count": sum(1 for s in setups.values() if s.get("status") == "DISABLED"),
+        "setups": setups
+    })
     # dry/test: fallback to legacy 'status' key, but convert legacy format
     legacy = store.get_kv("status") or {}
     if legacy and not st:
@@ -1133,6 +1174,7 @@ PAGE = """<!doctype html>
     <div style="margin-top:8px"><button id="tgbtn">Test Telegram</button> <span id="tgres" class="sub"></span></div>
   </div>
   <div class="panel"><h2>Status Bot</h2><div id="botstatus" class="line"></div></div>
+  <div class="panel"><h2>Setup Status (v8 Engine)</h2><div id="setup-status"></div></div>
   <div class="panel"><h2>Aktivitas per Pair — screening & sinyal
     <button class="btnsm" style="float:right" onclick="closeAll()">Close All</button></h2>
     <div id="pairs"></div></div>
@@ -1424,6 +1466,30 @@ async function loadStatus(){
     s.symbols||[]);
 
   loadOpenOrders();}
+async function loadSetupStatus(){
+  try{
+    const r=await fetch('/api/setup-status');
+    const data=await r.json();
+    if(!data.setups) return;
+    const rows=[];
+    for(const [name,info] of Object.entries(data.setups)){
+      const active=info.status==='ACTIVE';
+      rows.push({
+        setup:name,
+        status:active?'<span class="pos">ACTIVE</span>':'<span class="neg">DISABLED</span>',
+        reason:info.reason||'—',
+        engine:info.engine||'—',
+        risk:info.risk?`SL ${info.risk.sl_atr}×ATR / TP ${info.risk.tp_atr}×ATR (RR ${info.risk.rr})`:'—'
+      });
+    }
+    document.getElementById('setup-status').innerHTML=table(
+      [{t:'Setup',k:'setup'},{t:'Status',k:'status',cls:r=>r.status.includes('ACTIVE')?'pos':'neg'},
+       {t:'Reason',k:'reason'},{t:'Engine',k:'engine'},{t:'Risk',k:'risk'}],
+      rows);
+  }catch(e){
+    document.getElementById('setup-status').innerHTML='<div class="danger">Gagal load setup status</div>';
+  }
+}
 async function loadOpenOrders(){
   try{
     const d=await (await fetch('/api/open-orders')).json();
@@ -1511,7 +1577,7 @@ async function clearTrades(){
 document.getElementById('fbtn').addEventListener('click',loadTrades);
 document.getElementById('clrhist').addEventListener('click',clearTrades);
 loadSettings();
-function refresh(){load();loadStatus();loadChart();loadTrades();}
+function refresh(){load();loadStatus();loadSetupStatus();loadChart();loadTrades();}
 refresh();setInterval(refresh,10000);
 </script></body></html>"""
 
