@@ -371,46 +371,13 @@ def api_setup_status() -> JSONResponse:
             "reason": "Removed",
             "engine": "signals_v8.py (killed)"
         }
-    }
+}
     return JSONResponse({
         "engine": "signals_v8.py (Pure Trend Following)",
         "active_count": sum(1 for s in setups.values() if s.get("status") == "ACTIVE"),
         "disabled_count": sum(1 for s in setups.values() if s.get("status") == "DISABLED"),
         "setups": setups
     })
-        "scalp_range": {
-            "status": "DISABLED",
-            "reason": "Removed — range scalping disabled",
-            "engine": "signals_v8.py (killed)"
-        },
-        "breakout_continuation": {
-            "status": "DISABLED",
-            "reason": "Removed",
-            "engine": "signals_v8.py (killed)"
-        }
-    }
-    return JSONResponse({
-        "engine": "signals_v8.py (Pure Trend Following)",
-        "active_count": sum(1 for s in setups.values() if s.get("status") == "ACTIVE"),
-        "disabled_count": sum(1 for s in setups.values() if s.get("status") == "DISABLED"),
-        "setups": setups
-    })
-    # dry/test: fallback to legacy 'status' key, but convert legacy format
-    legacy = store.get_kv("status") or {}
-    if legacy and not st:
-        st = legacy
-    # Convert legacy balance_usd → balance_usdt/balance_usdc (50/50 split)
-    if st and "balance_usd" in st and ("balance_usdt" not in st or "balance_usdc" not in st):
-        legacy_bal = float(st.get("balance_usd", 0.0))
-        if legacy_bal > 0:
-            st["balance_usdt"] = round(legacy_bal / 2.0, 2)
-            st["balance_usdc"] = round(legacy_bal / 2.0, 2)
-    # Convert legacy day_pnl → day_pnl_usdt/day_pnl_usdc
-    if st and "day_pnl" in st and ("day_pnl_usdt" not in st or "day_pnl_usdc" not in st):
-        legacy_pnl = float(st.get("day_pnl", 0.0))
-        st["day_pnl_usdt"] = round(legacy_pnl / 2.0, 2)
-        st["day_pnl_usdc"] = round(legacy_pnl / 2.0, 2)
-    return JSONResponse(st)
 
 
 # ---------- SSE: real-time push ----------
