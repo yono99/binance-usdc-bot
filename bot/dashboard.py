@@ -428,6 +428,18 @@ def api_setup_stats(mode: str = None) -> JSONResponse:
     })
 
 
+@app.get("/api/entry-confluence-shadow")
+def api_entry_confluence_shadow(limit: int = 200) -> JSONResponse:
+    """Entry Confluence Gate shadow stats — pure measurement, tidak memblokir."""
+    try:
+        from . import store
+        data = store.entry_confluence_shadow_stats(limit=limit)
+        agg = store.entry_confluence_agg()
+        return JSONResponse({"records": data, "aggregation": agg})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 # ---------- SSE: real-time push ----------
 def _sse_snapshot() -> dict:
     """Snapshot awal saat client connect — state lengkap (stats/status/orders).

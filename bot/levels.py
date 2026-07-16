@@ -287,6 +287,39 @@ def clear_cache(symbol: str = None):
         _level_cache.clear()
 
 
+# ── Entry Confluence Gate: Faktor 3 — quality tiering ──────────────────────
+
+
+def nearest_level_quality(symbol: str, price: float, side: str,
+                           proximity_atr_mult: float = 0.5,
+                           touch_count_min: int = 12,
+                           touch_count_strong: int = 25,
+                           timeframe: str = None) -> tuple[str | None, Level | None]:
+    """Cari level S/R terdekat dengan quality tiering.
+
+    Returns (quality, level) dengan quality in {"strong", "secondary", None}.
+    - "strong":   touch_count >= touch_count_strong → full weight
+    - "secondary": touch_count antara min dan strong → size dikurangi
+    - None:       tidak ada level dalam jarak proximity_atr_mult × ATR → skip entry
+
+    touch_count_min / touch_count_strong: butuh kalibrasi data historis (lihat Phase 2).
+    Angka default adalah starting hypothesis dari studi kasus BNB.
+    """
+    level_type = "support" if side == "long" else "resistance"
+    lvl = find_nearest_level(symbol, price, level_type,
+                             max_distance_atr_mult=proximity_atr_mult,
+                             timeframe=timeframe)
+    if lvl is None:
+        return None, None
+
+    if lvl.raw_touches >= touch_count_strong:
+        return "strong", lvl
+    elif lvl.raw_touches >= touch_count_min:
+        return "secondary", lvl
+    else:
+        return None, lvl
+
+
 # Convenience function for pre-gate in signals.py / forward.py
 def is_price_at_valid_level(symbol: str, price: float, side: str, 
                             max_dist_atr_mult: float = 0.5) -> tuple[bool, Optional[Level]]:

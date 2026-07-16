@@ -6,6 +6,8 @@ Catatan penting:
   tidak mungkin; bar lebih lama dari itu akan ber-OI 0 (fitur non-aktif di sana).
 - Semua selaras causal (ffill nilai yang sudah terbit) → tanpa lookahead.
 Gagal/again kosong → kembalikan Series kosong (fitur otomatis non-aktif).
+
+Entry Confluence Gate — Faktor 1: BTC Macro Alignment (tiered).
 """
 from __future__ import annotations
 
@@ -318,3 +320,31 @@ def btc_ret_pct(btc_df: pd.DataFrame | None, bars: int = 1) -> float | None:
     c = btc_df["close"]
     last, base = float(c.iloc[-2]), float(c.iloc[-2 - bars])
     return round((last / base - 1) * 100, 3) if base else None
+
+
+# ── Entry Confluence Gate: Faktor 1 — BTC Macro Alignment (tiered) ────────────
+
+def btc_macro_tier(btc_lead_score: float | None, side: str, dump_pct: float) -> str:
+    """3-tier BTC alignment: full / reduced / blocked.
+
+    btc_lead_score: BTC return % (negative = turun, positive = naik).
+        None (data tak ada) → "reduced" (fail-open).
+    side: "short" or "long".
+    dump_pct: ambang dari config btc.dump_pct (default 0.5%).
+
+    "blocked" → entry diblokir (BTC kuat melawan arah).
+    "full"    → BTC mendukung arah → full size.
+    "reduced" → BTC netral → size dikurangi (atau gate 2/3 lebih ketat).
+    """
+    if btc_lead_score is None:
+        return "reduced"
+    aligned = (side == "short" and btc_lead_score <= -dump_pct) or \
+              (side == "long" and btc_lead_score >= dump_pct)
+    opposing = (side == "short" and btc_lead_score >= dump_pct) or \
+               (side == "long" and btc_lead_score <= -dump_pct)
+    if opposing:
+        return "blocked"
+    elif aligned:
+        return "full"
+    else:
+        return "reduced"

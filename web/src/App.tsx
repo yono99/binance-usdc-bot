@@ -15,6 +15,7 @@ import { GeminiUsage } from "./components/GeminiUsage";
 import { GeminiTraderPanel } from "./components/GeminiTraderPanel";
 import { PositionsPanel } from "./components/PositionsPanel";
 import { SetupPerformance } from "./components/SetupPerformance";
+import { EntryConfluenceShadow } from "./components/EntryConfluenceShadow";
 import { type Col } from "./components/Table";
 import { PaginatedTable } from "./components/PaginatedTable";
 
@@ -102,6 +103,7 @@ export default function App() {
         <BotStatus status={status} onAction={refreshAll} />
         <GeminiTraderPanel />
         <SetupPerformance />
+        <EntryConfluenceShadow />
         <PositionsPanel status={status} orders={ordersResp?.orders ?? []} isLive={isLive} onAction={refreshAll} />
         <PriceChart status={status} available={available} />
         {stats && <StatsCards s={stats} />}

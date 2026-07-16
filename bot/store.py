@@ -136,6 +136,24 @@ CREATE TABLE IF NOT EXISTS calibration_log (
     mode             TEXT NOT NULL      -- dry | test | live (isolasi per-mode)
 );
 CREATE INDEX IF NOT EXISTS idx_cal_mode_ts ON calibration_log(mode, ts);
+
+CREATE TABLE IF NOT EXISTS entry_confluence_shadow (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts               TEXT NOT NULL,
+    symbol           TEXT NOT NULL,
+    side             TEXT NOT NULL,
+    setup            TEXT,
+    btc_tier         TEXT,              -- full | reduced | blocked
+    structure_pass   INTEGER,           -- 0/1
+    location_quality TEXT,              -- strong | secondary | null
+    would_enter      INTEGER,           -- 0/1 — hasil gate baru
+    actually_entered INTEGER,           -- 0/1 — apakah rules lama entry
+    conviction       REAL DEFAULT 0,
+    price            REAL DEFAULT 0,
+    reason           TEXT,
+    outcome_r        REAL               -- diisi belakangan saat trade settle
+);
+CREATE INDEX IF NOT EXISTS idx_ec_shadow_ts ON entry_confluence_shadow(ts);
 """
 
 
@@ -708,6 +726,122 @@ def calibration_report(mode: str, last_n: int = 50, days: int = 14) -> dict:
                            "WHERE mode=? AND ts>=?", (mode, since)).fetchall()
     return {"mode": mode, f"last_{last_n}_trades": _agg(recent),
             f"last_{days}_days": _agg(window)}
+
+
+# ---------- Entry Confluence Gate shadow ----------
+
+def log_entry_confluence_shadow(rec) -> None:
+    """Catat hasil gate ke shadow table. `rec` bisa dataclass atau dict."""
+    init_db()
+    _migrate()
+    if hasattr(rec, "__dataclass_fields__"):
+        d = {f: getattr(rec, f) for f in rec.__dataclass_fields__}
+    else:
+        d = dict(rec)
+    with _conn() as c:
+        c.execute(
+            "INSERT INTO entry_confluence_shadow "
+            "(ts, symbol, side, setup, btc_tier, structure_pass, location_quality, "
+            "would_enter, actually_entered, conviction, price, reason) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (d.get("ts", ""), d.get("symbol", ""), d.get("side", ""),
+             d.get("setup", ""), d.get("btc_tier", ""),
+             1 if d.get("structure_pass") else 0,
+             d.get("location_quality"),
+             1 if d.get("would_enter") else 0,
+             1 if d.get("actually_entered") else 0,
+             float(d.get("conviction", 0)),
+             float(d.get("price", 0)),
+             str(d.get("reason", ""))[:300]))
+
+
+def settle_entry_confluence_shadow(shadow_id: int, outcome_r: float) -> bool:
+    """Isi outcome_r setelah trade settle."""
+    init_db()
+    with _conn() as c:
+        return c.execute(
+            "UPDATE entry_confluence_shadow SET outcome_r=? WHERE id=?",
+            (float(outcome_r), shadow_id)).rowcount > 0
+
+
+def settle_entry_confluence_outcome(shadow_id: int, actually_entered: bool = False,
+                                     outcome_r: float | None = None) -> bool:
+    """Update actually_entered dan/atau outcome_r untuk shadow record."""
+    init_db()
+    sets = []
+    params = []
+    if outcome_r is not None:
+        sets.append("outcome_r=?")
+        params.append(float(outcome_r))
+    if actually_entered:
+        sets.append("actually_entered=1")
+    if not sets:
+        return False
+    params.append(shadow_id)
+    with _conn() as c:
+        return c.execute(
+            f"UPDATE entry_confluence_shadow SET {', '.join(sets)} WHERE id=?",
+            params).rowcount > 0
+
+
+def entry_confluence_shadow_stats(limit: int = 200) -> list[dict]:
+    """Ambil N record shadow terbaru."""
+    init_db()
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT id, ts, symbol, side, setup, btc_tier, structure_pass, "
+            "location_quality, would_enter, actually_entered, conviction, price, "
+            "reason, outcome_r FROM entry_confluence_shadow "
+            "ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def entry_confluence_agg() -> dict:
+    """Agregasi shadow: perbandingan would_enter vs actually_entered."""
+    init_db()
+    out = {"total_logged": 0, "would_enter": 0, "would_skip": 0,
+           "actually_entered": 0, "would_enter_and_entered": 0,
+           "would_skip_but_entered": 0, "by_setup": {}, "by_btc_tier": {},
+           "by_location": {}}
+    with _conn() as c:
+        total = c.execute("SELECT COUNT(*) n FROM entry_confluence_shadow").fetchone()
+        out["total_logged"] = total["n"] if total else 0
+
+        we = c.execute("SELECT COUNT(*) n FROM entry_confluence_shadow WHERE would_enter=1").fetchone()
+        out["would_enter"] = we["n"] if we else 0
+
+        ae = c.execute("SELECT COUNT(*) n FROM entry_confluence_shadow WHERE actually_entered=1").fetchone()
+        out["actually_entered"] = ae["n"] if ae else 0
+
+        weae = c.execute("SELECT COUNT(*) n FROM entry_confluence_shadow WHERE would_enter=1 AND actually_entered=1").fetchone()
+        out["would_enter_and_entered"] = weae["n"] if weae else 0
+
+        wsbe = c.execute("SELECT COUNT(*) n FROM entry_confluence_shadow WHERE would_enter=0 AND actually_entered=1").fetchone()
+        out["would_skip_but_entered"] = wsbe["n"] if wsbe else 0
+
+        setups = c.execute(
+            "SELECT setup, COUNT(*) n, COALESCE(SUM(would_enter),0) would_enter, "
+            "COALESCE(SUM(actually_entered),0) actually_entered, "
+            "COALESCE(AVG(outcome_r),0) avg_outcome_r "
+            "FROM entry_confluence_shadow GROUP BY setup").fetchall()
+        for s in setups:
+            out["by_setup"][s["setup"]] = dict(s)
+
+        tiers = c.execute(
+            "SELECT btc_tier, COUNT(*) n, COALESCE(SUM(would_enter),0) would_enter, "
+            "COALESCE(AVG(outcome_r),0) avg_outcome_r "
+            "FROM entry_confluence_shadow GROUP BY btc_tier").fetchall()
+        for t in tiers:
+            out["by_btc_tier"][t["btc_tier"]] = dict(t)
+
+        locs = c.execute(
+            "SELECT location_quality, COUNT(*) n, COALESCE(SUM(would_enter),0) would_enter, "
+            "COALESCE(AVG(outcome_r),0) avg_outcome_r "
+            "FROM entry_confluence_shadow GROUP BY location_quality").fetchall()
+        for l in locs:
+            out["by_location"][l["location_quality"]] = dict(l)
+
+    return out
 
 
 def migrate_jsonl(path: Path) -> int:

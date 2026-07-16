@@ -33,6 +33,7 @@ from . import flat_shadow
 from .planner import SessionPlanner, default_plan
 from .react_agent import ReactAgent
 from .signals import Signal
+from . import entry_confluence as ec_gate
 from .notify import TelegramNotifier
 from .orderflow import cvd_from_series, fetch_taker
 from .settings_store import RuntimeSettings, liquidation_price, load_settings
@@ -1847,6 +1848,17 @@ class ForwardTester:
                                 1 if pnl > 0 else 0, self.settings.mode)
             except Exception as e:  # boundary
                 log.warning(f"log kalibrasi {sym} gagal: {e}")
+        # Settle Entry Confluence shadow outcome_r (sync last shadow record for this symbol)
+        try:
+            from . import store
+            _ec_recent = store.entry_confluence_shadow_stats(limit=10)
+            for _er in _ec_recent:
+                if _er.get("symbol") == sym and _er.get("side") == pos.get("side") and _er.get("outcome_r") is None:
+                    store.settle_entry_confluence_outcome(_er["id"], outcome_r=r)
+                    break
+        except Exception as _e:
+            log.debug(f"settle ec shadow {sym}: {_e}")
+
         if pos.get("gdecision") and self.gtrader is not None:   # umpan balik ke Gemini
             try:
                 self.gtrader.settle(pos["gdecision"], r,
@@ -2531,6 +2543,44 @@ class ForwardTester:
                 if c.get("price"):
                     self._decide_price_cache[sym] = (c["price"], dec)
 
+                # ── ENTRY CONFLUENCE GATE (SHADOW: catat, jangan blokir) ──────────────
+                try:
+                    _setup_id = dec.get("setup", "")
+                    if _setup_id not in ("no_trade", "") and side != 0:
+                        from . import levels as _lvl_mod
+                        from . import signals as _sig_mod
+                        from . import altdata as _alt_mod
+                        _bns = ctx.get("market", {})
+                        _trend = _bns.get("ema_align", 0)
+                        _rsi = _bns.get("rsi", 50)
+                        _trend_score = float(_trend) * 0.4
+                        _mom_score = ((float(_rsi) - 50) / 25.0) * 0.3
+                        _btc_lead_val = ctx.get("btc_lead", {}).get("ret_1bar_pct")
+                        _ec_result = ec_gate.entry_confluence_gate(
+                            sym, dec["side"], _setup_id,
+                            c.get("price", 0.0), atr_val,
+                            _trend_score, _mom_score,
+                            _btc_lead_val, _lvl_mod, _sig_mod, _alt_mod, self.cfg)
+                        _ec_shadow_rec = ec_gate.GateResult(
+                            ts=pd.Timestamp.utcnow().isoformat(),
+                            symbol=sym, side=dec["side"], setup=_setup_id,
+                            btc_tier=_ec_result["btc_tier"],
+                            structure_pass=_ec_result["structure_pass"],
+                            location_quality=_ec_result["location_quality"],
+                            would_enter=(_ec_result["decision"] == "enter"),
+                            actually_entered=False,
+                            conviction=float(dec.get("conviction", 0)),
+                            price=c.get("price", 0.0),
+                            reason=_ec_result["reason"])
+                        ec_gate.log_shadow(_ec_shadow_rec)
+                        log.info(f"ENTRY CONFLUENCE SHADOW {sym} {_setup_id} "
+                                 f"btc={_ec_result['btc_tier']} struct={_ec_result['structure_pass']} "
+                                 f"loc={_ec_result['location_quality']} "
+                                 f"decision={_ec_result['decision']}")
+                except Exception as e:
+                    log.debug(f"entry_confluence shadow {sym}: {e}")
+                # ─────────────────────────────────────────────────────────────────────
+
                 blocked = None
                 if not rs.enabled:
                     blocked = "bot OFF"
@@ -2624,6 +2674,17 @@ class ForwardTester:
                     if sym in self.open:
                         self._session_trades += 1
                         c["blocked"] = "→ posisi dibuka"
+                        # Update shadow: actually_entered=True untuk record terakhir simbol ini
+                        try:
+                            from . import store
+                            _recent = store.entry_confluence_shadow_stats(limit=5)
+                            for _r in _recent:
+                                if _r.get("symbol") == sym and not _r.get("actually_entered"):
+                                    store.settle_entry_confluence_outcome(
+                                        _r["id"], actually_entered=True)
+                                    break
+                        except Exception as _e:
+                            log.debug(f"update ec shadow {sym}: {_e}")
                     # else: _open_usd GAGAL diam-diam (margin habis/SL invalid/abstain/dll) —
                     # JANGAN timpa. _open_usd SUDAH menulis alasan gagal yang akurat ke
                     # sig_cache[sym]['blocked'] di titik early-return-nya sendiri; menimpanya

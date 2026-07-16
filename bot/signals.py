@@ -1,5 +1,37 @@
-"""Layer 4 — signal engine: gabungkan trend, momentum, struktur -> skor."""
+"""Layer 4 — signal engine: gabungkan trend, momentum, struktur -> skor.
+
+Entry Confluence Gate — Faktor 2: Pair Structure Confluence (floor per-komponen).
+"""
 from __future__ import annotations
+
+from dataclasses import dataclass
+
+import pandas as pd
+
+from . import indicators as ind
+
+
+def pair_structure_confluence_ok(trend_score: float, momentum_score: float, side: str,
+                                  trend_floor: float, momentum_floor: float) -> bool:
+    """Floor per-component check: trend AND momentum must independently meet direction.
+
+    Mencegah kasus di mana skor gabungan lolos threshold walau trend & momentum
+    sebenarnya netral, asal struktur (breakout) kuat sendirian.
+
+    trend_score / momentum_score: dari evaluate() — negatif = bearish, positif = bullish.
+    side: "long" or "short".
+    trend_floor / momentum_floor: ambang minimal (butuh kalibrasi data historis,
+        default sementara 0.1 = cukup kecil agar tak blokir SEMUA).
+
+    Returns True jika pair independently aligned = kedua komponen setuju arah.
+    """
+    if side == "short":
+        return trend_score <= -trend_floor and momentum_score <= -momentum_floor
+    else:
+        return trend_score >= trend_floor and momentum_score >= momentum_floor
+
+
+
 
 from dataclasses import dataclass
 
