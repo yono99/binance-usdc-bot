@@ -277,6 +277,20 @@ export interface GeminiTrader {
   }[];
 }
 
+export interface SetupStatsEntry {
+  setup: string;
+  trades: number;
+  win_rate: number;
+  exp_r: number;
+  sl_hit_rate: number;
+  status: "enable" | "disable";
+}
+
+export interface SetupStatsResp {
+  mode: string;
+  setups: SetupStatsEntry[];
+}
+
 export interface GeminiUsage {
   total: { calls: number; tokens: number; errors: number };
   today: { calls: number; tokens: number };

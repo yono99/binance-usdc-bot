@@ -11,6 +11,7 @@ import type {
   Ohlcv,
   ScreenLogEntry,
   Settings,
+  SetupStatsResp,
   Stats,
   Status,
   TradesResp,
@@ -49,6 +50,7 @@ export const api = {
   screenLog: (limit = 200) => getJSON<{ log: ScreenLogEntry[] }>(`/api/screen-log?limit=${limit}`),
   geminiUsage: (recent = 30) => getJSON<GeminiUsage>(`/api/gemini-usage?recent=${recent}`),
   geminiTrader: () => getJSON<GeminiTrader>("/api/gemini-trader"),
+  setupStats: () => getJSON<SetupStatsResp>("/api/setup-stats"),
   geminiModels: () => getJSON<{ models: string[] }>("/api/gemini-models"),
   agentSettings: () => getJSON<AgentSettings>("/api/agent-settings"),
   saveAgentSettings: (body: Partial<AgentSettings>) =>
