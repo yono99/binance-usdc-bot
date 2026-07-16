@@ -1,0 +1,22 @@
+Found at 31139: _monitor_usd/exit-sweep TETAP jalan selama grace → proteksi keras utuh. Return SEBELUM
+        # pan
+Found at 41836: _monitor(self, sym: str) -> None:
+        if sym not in self.open:
+            return
+        try:
+ 
+Found at 68660: _monitor_usd tak enforce SL/TP sendiri, percaya penuh ke order exchange). Coba
+          emergency-c
+Found at 72053: _live_close(self, sym: str, pos: dict) -> None:
+        """Tutup posisi nyata (reduceOnly market) + 
+Found at 105163: _live_close(sym, pos)
+                # Tahap 4a: catat cooldown/blacklist per-mode (DRY-only; live 
+Found at 116391: _monitor_usd(self, sym: str, buf: "pd.DataFrame | None" = None) -> None:
+        if self.live:      
+Found at 121772: _monitor(sym)
+            buf = self._update_buffer(sym)
+            if buf is None or len(buf) < 60
+Found at 130314: _monitor_usd(sym, self._update_buffer(sym))
+            except Exception as e:  # boundary — exit ad
+Found at 132265: _monitor_usd(sym, buf)           # cek SL/TP intrabar (tangkap wick antar-poll)
+            c = self

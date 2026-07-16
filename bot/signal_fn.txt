@@ -1,0 +1,6 @@
+def _signal(self, sym: str, df_closed: pd.DataFrame):
+        fz, oid, imb, div = self._alt_arrays(sym, df_closed)
+        f4 = precompute_v4(df_closed, self.cfg, self.htf_mult, fz, oid, imb, div)
+        side = decide_v4(f4, self.params, self.cfg, self.sessions)
+        return int(side[-1]), float(f4.v3.v2.base.atr[-1])
+

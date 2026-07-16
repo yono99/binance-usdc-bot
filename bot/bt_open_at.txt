@@ -1,0 +1,13 @@
+def _open_at(self, symbol: str, sig, entry: float, ts, idx) -> dict:
+        """Bentuk posisi dengan harga entry EKSAK (mis. limit maker terisi di harga limit)."""
+        if sig.side == "long":
+            sl = entry - sig.atr * self.sl_mult
+            tp = entry + sig.atr * self.tp_mult
+        else:
+            sl = entry + sig.atr * self.sl_mult
+            tp = entry - sig.atr * self.tp_mult
+        return {
+            "symbol": symbol, "side": sig.side, "entry": entry, "sl": sl, "tp": tp,
+            "risk_per_unit": abs(entry - sl), "entry_time": ts, "entry_idx": idx,
+        }
+

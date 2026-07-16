@@ -371,12 +371,48 @@ def api_setup_status() -> JSONResponse:
             "reason": "Removed",
             "engine": "signals_v8.py (killed)"
         }
-}
+    }
     return JSONResponse({
         "engine": "signals_v8.py (Pure Trend Following)",
         "active_count": sum(1 for s in setups.values() if s.get("status") == "ACTIVE"),
         "disabled_count": sum(1 for s in setups.values() if s.get("status") == "DISABLED"),
         "setups": setups
+    })
+
+
+@app.get("/api/setup-stats")
+def api_setup_stats(mode: str = None) -> JSONResponse:
+    """Merge real trading stats per setup with engine ACTIVE/DISABLED status.
+    mode: 'dry' | 'test' | 'live' — filter by mode (default: active UI mode)."""
+    from .settings_store import _env_mode, get_active_mode
+    m = mode if mode in ("dry", "test", "live") else (get_active_mode() or _env_mode())
+
+    # Engine status (hardcoded in v8)
+    engine_status = {
+        "trend_continuation": "enable",
+        "trend_pullback": "disable",
+        "range_fade": "disable",
+        "scalp_range": "disable",
+        "breakout_continuation": "disable",
+    }
+
+    # Real stats from settled Gemini decisions per setup
+    setups = list(engine_status.keys())
+    rows = []
+    for s in setups:
+        st = store.setup_stats(s, mode=m)
+        rows.append({
+            "setup": s,
+            "trades": st.get("n", 0),
+            "win_rate": round(st.get("win_rate", 0.0), 1),
+            "exp_r": round(st.get("exp_r", 0.0), 3),
+            "sl_hit_rate": round(st.get("sl_hit_rate", 0.0), 1),
+            "status": engine_status[s]
+        })
+
+    return JSONResponse({
+        "mode": m,
+        "setups": rows
     })
 
 
@@ -1174,6 +1210,7 @@ PAGE = """<!doctype html>
   </div>
   <div class="panel"><h2>Status Bot</h2><div id="botstatus" class="line"></div></div>
   <div class="panel"><h2>Setup Status (v8 Engine)</h2><div id="setup-status"></div></div>
+  <div class="panel"><h2>Setup Performance</h2><div id="setup-stats"></div></div>
   <div class="panel"><h2>Aktivitas per Pair — screening & sinyal
     <button class="btnsm" style="float:right" onclick="closeAll()">Close All</button></h2>
     <div id="pairs"></div></div>
@@ -1489,6 +1526,28 @@ async function loadSetupStatus(){
     document.getElementById('setup-status').innerHTML='<div class="danger">Gagal load setup status</div>';
   }
 }
+async function loadSetupStats(){
+  try{
+    const r=await fetch('/api/setup-stats');
+    const data=await r.json();
+    if(!data.setups) return;
+    const rows=data.setups.map(s=>({
+      setup:s.setup,
+      trades:s.trades,
+      win_rate:f(s.win_rate,1)+'%',
+      exp_r:(s.exp_r>0?'+':'')+f(s.exp_r,3),
+      sl_hit:f(s.sl_hit_rate,1)+'%',
+      status:s.status
+    }));
+    document.getElementById('setup-stats').innerHTML=table(
+      [{t:'Setup',k:'setup'},{t:'Trades',k:'trades'},{t:'Win%',k:'win_rate'},
+       {t:'exp_R',k:'exp_r',cls:r=>cls(r.exp_r)},{t:'SL Hit%',k:'sl_hit'},
+       {t:'Status',k:'status',cls:r=>r.status==='enable'?'pos':'neg'}],
+      rows);
+  }catch(e){
+    document.getElementById('setup-stats').innerHTML='<div class="danger">Gagal load setup stats</div>';
+  }
+}
 async function loadOpenOrders(){
   try{
     const d=await (await fetch('/api/open-orders')).json();
@@ -1576,7 +1635,7 @@ async function clearTrades(){
 document.getElementById('fbtn').addEventListener('click',loadTrades);
 document.getElementById('clrhist').addEventListener('click',clearTrades);
 loadSettings();
-function refresh(){load();loadStatus();loadSetupStatus();loadChart();loadTrades();}
+function refresh(){load();loadStatus();loadSetupStatus();loadSetupStats();loadChart();loadTrades();}
 refresh();setInterval(refresh,10000);
 </script></body></html>"""
 
