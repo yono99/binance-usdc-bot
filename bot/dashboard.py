@@ -1097,8 +1097,8 @@ PAGE = """<!doctype html>
   header{padding:18px 24px;border-bottom:1px solid var(--bd);display:flex;
          justify-content:space-between;align-items:center}
   h1{font-size:18px;margin:0}.sub{color:var(--mut);font-size:12px}
-  .wrap{padding:24px;max-width:1100px;margin:0 auto}
-  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px}
+  .wrap{padding:0 24px;max-width:100%;margin:0 auto}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px}
   .card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px}
   .card .lbl{color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.04em}
   .card .val{font-size:26px;font-weight:700;margin-top:6px}
@@ -1112,7 +1112,7 @@ PAGE = """<!doctype html>
   .empty{color:var(--mut);padding:18px;text-align:center}
   tr.liqrow td{background:rgba(239,68,68,.18);color:#fecaca;font-weight:700}
   tr.liqrow td:first-child{box-shadow:inset 3px 0 0 var(--red)}
-  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:12px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:12px}
   label{display:flex;flex-direction:column;gap:4px;color:var(--mut);font-size:12px}
   input,select{background:#0b1220;border:1px solid var(--bd);color:var(--fg);border-radius:8px;padding:8px;font-size:14px}
   button{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:9px 16px;font-weight:600;cursor:pointer}
@@ -1714,7 +1714,7 @@ AGENT_PAGE = """<!doctype html><html lang="id"><head><meta charset="utf-8">
  :root{--bg:#0b1220;--card:#131c2e;--bd:#243049;--fg:#e2e8f0;--mut:#8aa0c0;--green:#22c55e;--red:#ef4444;--accent:#6366f1}
  *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.5 system-ui,Segoe UI,sans-serif}
  header{padding:16px 22px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center}
- h1{font-size:17px;margin:0}a{color:var(--accent)}.wrap{padding:20px;max-width:1100px;margin:0 auto;display:grid;gap:18px}
+ h1{font-size:17px;margin:0}a{color:var(--accent)}.wrap{padding:0 24px;max-width:100%;margin:0 auto;display:grid;gap:18px}
  .card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:14px}
  h2{font-size:14px;margin:0 0 10px}.mut{color:var(--mut)}
  table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:6px 8px;border-bottom:1px solid var(--bd);text-align:left;vertical-align:top}
