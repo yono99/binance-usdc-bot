@@ -104,7 +104,7 @@ class RuntimeSettings:
                                                  # HANYA manual (POST /api/dd-reset) — keputusan sadar pemilik.
     poll_seconds: int = 60                      # heartbeat bot (baca setting+monitor+status). Sinyal dievaluasi per bar TF.
     # --- Penyetelan Gemini (atur frekuensi panggilan → hemat RPM/token), semua di UI ---
-    gemini_decide_seconds: int = 60            # throttle keputusan Gemini per simbol (teknik gemini) — turun dr 180 utk 26 key
+    gemini_decide_seconds: int = 180           # throttle keputusan Gemini per simbol (teknik gemini) — 180s = 3 menit
     gemini_manage_seconds: int = 30             # throttle kelola posisi Gemini (exit-only) — turun dr 60 utk responsif
     gemini_min_hold_s: int = 300                # GRACE: manajer Gemini tak boleh exit sebelum posisi
     #                                             ditahan ≥ ini (anti-whipsaw "baru entry langsung close").

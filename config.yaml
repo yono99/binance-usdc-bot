@@ -31,7 +31,7 @@ gemini:
     enabled: false
     model: ''
     veto_threshold: 0.7
-  gemini_decide_cap: 100
+  gemini_decide_cap: 24
   giveback_margin: 0.15
   giveback_tp_frac: 0.5
   min_regime_score: 0.4
