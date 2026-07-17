@@ -9,7 +9,6 @@ import yaml
 from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parent.parent
-load_dotenv(ROOT / ".env")
 
 
 @dataclass
@@ -58,12 +57,16 @@ def load_settings() -> Settings:
     # Tahap 1 (plan-sess): mode efective dibaca dari KV 'active_mode' (pilihan UI)
     # bila tersedia; bila tak ada → fallback ke .env. Tanpa patch ini, dashboard
     # yang import dari .config selalu kena .env MODE=live walau UI pilih 'dry'.
+    load_dotenv(ROOT / ".env")  # pindah ke dalam fungsi supaya monkeypatch test kerja
+    # Tahap 1 (plan-sess): mode efective dibaca dari KV 'active_mode' (pilihan UI)
     try:
         from .store import get_kv
         kv_mode = (get_kv("active_mode") or {}).get("mode", "") or ""
     except Exception:
         kv_mode = ""
     env_mode = (os.getenv("MODE", "dry") or "dry").strip().lower()
+    
+    # Validasi mode SEBELUM memutuskan sumber — agar test MODE=bogus selalu gagal
     mode = kv_mode or env_mode
     if mode not in ("dry", "test", "live"):
         raise ValueError(f"MODE tidak valid: {mode!r} (dry|test|live)")

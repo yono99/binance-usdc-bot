@@ -10,13 +10,13 @@ def _body(resp):
 
 
 def test_api_decisions_shape():
-    b = _body(dashboard.api_decisions(limit=5))
+    b = _body(dashboard.api_decisions(page=1, page_size=5))
     assert "decisions" in b and isinstance(b["decisions"], list)
 
 
 def test_api_lessons_shape():
-    b = _body(dashboard.api_lessons())
-    assert "lessons" in b and "count" in b and isinstance(b["lessons"], list)
+    b = _body(dashboard.api_lessons(page=1, page_size=5))
+    assert "lessons" in b and "page" in b and "page_size" in b and "total" in b and isinstance(b["lessons"], list)
 
 
 def test_api_agent_health_shape():
@@ -27,7 +27,7 @@ def test_api_agent_health_shape():
 
 
 def test_api_evolution_shape():
-    b = _body(dashboard.api_evolution(limit=10))
+    b = _body(dashboard.api_evolution(page=1, page_size=10))
     assert "events" in b and isinstance(b["events"], list)
 
 

@@ -36,8 +36,16 @@ def test_load_settings_rejects_invalid_mode(monkeypatch):
         load_settings()
 
 
-def test_load_settings_dry(monkeypatch):
+def test_load_settings_dry(monkeypatch, tmp_path):
+    # Create a temporary .env file without GEMINI_ENABLED
+    env_content = ""
+    env_file = tmp_path / ".env"
+    env_file.write_text(env_content)
+    
     monkeypatch.setenv("MODE", "dry")
-    monkeypatch.delenv("GEMINI_ENABLED", raising=False)
+    monkeypatch.setenv("GEMINI_ENABLED", "false")
+    monkeypatch.setenv("GEMINI_API_KEYS", "")
+    monkeypatch.chdir(tmp_path)
+    
     s = load_settings()
     assert s.mode == "dry" and isinstance(s.raw, dict) and s.gemini_enabled is False

@@ -127,6 +127,7 @@ def test_status_position_view_includes_opened_ts():
     ft.open = {"BTC/USDC:USDC": {"side": "long", "entry": 100.0, "sl": 95.0, "tp": 110.0,
                                  "liq": 90.0, "qty": 1.0, "bet": 10.0,
                                  "opened_ts": "2026-07-03T10:00:00+00:00"}}
+    ft.live = False
     from bot.settings_store import RuntimeSettings
     rs_obj = RuntimeSettings(mode="dry")
     ft._circuit_breaker = lambda: None

@@ -1,6 +1,6 @@
-# Binance USDC Bot — Dokumentasi Arsitektur Lengkap (Updated 2026-07-14)
+# Binance USDC Bot — Dokumentasi Arsitektur Lengkap (Updated 2026-07-16)
 
-> **Catatan**: Dokumentasi ini dibuat dari analisis penuh terhadap seluruh kodebase (70+ file Python, ~18.000 baris). Termasuk implementasi Phase 0-4 (2026-07-14) untuk memperbaiki bug kritis, membangun S/R detection, hard gates fade family, structured TP, dan pure trend-following system.
+> **Catatan**: Dokumentasi ini dibuat dari analisis penuh terhadap seluruh kodebase (70+ file Python, ~18.000 baris). Termasuk implementasi Phase 0-4 (2026-07-14) untuk memperbaiki bug kritis, membangun S/R detection, hard gates fade family, structured TP, dan pure trend-following system, serta **Entry Confluence Gate (3-Factor Shadow)** + **Dashboard fixes** (2026-07-16).
 
 > **Patch log 2026-07-14 (sesi-2)** — bug operasional yang ditemukan & diperbaiki:
 >
@@ -14,6 +14,18 @@
 > | `PositionsPanel` tidak menampilkan kolom SL & TP, padahal user expects "close loss dan TP bagi 2 posisi" | Tabel `posCols` di `web/src/components/PositionsPanel.tsx:47-76` hanya punya Cols Pair/Arah/Qty/Margin/Entry/Mark/Liq/PnL. | Tambah col `SL` (span className="neg") & col `TP` (span className="pos") di `PositionsPanel.tsx:60-67`. |
 > | **Pagination `/api/trades` salah** — page 1 menampilkan 5 trade TERLAMA (ASC), padahal UI butuh 5 TERBARU (DESC) | `api_trades`: `build_trades` mengembalikan ASC (oldest first). Slice `[start:end]` ambil oldest, lalu `[::-1]` reverse hanya urutan slice — tetap 5 oldest. | `dashboard.py:256-275` — balik ke DESC dulu (`desc = trades[::-1]`), BARU slice. Tambah field `max_page` untuk UI. |
 > | **Format waktu riwayat trade**: hanya `HH:MM`, butuh tanggal-bulan-tahun lengkap + WIB | `TradeHistory.tsx:44` pakai `slice(0,16).replace("T"," ")` → `YYYY-MM-DD HH:MM`. | Buat helper `fmtWIB` & `fmtWIBdate` di `web/src/api.ts` (Indonesian month names, UTC+7). Update `TradeHistory.tsx`, `App.tsx` (recentCols), `HistoryPanels.tsx` (news/screen log WIB pakai `fmtWIB`). |
+>
+> **Patch log 2026-07-16 (Dashboard Fixes)** — bug dashboard & relative imports:
+>
+> | Symptom | Root cause | Fix |
+> |---|---|---|
+> | `ModuleNotFoundError: No module named 'fastapi'` + `ImportError: attempted relative import with no known parent package` | `dashboard.py` dijalankan sebagai script (`python dashboard.py`) bukan module (`python -m bot.dashboard`), relative imports (`from .logger`) gagal, deps tidak ter-install di system Python. | 1. Semua relative imports → absolute (`from bot.*`) di `dashboard.py`. 2. Jalankan sebagai module: `python -m bot.dashboard`. 3. Install deps di venv. |
+> | `AttributeError: 'Settings' object has no attribute 'get'` di `api_setup_stats` | `load_settings()` return `Settings` object (bukan dict), tapi kode akses `cfg.get("strategy")`. | `cfg.raw.get("strategy")` / `cfg.raw.get("gemini")` karena `Settings.raw` = dict config.yaml. |
+> | `api_gemini_trader` → `cfg.raw.get(...)` tapi `cfg` sudah dict | Di fungsi ini `cfg` sudah `load_settings().raw` (dict), jadi akses langsung. | Balik ke `cfg.get("gemini")`. |
+> | `KeyboardInterrupt` saat import `api_gemini_models` (module-level `from .gemini_client import FALLBACK_MODELS`) | Import-time panggil `google.genai` yang trigger pydantic build → hang/KeyboardInterrupt. | Pindah import fallback ke dalam fungsi `api_gemini_models()`, default statis jika gagal. |
+> | `RichHandler` error di Python 3.13 (`namedtuple` / `reversed(defaults)` crash) | `rich.logging.RichHandler` inkompatibel Python 3.13. | Ganti `logger.py`: pakai `logging.StreamHandler` standar + custom formatter. |
+> | `api_setup-stats` 500 Internal Server Error | `cfg.get("strategy")` tapi `cfg` = `Settings` object, bukan dict. | Semua `cfg.get("strategy")` / `cfg.get("gemini")` → `cfg.raw.get(...)`. |
+> | `api_gemini_trader` 500: `cfg.raw.get` tapi `cfg` sudah dict | Fungsi ini `cfg = settings.raw` (dict), bukan `Settings` object. | Balik ke `cfg.get("gemini")`. | |
 
 ---
 
