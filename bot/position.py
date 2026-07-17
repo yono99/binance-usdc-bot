@@ -1,5 +1,7 @@
-"""Layer 7 — position manager: lacak posisi, deteksi exit."""
+"""Layer 7 — position manager: lacak posisi, trailing stop, deteksi exit."""
 from __future__ import annotations
+
+from dataclasses import dataclass
 
 from .execution import Executor
 from .exchange import Exchange
@@ -14,11 +16,12 @@ class Position:
     entry: float
     sl: float
     tp: float
+    peak: float     # harga terbaik untuk trailing
 
 
 class PositionManager:
     """Untuk dry: posisi virtual disimulasi penuh.
-    Untuk test/live: SL/TP dieksekusi exchange; manager hanya rekonsiliasi."""
+    Untuk test/live: SL/TP dieksekusi exchange; manager hanya trailing + rekonsiliasi."""
 
     def __init__(self, ex: Exchange, executor: Executor, cfg: dict):
         self.ex = ex
@@ -37,6 +40,21 @@ class PositionManager:
     def add(self, pos: Position) -> None:
         self.open[pos.symbol] = pos
 
+    def _trail(self, p: Position, price: float) -> None:
+        if not self.cfg.get("trailing"):
+            return
+        dist = abs(p.entry - p.sl) * (self.cfg["trailing_atr_mult"] / self.cfg["sl_atr_mult"])
+        if p.side == "long" and price > p.peak:
+            p.peak = price
+            new_sl = price - dist
+            if new_sl > p.sl:
+                p.sl = round(new_sl, 6)
+        elif p.side == "short" and price < p.peak:
+            p.peak = price
+            new_sl = price + dist
+            if new_sl < p.sl:
+                p.sl = round(new_sl, 6)
+
     def _pnl(self, p: Position, price: float) -> float:
         d = price - p.entry if p.side == "long" else p.entry - price
         return d * p.qty
@@ -50,6 +68,7 @@ class PositionManager:
             except Exception as e:  # boundary
                 log.warning(f"harga {sym} gagal: {e}")
                 continue
+            self._trail(p, price)
 
             hit_sl = price <= p.sl if p.side == "long" else price >= p.sl
             hit_tp = price >= p.tp if p.side == "long" else price <= p.tp

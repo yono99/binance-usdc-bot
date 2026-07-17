@@ -41,15 +41,16 @@ gemini:
   pregate_atr_pct: 0.08
   price_cache_pct: 0.03
   role: veto
-sideways_sniper:
-      budget_boost_pct: 300
-      devil_advocate_for_scalp: false
-      enabled: true
-      micro_tp_pct_max: 0.3
-      micro_tp_pct_min: 0.005
-      pregate_atr_pct_range: 0.003
-      price_cache_pct_range: 0.0
-      require_setup_scalp_range: true
+  sideways_sniper:
+    budget_boost_pct: 300
+    devil_advocate_for_scalp: false
+    enabled: true
+    micro_tp_pct_max: 0.3
+    micro_tp_pct_min: 0.005
+    pregate_atr_pct_range: 0.003
+    price_cache_pct_range: 0.0
+    require_setup_scalp_range: true
+    scalp_exit_bars: 3
 market:
   poll_seconds: 20
   quote: USDC

@@ -65,7 +65,7 @@
 │  │  • Realtime loop  • Position mgmt  • SL/TP monitor  • Circuit break │   │
 │  │  • VRP/MTF shadow  • Flat shadow  • State persistence (SQLite)      │   │
 │  │  • S/R Level Gate  • BTC Fade Gate  • Cleanliness Gate             │   │
-│  │  • Structured TP (no partial)  • Dynamic RR by Regime              │   │
+│  │  • Structured TP  • Partial Close  • Dynamic RR by Regime          │   │
 │  └──────────────────────────────────────────────────────────────────────┘   │
 │         │                                                                   │
 │         ▼                                                                   │
@@ -85,7 +85,7 @@
 - **S/R Level Gate** (Layer 4→5): Validates fade entries against true structural levels
 - **BTC Fade Gate** (Layer 4→5): Stricter BTC confirmation for fade family v2
 - **Cleanliness Gate** (Layer 4→5): ADX/wick/ATR stability filter for fade family v2
-- **Structured TP** (Layer 5→6): min(structural, 5% cap) for fade v2 (NO partial close)
+- **Structured TP + Partial Close** (Layer 5→6): min(structural, 5% cap) + 75/25 split
 - **Dynamic RR by Regime** (Layer 5): Trend RR~1.5, Range RR~1.2, Chaos NO ENTRY
 - **Pure Trend Following** (Layer 4): Only `trend_continuation` setup, BTC as primary filter
 - **Entry Confluence Gate** (Layer 4→5): 3-factor shadow gate — BTC macro tier + Pair structure confluence + Nearest level quality — logs to `entry_confluence_shadow`, calibrates via `ec_calibrate.py`, dashboard panel
@@ -207,13 +207,14 @@ is_price_at_valid_level(symbol, price, side, max_dist_atr) → (bool, Level)
 # Config: strategy.cleanliness.{max_adx, max_wick_body_ratio, max_atr_cv}
 ```
 
-#### Phase 3: Structured TP for Fade v2 (D) — **Simplified: No Partial/Trailing**
+#### Phase 3: Structured TP for Fade v2 (D)
 ```python
 # bot/forward.py:_open_usd() untuk fade_v2 setups
 # Structural target: nearest opposite valid level
 # Cap target: entry ± 5% price move (NOT 5% ROI on margin!)
 # Final TP = min(structural, cap) — closer to entry wins
-# NO partial close, NO trailing — full position to TP/SL
+# Partial TP: 75% at target, 25% trailing with existing trailing_atr_mult
+# _close_partial_usd() + _live_partial_close() for live mode
 ```
 
 ---
@@ -246,17 +247,17 @@ else → SKIP
 
 ---
 
-### Layer 7: Position Manager — **UPDATED: Fixed SL/TP Only (No Trailing, No Partial Close)**
+### Layer 7: Position Manager — **UPDATED with Partial Close**
 
 ```python
-# _monitor_usd(): Fixed SL/TP monitoring only
-# TP hit → full close at TP (reason="tp")
-# SL hit → full close at SL (reason="sl")
-# Liq hit → full close at liq (reason="liq")
+# _monitor_usd(): TP hit → partial close for fade_v2
+if pos.get("partial_tp_pct") and pos.get("partial_tp_price"):
+    _close_partial_usd(sym, tp_price, 0.75, "tp_partial")
+    pos["trailing_active"] = True
+    pos["trailing_sl"] = pos["sl"]  # start trailing from original SL
 
-# NO trailing, NO partial close, NO give-back trigger
-# _close_partial_usd() REMOVED
-# _live_partial_close() REMOVED
+# _close_partial_usd(): scale PnL, reduce qty/bet proportionally
+# _live_partial_close(): reduceOnly market order for live mode
 ```
 
 ---
@@ -297,7 +298,7 @@ else → SKIP
 structural_tp = opposite valid level (from bot.levels)
 cap_tp = entry ± 5% price move
 tp = min(structural_tp, cap_tp) by distance to entry
-# NO partial close, NO trailing — remaining position runs to full TP/SL
+partial_tp_pct = 0.75, partial_tp_price = tp
 
 # Other setups: ATR-based TP logic unchanged (micro-TP, user TP%, ATR TP)
 ```
@@ -337,75 +338,18 @@ tp = min(structural_tp, cap_tp) by distance to entry
 
 ## 7. RISK MANAGEMENT — UPDATED
 
-### Level 3: Dynamic RR by Regime (Signal Engine v8)
+### Level 3: Dynamic RR by Regime
 ```python
-regime=trend  (ADX≥20): sl=1.75×ATR, tp=2.6×ATR, RR=1.49
-regime=range  (ADX<20): sl=1.0×ATR,  tp=1.2×ATR,  RR=1.2
+regime=trend  (ADX≥20): sl=1.75×ATR, tp=2.6×ATR, RR=1.49, aggressive trailing
+regime=range  (ADX<20): sl=1.0×ATR,  tp=1.2×ATR,  RR=1.2,  micro-TP, forced exit 3 bar
 regime=chaos  (ATR%≥8%): NO ENTRY
 ```
 
-### Exit Logic: Fixed SL/TP Only (Simplified)
+### Phase 3: Structured TP + Partial Close (Fade v2)
 ```python
-# Position exits ONLY on:
-# 1. SL hit (reason="sl") — fixed distance from entry
-# 2. TP hit (reason="tp") — fixed distance from entry  
-# 3. Liquidation (reason="liq") — margin exhausted
-# 4. Manual close (reason="manual") — UI request
-# 5. EOD close (reason="eod") — end of day (if enabled)
-
-# REMOVED:
-# - Trailing stop (partial TP → trail remaining)
-# - Partial close (75/25 split)
-# - Give-back trigger (force Gemini review on retrace)
-# - Time-based exit (scalp_exit for scalp_range)
-# - Dynamic SL adjustment
-```
-
-### Phase 3: Structured TP for Fade v2 (Simplified)
-```python
-# bot/forward.py:_open_usd() untuk fade_v2 setups
-# Structural target: nearest opposite valid level
-# Cap target: entry ± 5% price move
-# Final TP = min(structural, cap) — closer to entry wins
-# NO partial close, NO trailing
-```
-
-### Confidence Gate — Gemini Position Sizing (Phase 6)
-**File:** `bot/settings_store.py:134-136`, `bot/forward.py:1541-1549`
-
-**Tier-based sizing berdasarkan Gemini confidence:**
-
-| Confidence | Tier | Size Multiplier | Aksi |
-|------------|------|-----------------|------|
-| `≥ conf_full` (0.75) | **Full** | `1.0×` | Buka posisi penuh |
-| `conf_min – conf_full` (0.30–0.75) | **Reduced** | `conf_reduced_mult` (0.5×) | Buka posisi reduksi |
-| `< conf_min` (0.30) | **Abstain** | `None` | **SKIP entry** |
-
-**Default config:**
-```python
-conf_full: float = 0.75          # ≥ ini → ukuran penuh
-conf_min: float = 0.30           # < ini → ABSTAIN (tak buka posisi)
-conf_reduced_mult: float = 0.5   # di antaranya → pengali ukuran
-```
-
-**Kode evaluasi (`forward.py:1541`):**
-```python
-size_mult = rs.conf_size_mult(gem_conv)  # gem_conv = Gemini confidence
-if size_mult is None:                    # ABSTAIN: confidence < conf_min
-    c["blocked"] = f"SKIPPED: low_confidence ({gem_conv:.2f} < {rs.conf_min:.2f})"
-    return
-```
-
-**Dashboard (hot-reload, per-mode):**
-- Panel **Kontrol Bot** → expand *"Confidence Gate (Gemini sizing)"*
-- 3 input: `conf_min`, `conf_full`, `conf_reduced_mult`
-- Disimpan ke SQLite `runtime:<mode>` — apply tiap siklus tanpa restart
-
-**Bypass (full size selalu):**
-```
-conf_min = 0
-conf_full = 1
-conf_reduced_mult = 1
+# TP = min(nearest opposite level, entry±5%)
+# 75% close at TP → remaining 25% trails from original SL
+# _close_partial_usd() handles proportional PnL/qty/bet
 ```
 
 ---
@@ -475,7 +419,8 @@ All running as SHADOW (measure only):
 
 3. **Risk/Exit Mastery** (Kontribusi > Entry)
    - SL Floor 1.75×ATR (calibrated)
-   - Fixed SL/TP: 1.75×ATR / 2.6×ATR (no trailing, no partial)
+   - Give-back trigger (≥50%→TP then retraced ≥15pp)
+   - Partial TP 75/25 for fade v2
    - Dynamic RR by regime
 
 4. **Fade Family v2 Hard Gates** (Phase 0-3)
@@ -496,7 +441,8 @@ All running as SHADOW (measure only):
 | **S/R Gate** | `bot/forward.py` (entry logic) | Fade v2 needs valid level 0.5×ATR |
 | **BTC Fade Gate** | `bot/altdata.py:btc_fade_confirm()` | Stricter BTC bias for fade |
 | **Cleanliness Gate** | `bot/forward.py:_pair_cleanliness_check()` | ADX/wick/ATR filter |
-| **Structured TP** | `bot/forward.py:_open_usd()` | min(structural level, 5% cap) — no partial/trailing |
+| **Structured TP** | `bot/forward.py:_open_usd()` | min(structural, 5% cap) + 75/25 |
+| **Partial Close** | `bot/forward.py:_close_partial_usd()` | Proportional PnL/qty/bet |
 | **Halving Boost** | `bot/forward.py:2268-2292` | exp_R ≥ -0.02 gate |
 | **Dynamic RR** | `bot/signals_v8.py:evaluate_v8()` | Regime-adaptive SL/TP |
 | **Walk-forward** | `bot/optimize.py:run_walk()` | Train → OOS → verdict |
@@ -532,7 +478,7 @@ All running as SHADOW (measure only):
 1. ✅ **Bug fixes**: Evidence gate hard block, halving boost gating
 2. ✅ **S/R Level Detection**: True structural levels via time-at-price binning
 3. ✅ **Fade Family v2 Hard Gates**: S/R proximity + BTC confirm + Cleanliness
-4. ✅ **Structured TP**: min(structural level, 5% cap) — no partial/trailing
+4. ✅ **Structured TP + Partial Close**: min(level, 5% cap) + 75/25 trailing
 5. ✅ **Pure Trend Following**: `signals_v8.py` — only trend_continuation, BTC primary filter
 6. ✅ **Entry Confluence Gate (3-Factor Shadow)**: BTC macro tier + Pair structure confluence + Nearest level quality — shadow logging to `entry_confluence_shadow` table, calibration script, dashboard panel ([ENTRY_CONFLUENCE_GATE.md](ENTRY_CONFLUENCE_GATE.md))
 
@@ -580,13 +526,6 @@ All running as SHADOW (measure only):
 | | - `ec_calibrate.py` — threshold optimization from settled trades (N≥30) |
 | | - Dashboard: `/api/entry-confluence-shadow` + `EntryConfluenceShadow.tsx` panel |
 | | - 38 unit tests (`tests/test_entry_confluence.py`) — BNB fixture, symmetry, DB |
-| 2026-07-17 | **Simplified Exit Logic (Remove Trailing/Partial/Time-exit)**: |
-| | - Remove `scalp_exit` (time-based exit for scalp_range after N bars) |
-| | - Remove Partial TP + Trailing (75/25 split for fade v2) |
-| | - Remove Give-back trigger (force Gemini review on TP retrace) |
-| | - Exit logic now: Fixed SL / Fixed TP / Liq / Manual / EOD only |
-| | - `bot/position.py` simplified — no trailing logic |
-| | - `bot/forward.py:_monitor_usd()` — SL/TP/LIQ/Manual/EOD only |
 
 ---
 
