@@ -2108,6 +2108,7 @@ class ForwardTester:
             return
         targets = list(self.open.keys()) if "*" in reqs else reqs  # "*" = tutup semua
         remaining = []
+        closed_any = False
         for sym in targets:
             if sym in self.open:
                 try:
@@ -2116,10 +2117,16 @@ class ForwardTester:
                     remaining.append(sym)
                     continue
                 self._close_usd(sym, price, "manual")
+                closed_any = True
         try:
             p.write_text(_json.dumps(remaining), encoding="utf-8")
         except Exception as e:  # boundary
             log.warning(f"tulis close_requests gagal: {e}")
+        # Sync status & state SEGERA setelah manual close → dashboard real-time
+        if closed_any and self.use_store:
+            rs = self._apply_settings()
+            self._write_status(rs, self._last_news_note != "", self._last_news_note)
+            self._persist_state()
 
     def _corr_conflict(self, sym: str, side: int) -> str | None:
         """Guard korelasi: bila ada posisi terbuka SEARAH yg return-nya berkorelasi
