@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS events (
     ts      TEXT NOT NULL,
     event   TEXT NOT NULL,
     symbol  TEXT,
+    mode    TEXT,
     data    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_events_event  ON events(event);
@@ -192,6 +193,15 @@ def _migrate() -> None:
                 c.execute(f"ALTER TABLE {col} ADD COLUMN mode TEXT DEFAULT {default}")
             except Exception:  # kolom sudah ada (ALTER idempotent)
                 pass
+        # ---- Kolom `mode` di events table (untuk close_exists mode-isolation) ----
+        try:
+            c.execute("ALTER TABLE events ADD COLUMN mode TEXT")
+        except Exception:  # kolom sudah ada
+            pass
+        try:
+            c.execute("CREATE INDEX IF NOT EXISTS idx_events_mode ON events(mode)")
+        except Exception:  # index sudah ada
+            pass
         for name, cols in (("idx_gdec_mode_status", "gemini_decisions(mode, status)"),
                            ("idx_glesson_mode_active", "gemini_lessons(mode, active)"),
                            ("idx_gref_mode", "gemini_reflections(mode)")):
@@ -205,21 +215,23 @@ def insert_event(event: str, payload: dict, ts: str | None = None) -> int:
     """Catat satu event (open/close/dll). Kembalikan id baris."""
     init_db()
     ts = ts or payload.get("ts") or datetime.now(timezone.utc).isoformat()
+    mode = payload.get("mode")   # di-set oleh logger.journal() dari _JOURNAL_MODE
     with _conn() as c:
         cur = c.execute(
-            "INSERT INTO events (ts, event, symbol, data) VALUES (?,?,?,?)",
-            (ts, event, payload.get("symbol"), json.dumps(payload, default=str)),
+            "INSERT INTO events (ts, event, symbol, mode, data) VALUES (?,?,?,?,?)",
+            (ts, event, payload.get("symbol"), mode, json.dumps(payload, default=str)),
         )
         return cur.lastrowid
 
 
 def close_exists(mode: str, symbol: str, since: float | None = None) -> bool:
     """Cek apakah sudah ada forward_close untuk symbol ini dalam rentang waktu.
-    Digunakan guard anti-duplikat di forward.py."""
+    Mode isolation: HANYA event dengan mode=ybs atau data lama (mode IS NULL)
+    yang dianggap blocking — mencegah false positive lintas mode."""
     init_db()
     with _conn() as c:
-        q = "SELECT COUNT(*) FROM events WHERE event='forward_close' AND symbol=? "
-        params: list = [symbol]
+        q = "SELECT COUNT(*) FROM events WHERE event='forward_close' AND symbol=? AND (mode=? OR mode IS NULL) "
+        params: list = [symbol, mode]
         if since is not None:
             since_iso = datetime.fromtimestamp(since, tz=timezone.utc).isoformat()
             q += "AND ts >= ?"
@@ -249,13 +261,14 @@ def delete_event(event_id: int) -> bool:
 
 def delete_trade(close_id: int) -> int:
     """Hapus satu trade: event close (id ini) + event open pasangannya (open terakhir
-    untuk simbol yang sama sebelum close ini). Kembalikan jumlah baris terhapus."""
+    untuk simbol yang sama sebelum close ini). Kembalikan jumlah baris terhapus.
+    Hanya bekerja untuk event forward_close — ID jenis lain ditolak."""
     init_db()
     with _conn() as c:
         row = c.execute("SELECT symbol FROM events WHERE id=? AND event='forward_close'",
                         (close_id,)).fetchone()
         if not row:
-            return c.execute("DELETE FROM events WHERE id=?", (close_id,)).rowcount
+            return 0    # bukan forward_close → jangan hapus sembarangan
         opn = c.execute(
             "SELECT id FROM events WHERE event='forward_open' AND symbol=? AND id<? "
             "ORDER BY id DESC LIMIT 1", (row["symbol"], close_id)).fetchone()

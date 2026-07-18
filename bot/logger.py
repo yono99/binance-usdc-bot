@@ -35,7 +35,7 @@ log = logging.getLogger("bot")
 _JOURNAL_MODE: str | None = None
 
 
-def set_journal_mode(mode: str) -> None:
+def set_journal_mode(mode: str | None) -> None:
     """Pisahkan jurnal per mode (dry/test/live): file & stempel payload.
     Dipanggil sekali oleh bot saat init — mencegah riwayat lintas-mode bercampur."""
     global _JOURNAL_MODE
@@ -44,14 +44,18 @@ def set_journal_mode(mode: str) -> None:
 
 def journal(event: str, payload: dict) -> None:
     """Catat satu event trade. Dual-write: JSONL (audit/post-mortem, append-only) +
-    SQLite (sumber query/hapus untuk dashboard). Kegagalan SQLite tak boleh menjatuhkan
-    bot — JSONL tetap jadi cadangan."""
-    if _JOURNAL_MODE:
-        payload = {**payload, "mode": _JOURNAL_MODE}
+    SQLite (sumber query/hapus untuk dashboard). Semua write dilindungi try/except
+    — kegagalan media penyimpanan TIDAK boleh menjatuhkan bot."""
+    mode = _JOURNAL_MODE      # baca SEKALI — anti-TOCTOU race
+    if mode:
+        payload = {**payload, "mode": mode}
     rec = {"ts": datetime.now(timezone.utc).isoformat(), "event": event, **payload}
-    fname = f"trades_{_JOURNAL_MODE}.jsonl" if _JOURNAL_MODE else "trades.jsonl"
-    with open(LOG_DIR / fname, "a", encoding="utf-8") as f:
-        f.write(json.dumps(rec, default=str) + "\n")
+    fname = f"trades_{mode}.jsonl" if mode else "trades.jsonl"
+    try:
+        with open(LOG_DIR / fname, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, default=str) + "\n")
+    except Exception as e:  # boundary — JSONL gagal (disk full/permission) → jangan crash
+        log.warning(f"journal JSONL {fname} gagal: {e}")
     try:
         from .store import insert_event
         insert_event(event, payload, ts=rec["ts"])
@@ -66,5 +70,5 @@ def journal(event: str, payload: dict) -> None:
                 else "screen" if event == "forward_skip"
                 else "event")
         notify(kind, rec)
-    except Exception:
-        pass   # dashboard SSE opsional — jangan ganggu hot-path
+    except Exception as e:
+        log.debug(f"SSE notify {event} gagal (non-fatal): {e}")
