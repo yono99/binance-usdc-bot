@@ -2300,6 +2300,22 @@ class ForwardTester:
             throttled = now - self._last_decide.get(sym, 0) < self._decide_interval
             free_gemini = (self.use_gemini_trader and self.gtrader is not None
                            and rs.enabled and sym not in self.open and not throttled)
+            # ── AI DECIDE CACHE (lolos throttle: reuse Gemini tanpa evaluasi full) ──
+            if (getattr(self, '_sideways_sniper', False) and sym not in self.open
+                    and sym not in self.pending and c.get("price")):
+                _cached = self._decide_cache.get(sym)
+                if _cached:
+                    try:
+                        from .indicators import adx as _adx_c3
+                        _at_v = float(_adx_c3(df_closed, self.cfg["signals"]["adx_period"])[0].iloc[-1])
+                        _at_th = self.cfg.get("strategy", {}).get("adx_range", 18)
+                        _dp = abs(c["price"] - _cached["price"]) / max(c["price"], 1e-9)
+                        if _dp < 0.003 and _at_v <= _at_th and abs(_at_v - _cached["adx"]) < 2:
+                            _cache_hit_reserve[sym] = (df_closed, copy.deepcopy(_cached["decision"]))
+                            self._last_decide[sym] = time.time()
+                            continue
+                    except Exception:
+                        pass
             if bar_closed or free_gemini:
                 if bar_closed:
                     self.last_closed[sym] = df_closed.index[-1]
@@ -2368,16 +2384,6 @@ class ForwardTester:
                             log.debug(f"{sym}: skip gemini price cache (Δ={_price_delta_pct:.3f}% < {_price_cache_pct}%)")
                             c["blocked"] = f"price cache: Δ{_price_delta_pct:.2f}%<{_price_cache_pct}%"
                             continue
-                    # ── AI DECIDE CACHE (range regime: reuse Gemini jika market tak berubah) ──
-                    if _sideways_on and _is_rng and sym not in self.open and sym not in self.pending:
-                        _cached = self._decide_cache.get(sym)
-                        if _cached and c.get("price") and _adx_v is not None:
-                            _dp = abs(c["price"] - _cached["price"]) / max(c["price"], 1e-9)
-                            if _dp < 0.003 and _adx_v <= _adx_range_th and abs(_adx_v - _cached["adx"]) < 2:
-                                _cache_hit_reserve[sym] = (df_closed, copy.deepcopy(_cached["decision"]))
-                                self._last_decide[sym] = time.time()
-                                continue
-
                     # ─────────────────────────────────────────────────────────────────
                     # Kumpulkan SEMUA yang lolos pre-gate dgn skor "menarik" — kuota
                     # dialokasikan by-ranking setelah loop (bukan first-come-first-served,
