@@ -2275,6 +2275,7 @@ class ForwardTester:
         label = {1: "LONG", -1: "SHORT", 0: "skip"}
         gemini_pool = []                       # (sym, df, score) — di-ranking setelah loop
         _sniper_range_cache: dict[str, bool] = {}   # regime-range per simbol untuk budget boost
+        _cache_hit_reserve: dict[str, tuple[pd.DataFrame, dict]] = {}  # cached decisions: sym → (df, decision)
         for sym in self.symbols:
             buf = self._update_buffer(sym)        # refresh DULU → monitor lihat high/low terbaru
             self._monitor_usd(sym, buf)           # cek SL/TP intrabar (tangkap wick antar-poll)
@@ -2307,7 +2308,15 @@ class ForwardTester:
                     # Murah (cuma ADX) — dipakai untuk bypass pre-gate ATR & price-cache
                     # khusus regime=range (sideways tipis jangan diblok, tetap panggil Gemini).
                     _sideways_on = getattr(self, '_sideways_sniper', False)
-                    _is_rng = self._is_range(df_closed, self.cfg) if _sideways_on else False
+                    _adx_v: float | None = None
+                    _adx_range_th = self.cfg.get("strategy", {}).get("adx_range", 18)
+                    if _sideways_on:
+                        from .indicators import adx as _adx_calc
+                        try:
+                            _adx_v = float(_adx_calc(df_closed, self.cfg["signals"]["adx_period"])[0].iloc[-1])
+                        except Exception:
+                            _adx_v = None
+                    _is_rng = _adx_v is not None and _adx_v <= _adx_range_th
                     self._sniper_cache_add(_sniper_range_cache if _sideways_on else None,
                                            sym, _is_rng)
                     # Blokir MURAH dulu (tanpa panggil Gemini) — jangan buang token bila
@@ -2359,6 +2368,16 @@ class ForwardTester:
                             log.debug(f"{sym}: skip gemini price cache (Δ={_price_delta_pct:.3f}% < {_price_cache_pct}%)")
                             c["blocked"] = f"price cache: Δ{_price_delta_pct:.2f}%<{_price_cache_pct}%"
                             continue
+                    # ── AI DECIDE CACHE (range regime: reuse Gemini jika market tak berubah) ──
+                    if _sideways_on and _is_rng and sym not in self.open and sym not in self.pending:
+                        _cached = self._decide_cache.get(sym)
+                        if _cached and c.get("price") and _adx_v is not None:
+                            _dp = abs(c["price"] - _cached["price"]) / max(c["price"], 1e-9)
+                            if _dp < 0.003 and _adx_v <= _adx_range_th and abs(_adx_v - _cached["adx"]) < 2:
+                                _cache_hit_reserve[sym] = (df_closed, copy.deepcopy(_cached["decision"]))
+                                self._last_decide[sym] = time.time()
+                                continue
+
                     # ─────────────────────────────────────────────────────────────────
                     # Kumpulkan SEMUA yang lolos pre-gate dgn skor "menarik" — kuota
                     # dialokasikan by-ranking setelah loop (bukan first-come-first-served,
@@ -2449,29 +2468,9 @@ class ForwardTester:
             self._gemini_decide_used += 1
             self._last_decide[sym] = _now_rank           # throttle: tandai panggilan Gemini
 
-        # TAHAP 2: AI DECIDE CACHE — skip Gemini bila range market & ga berubah signifikan
-        _cache_hits: list[tuple[str, pd.DataFrame]] = []
-        _cache_miss: list[tuple[str, pd.DataFrame]] = []
-        if gemini_candidates and self._sideways_sniper:
-            _idx_adx_period = self.cfg.get("signals", {}).get("adx_period", 14)
-            _adx_range_th = self.cfg.get("strategy", {}).get("adx_range", 18)
-            from .indicators import adx as _adx_calc
-            for sym, df in gemini_candidates:
-                cached = self._decide_cache.get(sym)
-                if cached and sym not in self.open and sym not in self.pending and _sniper_range_cache.get(sym, False):
-                    try:
-                        price = self.sig_cache.get(sym, {}).get("price")
-                        if price and abs(price - cached["price"]) / max(price, 1e-9) < 0.003:
-                            df_closed = df.iloc[:-1]
-                            adx_now = float(_adx_calc(df_closed, _idx_adx_period)[0].iloc[-1])
-                            if adx_now <= _adx_range_th and abs(adx_now - cached["adx"]) < 2:
-                                _cache_hits.append((sym, df))
-                                continue
-                    except Exception:
-                        pass
-                _cache_miss.append((sym, df))
-        else:
-            _cache_miss = list(gemini_candidates)
+        # TAHAP 2: AI DECIDE CACHE — cache hits sudah di-filter di main loop
+        _cache_hits = [(sym, df) for sym, (df, _) in _cache_hit_reserve.items()]
+        _cache_miss = list(gemini_candidates)
 
         decisions: dict[str, dict] = {}
         contexts: dict[str, dict] = {}
@@ -2489,6 +2488,8 @@ class ForwardTester:
 
         if _cache_hits or _cache_miss:
             log.info(f"CACHE: {len(_cache_hits)} hit, {len(_cache_miss)} miss — hemat {len(_cache_hits)} Gemini calls")
+        # Gabung cache-hit + pool candidates untuk entry gate (cache-hit sudah ada decisions-nya)
+        _all_candidates = gemini_candidates + _cache_hits
 
         # ── Cache miss: Gemini decide_batch untuk simbol yang beneran baru ──
         if _cache_miss:
@@ -2562,7 +2563,7 @@ class ForwardTester:
                                             f" | HALVING_{halving.upper()}_BOOST ×1.3 ({old:.2f}→{dec['conviction']:.2f})")[:200]
 
             from .indicators import atr as _atr
-            for sym, df_closed in gemini_candidates:
+            for sym, df_closed in _all_candidates:
                 dec = decisions.get(sym)
                 if not dec:
                     dec = {"setup": "no_trade", "side": "flat", "conviction": 0.0, "rationale": "no decision in batch"}
