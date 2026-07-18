@@ -767,7 +767,8 @@ class ForwardTester:
         vrp.log_close(sym, pos, tr.r, mode=self.settings.mode)
         self.equity *= (1 + self.risk_frac * tr.r)
         # legacy path menggunakan single equity multiplier — tak ada split wallet.
-        journal("forward_close", {"symbol": sym, "exit": price, "r": round(tr.r, 4),
+        journal("forward_close", {"symbol": sym, "side": pos.get("side"), "entry": round(pos["entry"], 6),
+                                  "exit": price, "r": round(tr.r, 4),
                                   "reason": reason, "regime": pos.get("regime", "unknown"),
                                   "equity": round(self.equity, 2)})
         log.info(f"CLOSE {reason.upper()} {sym} @ {price:.6f} R={tr.r:+.2f} eq={self.equity:.2f}")
@@ -1876,7 +1877,8 @@ class ForwardTester:
                 log.warning(f"settle/reflect gemini {sym} gagal: {e}")
         else:
             self._react_settle(sym, pos, pnl, reason)   # umpan balik ReAct (teknik non-gemini)
-        journal("forward_close", {"symbol": sym, "exit": round(exit_fill, 6), "reason": reason,
+        journal("forward_close", {"symbol": sym, "side": pos.get("side"), "entry": round(pos["entry"], 6),
+                                  "exit": round(exit_fill, 6), "reason": reason,
                                   "pnl_usd": round(pnl, 4), "r": round(r, 4),
                                   "regime": pos.get("regime", "unknown"),
                                   "mae_pct": round(pos.get("mae_pct", 0.0), 3),
@@ -1946,7 +1948,8 @@ class ForwardTester:
         pos["bet"] = pos["bet"] * (1 - pct)  # reduce bet proportionally
         
         # Log
-        journal("forward_close", {"symbol": sym, "exit": round(exit_fill, 6), "reason": reason,
+        journal("forward_close", {"symbol": sym, "side": pos.get("side"), "entry": round(pos["entry"], 6),
+                                  "exit": round(exit_fill, 6), "reason": reason,
                                   "pnl_usd": round(pnl, 4), "r": round(r, 4),
                                   "regime": pos.get("regime", "unknown"),
                                   "mae_pct": round(pos.get("mae_pct", 0.0), 3),
