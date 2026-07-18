@@ -109,6 +109,44 @@ Knob: `WATCHDOG_MAX_MIN` (default 30) di baris cron.
 bash ~/binance-usdc-bot/deploy/watchdog.sh; echo "exit=$?"   # 0 = sehat
 ```
 
+## Pencegahan duplikat close (2026-07-18)
+
+Bot crash antara `_close_usd` (pop posisi dari `self.open`) dan `_persist_state`
+(akhir cycle) bikin `_restore_state` load state **lama** yang masih punya posisi itu
+→ SL ter-trigger lagi → close duplikat di DB.
+
+**Skenario:** posisi SL kena → `_close_usd` pop posisi → crash → PM2 restart →
+`_restore_state` balikin posisi (state terakhir dari sebelum close) → siklus
+berikutnya SL crossing lagi → close kedua dengan `pnl` sama.
+
+**Fix (`bot/forward.py:1902`):** `_persist_state()` langsung di `_close_usd()`
+setelah pop. Kalo crash setelah persist, state udah tanpa posisi itu.
+
+**Guard lapis 2 (`bot/forward.py:1792-1798`):** jendela in-memory + DB close
+guard diperlebar 60s → 600s. Mencegah close kedua bahkan kalo restart cepat (<10m).
+
+## Journal crash-safe (2026-07-18)
+
+**Masalah (`bot/logger.py:53-54`):** `open(LOG_DIR / fname, "a")` TIDAK di
+try/except. Disk full atau permission error → exception propagate ke caller →
+bot crash. Semua `journal()` caller di `forward.py` juga tak ada try/except
+(baris 762, 795, 1352, 1394, 1406, 1550, 1884, 1958, 2002).
+
+**Fix:** JSONL write dibungkus `try/except` + race `_JOURNAL_MODE` diperbaiki
+(baca sekali jadi local variable). Sekarang SEMUA write (JSONL, SQLite, SSE)
+dalam try/except masing-masing — kegagalan media penyimpanan TIDAK crash bot.
+
+## Mode isolation close_exists (2026-07-18)
+
+**Masalah (`bot/store.py:216-227`):** `close_exists(mode, symbol, since)`
+nerima parameter `mode` tapi tak pernah dipake di query SQL. Table `events`
+tak punya kolom `mode`. Close di dry mode bisa blokir close di live mode
+untuk symbol yang sama dalam 600s.
+
+**Fix:** Kolom `mode TEXT` ditambah ke `events` table (schema + migration).
+`insert_event` baca `mode` dari payload. `close_exists` pake
+`WHERE (mode=? OR mode IS NULL)` — backward compat dengan data lama (NULL).
+
 ## Deploy update
 
 Perubahan backend (Python) — **tak perlu build web**:
