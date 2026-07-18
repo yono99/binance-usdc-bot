@@ -2462,7 +2462,7 @@ class ForwardTester:
                         price = self.sig_cache.get(sym, {}).get("price")
                         if price and abs(price - cached["price"]) / max(price, 1e-9) < 0.003:
                             df_closed = df.iloc[:-1]
-                            adx_now = float(_adx_calc(df_closed, _idx_adx_period).iloc[-1])
+                            adx_now = float(_adx_calc(df_closed, _idx_adx_period)[0].iloc[-1])
                             if adx_now < 20 and abs(adx_now - cached["adx"]) < 2:
                                 _cache_hits.append((sym, df))
                                 continue
@@ -2601,11 +2601,11 @@ class ForwardTester:
                 # AI decide cache: simpan SEMUA hasil FRESH untuk reuse di range market
                 if sym in _fresh_set and _sniper_range_cache.get(sym, False):
                     try:
-                        _adx_th = self.cfg.get("signals", {}).get("adx_range", 25)
-                        from .indicators import adx as _adx_calc2, atr as _atr_calc2
-                        _adx_v = float(_adx_calc2(df_closed, self.cfg.get("signals", {}).get("adx_period", 14)).iloc[-1])
-                        if _adx_v < _adx_th:
-                            _atr_v = float(_atr_calc2(df_closed, self.cfg["signals"]["atr_period"]).iloc[-1])
+                        from .indicators import adx as _adx_c2, atr as _atr_c2
+                        _st = self.cfg.get("strategy", {})
+                        _adx_v = float(_adx_c2(df_closed, self.cfg["signals"]["adx_period"])[0].iloc[-1])
+                        if _adx_v <= _st.get("adx_range", 18):
+                            _atr_v = float(_atr_c2(df_closed, self.cfg["signals"]["atr_period"]).iloc[-1])
                             self._decide_cache[sym] = {
                                 "adx": _adx_v, "price": c["price"], "atr": _atr_v,
                                 "decision": copy.deepcopy(dec), "ts": time.time()
