@@ -1087,6 +1087,11 @@ def api_set_settings(payload: dict) -> JSONResponse:
         payload["symbols"] = [x.strip() for x in payload["symbols"].split(",") if x.strip()]
     req = payload.get("mode")
     target = req if req in ("", "dry", "test", "live") else None   # None = mode aktif
+    # Jangan simpan balance dari form — balance hanya berubah via PnL trading.
+    # Form menampilkan balance dari status:dry (live) yg bisa basi saat user save,
+    # menyebabkan _apply_settings overwrite balance benar dengan nilai basi.
+    payload.pop("balance_usdt", None)
+    payload.pop("balance_usdc", None)
     s = load_settings(target)                 # basis: nilai TERSIMPAN bucket target
     for k, v in payload.items():
         if k in known:
@@ -1221,8 +1226,8 @@ PAGE = """<!doctype html>
       <label>Pair (pisah koma)<input id="symbols" placeholder="BTC/USDC:USDC,ETH/USDC:USDC"></label>
       <label>Leverage (x)<input id="leverage" type="number" min="1" max="125"></label>
       <label>Bet / margin (USD)<input id="bet_usd" type="number" min="0.1" step="0.1"></label>
-      <label>Saldo USDT<input id="balance_usdt" type="number" min="0" step="0.1"></label>
-      <label>Saldo USDC<input id="balance_usdc" type="number" min="0" step="0.1"></label>
+      <label>Saldo USDT (read-only, berubah otomatis via PnL)<input id="balance_usdt" type="number" readonly style="background:#1a2332;color:#8aa0c0"></label>
+      <label>Saldo USDC (read-only, berubah otomatis via PnL)<input id="balance_usdc" type="number" readonly style="background:#1a2332;color:#8aa0c0"></label>
       <label>Target profit % (0=ATR)<input id="target_profit_pct" type="number" min="0" step="0.1"></label>
       <label>Max posisi terbuka<input id="max_open_positions" type="number" min="1" max="20" step="1"></label>
       <label>Stop-loss harian % (0=off)<input id="daily_max_loss_pct" type="number" min="0" max="100" step="0.1"></label>
@@ -1488,8 +1493,7 @@ document.getElementById('save').addEventListener('click',async()=>{
     symbols:document.getElementById('symbols').value,
     leverage:+document.getElementById('leverage').value,
     bet_usd:+document.getElementById('bet_usd').value,
-    balance_usdt:+document.getElementById('balance_usdt').value,
-    balance_usdc:+document.getElementById('balance_usdc').value,
+    // balance_usdt/balance_usdc TIDAK dikirim — backend pop() otomatis
     target_profit_pct:+document.getElementById('target_profit_pct').value,
     max_open_positions:+document.getElementById('max_open_positions').value,
     daily_max_loss_pct:+document.getElementById('daily_max_loss_pct').value,
@@ -1500,8 +1504,6 @@ document.getElementById('save').addEventListener('click',async()=>{
     conf_reduced_mult:+document.getElementById('conf_reduced_mult').value,
   };
   const s=await (await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
-  window.pendingBalUsdt=s.balance_usdt;
-  window.pendingBalUsdc=s.balance_usdc;
   document.getElementById('tf').value=s.timeframe;
   riskWarn(s.leverage, s.liq_pct);
   const el=document.getElementById('saved'); el.textContent=' tersimpan ✓ (bot menerapkan tiap siklus)';
@@ -1511,14 +1513,11 @@ async function loadStatus(){
   const a=await (await fetch('/api/account')).json();
   const s=await (await fetch('/api/status')).json();
   window.lastStatus=s;
-  // form Saldo = saldo hidup (termasuk PnL); jangan timpa saat user mengetik
-  // atau saat masih menunggu bot menerapkan nilai yang baru disimpan (pendingBal*).
+  // Saldo read-only: update dari status bot (PnL otomatis)
   const balUsdtEl=document.getElementById('balance_usdt');
   const balUsdcEl=document.getElementById('balance_usdc');
-  if(window.pendingBalUsdt!=null && Math.abs((s.balance_usdt??0)-window.pendingBalUsdt)<1e-9) window.pendingBalUsdt=null;
-  if(window.pendingBalUsdc!=null && Math.abs((s.balance_usdc??0)-window.pendingBalUsdc)<1e-9) window.pendingBalUsdc=null;
-  if(s.balance_usdt!=null && document.activeElement!==balUsdtEl && window.pendingBalUsdt==null) balUsdtEl.value=s.balance_usdt;
-  if(s.balance_usdc!=null && document.activeElement!==balUsdcEl && window.pendingBalUsdc==null) balUsdcEl.value=s.balance_usdc;
+  if(s.balance_usdt!=null) balUsdtEl.value=s.balance_usdt;
+  if(s.balance_usdc!=null) balUsdcEl.value=s.balance_usdc;
   const api=a.api_valid===true?'<span class="pos">VALID</span>':(a.api_valid===false?'<span class="neg">INVALID</span>':'paper (tanpa key)');
   let bal=a.balance_usdc!=null||a.balance_usdt!=null
     ?('USDT $'+fbal(a.balance_usdt)+' · USDC $'+fbal(a.balance_usdc)+(a.balance_total!=null?(' · Total $'+fbal(a.balance_total)):''))

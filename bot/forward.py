@@ -1018,16 +1018,25 @@ class ForwardTester:
         changed = (abs(rs.balance_usdt - self._last_cfg_balance_usdt) > 1e-9
                    or abs(rs.balance_usdc - self._last_cfg_balance_usdc) > 1e-9)
         if changed:
-            self.balance_usdt = rs.balance_usdt
-            self.balance_usdc = rs.balance_usdc
-            # Reset day_start_balance agar PnL hari ini dihitung dari saldo BARU (bukan saldo lama).
-            # Hindari PnL palsu positif/negatif saat user hanya set saldo awal.
-            self._day_start_balance_usdt = self.balance_usdt
-            self._day_start_balance_usdc = self.balance_usdc
-            self._day_pnl_usdt = 0.0
-            self._day_pnl_usdc = 0.0
-            log.info(f"Saldo diubah dari UI -> USDT ${self.balance_usdt:.2f}, "
-                     f"USDC ${self.balance_usdc:.2f} (day_start direset, PnL=0)")
+            # Safety: jangan overwrite balance kalau perbedaannya <2% dari total.
+            # Mencegah dashboard stale-save merusak balance hasil PnL.
+            _old_total = self.balance_usdt + self.balance_usdc
+            _new_total = rs.balance_usdt + rs.balance_usdc
+            _pct_diff = abs(_new_total - _old_total) / max(_old_total, 0.01) * 100
+            if _pct_diff < 2.0:
+                log.info(f"Balance change {_pct_diff:.2f}% terlalu kecil — "
+                         f"dilewati (old=${_old_total:.2f} new=${_new_total:.2f})")
+            else:
+                self.balance_usdt = rs.balance_usdt
+                self.balance_usdc = rs.balance_usdc
+                # Reset day_start_balance agar PnL hari ini dihitung dari saldo BARU (bukan saldo lama).
+                # Hindari PnL palsu positif/negatif saat user hanya set saldo awal.
+                self._day_start_balance_usdt = self.balance_usdt
+                self._day_start_balance_usdc = self.balance_usdc
+                self._day_pnl_usdt = 0.0
+                self._day_pnl_usdc = 0.0
+                log.info(f"Saldo diubah dari UI -> USDT ${self.balance_usdt:.2f}, "
+                         f"USDC ${self.balance_usdc:.2f} (day_start direset, PnL=0)")
         self._last_cfg_balance_usdt = rs.balance_usdt
         self._last_cfg_balance_usdc = rs.balance_usdc
         self.rs = rs

@@ -40,6 +40,21 @@
 - [x] Uses rolling exp_R per setup from `gemini_decisions` table via `store.setup_stats()`
 - [x] Verified: `scalp_range` (exp_R -0.590), `range_fade` (-0.124), `trend_pullback` (-0.026) get ZERO halving boost
 
+### 0.4 SL Tighten Bug — valid_tighten() Cross-Entry ✅ DONE (commit 468745a)
+- [x] Root cause: `valid_tighten()` in `gemini_trader.py:27` allowed SL to cross entry price
+- [x] Fix: SHORT blocks if new_sl ≤ entry; LONG blocks if new_sl ≥ entry
+- [x] Impact: 43/247 SL closes (17.4%) exited at prices better than entry — worst case VVV/USDT SHORT entry=11.515 exit=11.385 (pnl=+0.212)
+
+### 0.5 Duplicate Close Guard ✅ DONE (commit b1581d8)
+- [x] Root cause: `_close_usd` called multiple times per position in same cycle
+- [x] Fix: DB-level `close_exists()` in `store.py:215-228` + in-memory `_recently_closed` dict + anti-reentry pre-gate
+- [x] Cleaned 47 duplicate `forward_close` + 9 duplicate `forward_open` events from DB
+
+### 0.6 Micro-Profit Lock Fix — Premature SL Tightening ✅ DONE (commit a945158)
+- [x] Root cause: PENGU (MFE=1.14%=33% TP) and SOL (MFE=0.127%=33% TP) both locked micro-profit and tightened SL to breakeven → exit at entry → rugi fee
+- [x] Fix: threshold 0.3 → 0.6; logic moved from `_gemini_manage` to `_monitor_usd` (runs every cycle, no Gemini cost)
+- [x] Impact: Both PENGU and SOL survive with new 0.6 threshold
+
 ---
 
 ## 🟠 PHASE 1: BUILD TRUE S/R LEVEL DETECTION (Core Fix for Fade Setups)
@@ -200,6 +215,26 @@ gemini:
 
 ---
 
+## 🟩 PHASE 7B: OPERATIONAL OPTIMIZATIONS (Jul 2026)
+
+### 7b.1 Entry Confidence Floor 0.30→0.40 ✅ DONE (commit 10a65e7)
+- [x] `conf_min` changed in `settings_store.py:135` — fewer low-conviction entries pass gate
+- [x] Deployed alongside redundant pre-gate removal
+
+### 7b.2 Removed Redundant Post-Gemini Pre-Gates ✅ DONE (commit 10a65e7)
+- [x] After Gemini decide, entry path no longer re-checks bot OFF, news, VRP, ddlock, CB, slot, posisi
+- [x] Entry executes immediately after Gemini decision — saves latency per entry
+
+### 7b.3 Gemini API Cost Reduction ✅ DONE (commit a97fd04)
+- [x] `batch_chunk_size: 12 → 48`: 48 candidates fit 1 API call instead of 4 (75% RPD savings during sideways boost)
+- [x] `price_cache_pct: 0.03 → 0.10`: fewer stagnant symbols evaluated per cycle
+
+### 7b.4 Manage Interval 30→120 Seconds ✅ DONE (commit a945158)
+- [x] `_manage_interval` in `settings_store.py:108` and `forward.py:181`
+- [x] Manage calls per position drop from 720→180/day — significant Gemini cost reduction
+
+---
+
 ## ⚫ PHASE 7: LIVE READINESS CHECKLIST (NON-NEGOTIABLE — FROM ARCHITECTURE_DOC)
 
 **Before ANY live capital:**
@@ -220,18 +255,25 @@ gemini:
 
 | Priority | Task | Status | Blockers |
 |----------|------|--------|----------|
-| 1 | Fix Evidence Gate Hard Block (0.1) | ☐ | — |
+| 1 | Fix Evidence Gate Hard Block (0.1) | ✅ | — |
 | 2 | Investigate R < -1R trades (0.2) | ☐ | Need trade data from logs |
-| 3 | Fix Halving Boost Conditioning (0.3) | ☐ | — |
-| 4 | Build `bot/levels.py` S/R detector (1.1) | ☐ | — |
-| 5 | Validate on BNB case (1.2) | ☐ | 1.1 done |
-| 6 | Wire fade v2 hard gates (2.1-2.3) | ☐ | 1.3 done |
-| 7 | Confirm 5% definition + implement TP (3.1-3.2) | ☐ | User confirmation |
+| 3 | Fix Halving Boost Conditioning (0.3) | ✅ | — |
+| 4 | Build `bot/levels.py` S/R detector (1.1) | ✅ | — |
+| 5 | Validate on BNB case (1.2) | ✅ | 1.1 done |
+| 6 | Wire fade v2 hard gates (2.1-2.3) | ✅ | 1.3 done |
+| 7 | Confirm 5% definition + implement TP (3.1-3.2) | ✅ | User confirmation |
 | 8 | Deploy Trend-Only config (4.1) | ☐ | — |
 | 9 | Build `decide_v8` pure trend (4.2) | ☐ | — |
 | 10 | Master risk/exit dynamic RR (4.3-4.4) | ☐ | — |
 | 11 | Monitor H30 L2 collection | 🟢 RUNNING | Don't touch collectors |
 | 12 | Evaluate shadow gates (5.1-5.4) | ☐ | Need sample size |
+| 13 | SL Tighten Bug Fix (0.4) | ✅ | — |
+| 14 | Duplicate Close Guard (0.5) | ✅ | — |
+| 15 | Micro-Profit Lock Fix (0.6) | ✅ | — |
+| 16 | Entry Confidence 0.30→0.40 (7b.1) | ✅ | — |
+| 17 | Remove Redundant Pre-Gates (7b.2) | ✅ | — |
+| 18 | Gemini Cost Reduction (7b.3) | ✅ | — |
+| 19 | Manage Interval 30→120s (7b.4) | ✅ | — |
 
 ---
 
