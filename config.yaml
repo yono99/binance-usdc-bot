@@ -26,7 +26,7 @@ flat_shadow:
   sample: 200
 gemini:
   allow_live_trader: true
-  batch_chunk_size: 12
+  batch_chunk_size: 48
   devil_advocate:
     enabled: false
     model: ''
@@ -39,7 +39,7 @@ gemini:
   news_veto: true
   planner_min_trades: 3
   pregate_atr_pct: 0.08
-  price_cache_pct: 0.03
+  price_cache_pct: 0.10
   role: veto
   sideways_sniper:
     budget_boost_pct: 300
