@@ -2454,6 +2454,7 @@ class ForwardTester:
         _cache_miss: list[tuple[str, pd.DataFrame]] = []
         if gemini_candidates and self._sideways_sniper:
             _idx_adx_period = self.cfg.get("signals", {}).get("adx_period", 14)
+            _adx_range_th = self.cfg.get("strategy", {}).get("adx_range", 18)
             from .indicators import adx as _adx_calc
             for sym, df in gemini_candidates:
                 cached = self._decide_cache.get(sym)
@@ -2463,7 +2464,7 @@ class ForwardTester:
                         if price and abs(price - cached["price"]) / max(price, 1e-9) < 0.003:
                             df_closed = df.iloc[:-1]
                             adx_now = float(_adx_calc(df_closed, _idx_adx_period)[0].iloc[-1])
-                            if adx_now < 20 and abs(adx_now - cached["adx"]) < 2:
+                            if adx_now <= _adx_range_th and abs(adx_now - cached["adx"]) < 2:
                                 _cache_hits.append((sym, df))
                                 continue
                     except Exception:
@@ -2599,22 +2600,19 @@ class ForwardTester:
                     self._decide_price_cache[sym] = (c["price"], dec)
 
                 # AI decide cache: simpan SEMUA hasil FRESH untuk reuse di range market
-                if sym in _fresh_set:
-                    log.info(f"AI STORE TRY {sym}: fresh_in={sym in _fresh_set} range={_sniper_range_cache.get(sym, '?')} side={dec.get('side')} price={c.get('price')}")
-                    if _sniper_range_cache.get(sym, False):
-                        try:
-                            from .indicators import adx as _adx_c2, atr as _atr_c2
-                            _st = self.cfg.get("strategy", {})
-                            _adx_v = float(_adx_c2(df_closed, self.cfg["signals"]["adx_period"])[0].iloc[-1])
-                            if _adx_v <= _st.get("adx_range", 18):
-                                _atr_v = float(_atr_c2(df_closed, self.cfg["signals"]["atr_period"]).iloc[-1])
-                                self._decide_cache[sym] = {
-                                    "adx": _adx_v, "price": c["price"], "atr": _atr_v,
-                                    "decision": copy.deepcopy(dec), "ts": time.time()
-                                }
-                                log.info(f"AI STORE OK {sym}: adx={_adx_v:.1f} ≤{_st.get('adx_range', 18)} side={dec.get('side')}")
-                        except Exception as exc:
-                            log.info(f"AI STORE ERR {sym}: {exc}")
+                if sym in _fresh_set and _sniper_range_cache.get(sym, False):
+                    try:
+                        from .indicators import adx as _adx_c2, atr as _atr_c2
+                        _st = self.cfg.get("strategy", {})
+                        _adx_v = float(_adx_c2(df_closed, self.cfg["signals"]["adx_period"])[0].iloc[-1])
+                        if _adx_v <= _st.get("adx_range", 18):
+                            _atr_v = float(_atr_c2(df_closed, self.cfg["signals"]["atr_period"]).iloc[-1])
+                            self._decide_cache[sym] = {
+                                "adx": _adx_v, "price": c["price"], "atr": _atr_v,
+                                "decision": copy.deepcopy(dec), "ts": time.time()
+                            }
+                    except Exception:
+                        pass
 
                 # ── ENTRY CONFLUENCE GATE (SHADOW: catat, jangan blokir) ──────────────
                 try:
