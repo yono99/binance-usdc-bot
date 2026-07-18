@@ -2511,7 +2511,8 @@ class ForwardTester:
                 contexts[sym] = ctx
 
             fresh = self.gtrader.decide_batch({s: contexts[s] for s, _ in _cache_miss})
-            decisions.update(fresh)
+            if fresh:
+                decisions.update(fresh)
             _fresh_set = {sym for sym, _ in _cache_miss}
 
             # ── CONVICTION BOOST (arsitektur profit konsisten) ─────────────────────────
@@ -2594,22 +2595,25 @@ class ForwardTester:
                 if c.get("price"):
                     self._decide_price_cache[sym] = (c["price"], dec)
 
-                # AI decide cache: simpan SEMUA hasil FRESH (long/short/flat) untuk reuse
-                if sym in _fresh_set and _sniper_range_cache.get(sym, False):
-                    try:
-                        _adx_p = self.cfg.get("signals", {}).get("adx_period", 14)
-                        from .indicators import adx as _adx_calc2, atr as _atr_calc2
-                        _adx_v = float(_adx_calc2(df_closed, _adx_p).iloc[-1])
-                        if _adx_v < 20:
-                            _atr_v = float(_atr_calc2(df_closed, self.cfg["signals"]["atr_period"]).iloc[-1])
-                            self._decide_cache[sym] = {
-                                "adx": _adx_v, "price": c["price"], "atr": _atr_v,
-                                "decision": copy.deepcopy(dec), "ts": time.time()
-                            }
-                            log.debug(f"AI CACHE STORE {sym}: adx={_adx_v:.1f} "
-                                      f"side={dec.get('side')} price={c['price']}")
-                    except Exception:
-                        pass
+                # AI decide cache: simpan SEMUA hasil FRESH untuk reuse di range market
+                if sym in _fresh_set:
+                    _rng_v = _sniper_range_cache.get(sym, "NOKEY")
+                    log.debug(f"AI CHK {sym}: fresh=Y range={_rng_v} side={dec.get('side')}")
+                    if _rng_v is True:
+                        try:
+                            _adx_p = self.cfg.get("signals", {}).get("adx_period", 14)
+                            from .indicators import adx as _adx_calc2, atr as _atr_calc2
+                            _adx_v = float(_adx_calc2(df_closed, _adx_p).iloc[-1])
+                            if _adx_v < 20:
+                                _atr_v = float(_atr_calc2(df_closed, self.cfg["signals"]["atr_period"]).iloc[-1])
+                                self._decide_cache[sym] = {
+                                    "adx": _adx_v, "price": c["price"], "atr": _atr_v,
+                                    "decision": copy.deepcopy(dec), "ts": time.time()
+                                }
+                                log.debug(f"AI STORE {sym}: adx={_adx_v:.1f} "
+                                          f"side={dec.get('side')} price={c['price']}")
+                        except Exception as exc:
+                            log.debug(f"AI FAIL {sym}: {exc}")
 
                 # ── ENTRY CONFLUENCE GATE (SHADOW: catat, jangan blokir) ──────────────
                 try:
