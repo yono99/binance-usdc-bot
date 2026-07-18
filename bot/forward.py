@@ -1897,6 +1897,9 @@ class ForwardTester:
         # Cleanup old entries (older than 10 minutes) to prevent memory leak
         cutoff = time.time() - 600
         self._recently_closed = {k: v for k, v in self._recently_closed.items() if v > cutoff}
+        # Persist state segera setelah close. Tanpa ini, crash antara pop() dan _persist_state()
+        # di akhir cycle bikin _restore_state load posisi LAMA → SL trigger lagi → close duplikat.
+        self._persist_state()
 
     def _close_partial_usd(self, sym: str, price: float, pct: float, reason: str) -> None:
         """Close a fraction (pct) of position at given price.
