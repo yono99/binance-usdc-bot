@@ -1505,7 +1505,10 @@ class ForwardTester:
         return min(bet, avail)
 
     def _open_usd(self, sym: str, side: int, atr: float, rs: RuntimeSettings) -> None:
-        # Tahap 4a (plan-sess): cooldown/blacklist per-mode PERSEISTENT di SQLite via
+        if sym in self.open:
+            log.warning(f"DUPOPEN BLOCKED {sym}: already in self.open")
+            return
+        # Tahap 4a (plan-sess): cooldown/blacklist per-mode PERSEISTEN di SQLite via
         # bot.cooldown — skip simbol yg masih cooldown atau di-blacklist setelah SL streak
         # (config rotate.cooldown_minutes/blacklist_after_sl).
         try:
@@ -1786,14 +1789,14 @@ class ForwardTester:
         # Prevent duplicate close journaling (race condition / re-processing guard)
         now = time.time()
         last = self._recently_closed.get(sym, 0)
-        if now - last < 60:  # skip if same symbol closed within 60 seconds
+        if now - last < 600:  # skip if same symbol closed within 600 seconds (10 menit)
             log.warning(f"DUPLICATE CLOSE BLOCKED {sym}: last close {now - last:.0f}s ago (reason={reason})")
             return
-        # Double-check DB: sudah ada forward_close untuk simbol ini <60 detik lalu?
+        # Double-check DB: sudah ada forward_close untuk simbol ini <600 detik lalu?
         try:
             from .store import close_exists
-            if close_exists(self.settings.mode, sym, since=now - 60):
-                log.warning(f"DUPLICATE CLOSE BLOCKED (DB) {sym}: close exists in DB within 60s")
+            if close_exists(self.settings.mode, sym, since=now - 600):
+                log.warning(f"DUPLICATE CLOSE BLOCKED (DB) {sym}: close exists in DB within 600s")
                 self._recently_closed[sym] = now  # sync guard
                 return
         except Exception:
@@ -1891,8 +1894,8 @@ class ForwardTester:
         icon = {"liq": "💥 <b>LIKUIDASI</b>", "sl": "🛑 SL", "tp": "✅ TP",
                 "manual": "✋ CLOSE", "eod": "⏹ EOD"}.get(reason, reason)
         self.notify.send(f"{icon} {sym}\nPnL ${pnl:+.2f} · R {r:+.2f} · saldo ${_wallet_total:.2f}")
-        # Cleanup old entries (older than 5 minutes) to prevent memory leak
-        cutoff = time.time() - 300
+        # Cleanup old entries (older than 10 minutes) to prevent memory leak
+        cutoff = time.time() - 600
         self._recently_closed = {k: v for k, v in self._recently_closed.items() if v > cutoff}
 
     def _close_partial_usd(self, sym: str, price: float, pct: float, reason: str) -> None:
@@ -2312,7 +2315,7 @@ class ForwardTester:
                     pre = pre or ("slot penuh" if len(self.open) >= self.max_open else None)
                     # Anti re-entry: jangan buka posisi baru untuk simbol yang baru ditutup
                     _last_close = self._recently_closed.get(sym, 0)
-                    if _last_close and now - _last_close < 60:
+                    if _last_close and now - _last_close < 600:
                         pre = pre or f"recent close {now - _last_close:.0f}s ago"
                     if pre is None:                      # PRE-GATE murah: pasar HIDUP? (ARAH
                         #   diserahkan ke Gemini — jangan sandera trader pintar di balik rules lama).
