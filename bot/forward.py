@@ -2486,7 +2486,7 @@ class ForwardTester:
             log.info(f"AI CACHE HIT {sym}: reuse range decision "
                      f"(adx={cached['adx']:.1f}, Δprice={abs(self.sig_cache.get(sym,{}).get('price',0)-cached['price'])/max(cached['price'],1e-9)*100:.3f}%)")
 
-        if _cache_hits:
+        if _cache_hits or _cache_miss:
             log.info(f"CACHE: {len(_cache_hits)} hit, {len(_cache_miss)} miss — hemat {len(_cache_hits)} Gemini calls")
 
         # ── Cache miss: Gemini decide_batch untuk simbol yang beneran baru ──
