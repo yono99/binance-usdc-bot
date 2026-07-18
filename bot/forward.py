@@ -2695,7 +2695,15 @@ class ForwardTester:
         for sym in self.symbols:
             c = self.sig_cache.get(sym, {})
             pos = self.open.get(sym)
-            price = c.get("price")
+            # PnL pakai ticker live biar dashboard real-time, bukan bar close
+            if pos:
+                try:
+                    price = float(self.ex.ticker(sym)["last"])
+                    c["price"] = price
+                except Exception:
+                    price = c.get("price")
+            else:
+                price = c.get("price")
             pos_view = None
             if pos and price:
                 d = price - pos["entry"] if pos["side"] == "long" else pos["entry"] - price
