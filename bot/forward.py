@@ -178,7 +178,7 @@ class ForwardTester:
         self._calib_drifting = False              # Phase 6: status drift (anti-spam alarm)
         self._last_news_note = ""
         self._last_manage: dict = {}              # throttle kelola-posisi per simbol
-        self._manage_interval = 60                # detik minimum antar review posisi (~1 menit)
+        self._manage_interval = 120               # detik minimum antar review posisi (~2 menit)
         self._min_hold_s = 300                    # GRACE anti-whipsaw: manajer tak exit sblm ditahan segini
         _gcfg = self.cfg.get("gemini", {})        # pemicu give-back menuju TP (knob kalibrasi)
         self._giveback_tp_frac = float(_gcfg.get("giveback_tp_frac", 0.5))
@@ -590,15 +590,7 @@ class ForwardTester:
         prog = self._tp_progress(pos, price)            # fraksi perjalanan ke TP (bisa <0)
         if prog is not None:
             pos["peak_tp_prog"] = max(pos.get("peak_tp_prog", prog), prog)
-        # ── Micro-profit lock: jika sudah capai >=30% TP, kunci SL ke breakeven ──
-        peak = pos.get("peak_tp_prog")
-        if peak is not None and peak >= 0.3:
-            _be = pos["entry"]
-            _long = pos["side"] == "long"
-            _tighter = _be > pos["sl"] if _long else _be < pos["sl"]
-            if _tighter:
-                pos["sl"] = _be
-                log.info(f"Micro-profit lock {sym}: SL→breakeven (peak_prog={peak:.2f})")
+        # Micro-profit lock SUDAH dipindah ke _monitor_usd (threshold 0.6)
         # ── Lapis 1: Hard gate progress (bukti: gemini_exit exp_R=-0.253) ──
         peak = pos.get("peak_tp_prog")
         if prog is not None and peak is not None:
@@ -2037,6 +2029,13 @@ class ForwardTester:
         if prog is not None:
             peak = max(pos.get("peak_tp_prog", prog), prog)
             pos["peak_tp_prog"] = peak
+            # Micro-profit lock: saat peak ≥60% TP, kunci SL ke breakeven
+            if peak >= 0.6:
+                _be = pos["entry"]
+                _tighter = _be > pos["sl"] if long else _be < pos["sl"]
+                if _tighter:
+                    pos["sl"] = _be
+                    log.info(f"Micro-profit lock {sym}: SL→breakeven (peak_prog={peak:.2f})")
             fired_at = pos.get("giveback_fired_at", 0.0)
             if (peak >= self._giveback_tp_frac and (peak - prog) >= self._giveback_margin
                     and peak > fired_at + 1e-9):

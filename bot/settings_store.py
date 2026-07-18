@@ -105,7 +105,7 @@ class RuntimeSettings:
     poll_seconds: int = 60                      # heartbeat bot (baca setting+monitor+status). Sinyal dievaluasi per bar TF.
     # --- Penyetelan Gemini (atur frekuensi panggilan → hemat RPM/token), semua di UI ---
     gemini_decide_seconds: int = 180           # throttle keputusan Gemini per simbol (teknik gemini) — 180s = 3 menit
-    gemini_manage_seconds: int = 30             # throttle kelola posisi Gemini (exit-only) — turun dr 60 utk responsif
+    gemini_manage_seconds: int = 120            # throttle kelola posisi Gemini (exit-only) — 120 dtk hemat RPD
     gemini_min_hold_s: int = 300                # GRACE: manajer Gemini tak boleh exit sebelum posisi
     #                                             ditahan ≥ ini (anti-whipsaw "baru entry langsung close").
     #                                             SL/TP TETAP jaga selama grace. 0 = nonaktif.
