@@ -213,6 +213,20 @@ def insert_event(event: str, payload: dict, ts: str | None = None) -> int:
         return cur.lastrowid
 
 
+def close_exists(mode: str, symbol: str, since: float | None = None) -> bool:
+    """Cek apakah sudah ada forward_close untuk symbol ini dalam rentang waktu.
+    Digunakan guard anti-duplikat di forward.py."""
+    init_db()
+    with _conn() as c:
+        q = "SELECT COUNT(*) FROM events WHERE event='forward_close' AND symbol=? "
+        params: list = [symbol]
+        if since is not None:
+            since_iso = datetime.fromtimestamp(since, tz=timezone.utc).isoformat()
+            q += "AND ts >= ?"
+            params.append(since_iso)
+        return c.execute(q, params).fetchone()[0] > 0
+
+
 def all_events() -> list[dict]:
     """Event berurut waktu; bentuk dict identik baris JSONL lama + field 'id'."""
     init_db()

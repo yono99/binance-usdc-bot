@@ -1787,6 +1787,15 @@ class ForwardTester:
         if now - last < 60:  # skip if same symbol closed within 60 seconds
             log.warning(f"DUPLICATE CLOSE BLOCKED {sym}: last close {now - last:.0f}s ago (reason={reason})")
             return
+        # Double-check DB: sudah ada forward_close untuk simbol ini <60 detik lalu?
+        try:
+            from .store import close_exists
+            if close_exists(self.settings.mode, sym, since=now - 60):
+                log.warning(f"DUPLICATE CLOSE BLOCKED (DB) {sym}: close exists in DB within 60s")
+                self._recently_closed[sym] = now  # sync guard
+                return
+        except Exception:
+            pass
         self._recently_closed[sym] = now
         pos = self.open.pop(sym)
         # Tahap 4a: cooldown/blacklist per-mode (DRY) — config rotate.cooldown_minutes &
@@ -2290,6 +2299,10 @@ class ForwardTester:
                     pre = pre or (cb or None)
                     pre = pre or ("sudah ada posisi" if sym in self.open else None)
                     pre = pre or ("slot penuh" if len(self.open) >= self.max_open else None)
+                    # Anti re-entry: jangan buka posisi baru untuk simbol yang baru ditutup
+                    _last_close = self._recently_closed.get(sym, 0)
+                    if _last_close and now - _last_close < 60:
+                        pre = pre or f"recent close {now - _last_close:.0f}s ago"
                     if pre is None:                      # PRE-GATE murah: pasar HIDUP? (ARAH
                         #   diserahkan ke Gemini — jangan sandera trader pintar di balik rules lama).
                         #   Hanya saring pasar mati (ATR% < lantai) agar tak buang token. Lantai =
