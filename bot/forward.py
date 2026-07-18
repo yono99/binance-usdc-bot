@@ -2578,22 +2578,11 @@ class ForwardTester:
                     log.debug(f"entry_confluence shadow {sym}: {e}")
                 # ─────────────────────────────────────────────────────────────────────
 
+                # Post-decision: hanya cek hal yang tergantung output Gemini (side, setup).
+                # Pre-gates (bot OFF, news, VRP, ddlock, cb, slot, posisi) sudah lolos
+                # SEBELUM Gemini decide → tak perlu diulang.
                 blocked = None
-                if not rs.enabled:
-                    blocked = "bot OFF"
-                elif news_veto:
-                    blocked = "news veto"
-                elif vrp_block:
-                    blocked = "vrp brake"
-                elif ddlock:
-                    blocked = "drawdown lock"
-                elif cb:
-                    blocked = cb
-                elif sym in self.open:
-                    blocked = "sudah ada posisi"
-                elif len(self.open) >= self.max_open:
-                    blocked = "slot penuh"
-                elif side == 0:
+                if side == 0:
                     blocked = "tak ada sinyal"
                     # Shadow: catat flat ASLI Gemini (semua blokir murah sudah lolos) →
                     # nanti diukur apakah ada gerakan tradeable yang terlewat (miss).
