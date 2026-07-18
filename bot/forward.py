@@ -675,7 +675,8 @@ class ForwardTester:
             log.info(f"Gemini EXIT {sym} @ {price:.6f} — {act.get('reason', '')[:80]}")
             self._close_usd(sym, price, "gemini_exit")
         elif action == "tighten_stop" and not self.live:   # live = exit-only (jaga proteksi)
-            if valid_tighten(pos["side"], pos["sl"], act.get("new_sl"), price):
+            if valid_tighten(pos["side"], pos["sl"], act.get("new_sl"), price,
+                             entry=pos.get("entry")):
                 old = pos["sl"]
                 pos["sl"] = round(float(act["new_sl"]), 6)
                 log.info(f"Gemini tighten SL {sym}: {old:.6f} → {pos['sl']:.6f}")

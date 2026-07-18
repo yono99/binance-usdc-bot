@@ -24,15 +24,21 @@ from .trader_curriculum import DECISION_MODULES, SETUPS, curriculum_prompt, mana
 _FLAT = {"setup": "no_trade", "side": "flat", "conviction": 0.0, "rationale": ""}
 
 
-def valid_tighten(side: str, old_sl: float, new_sl, price: float) -> bool:
+def valid_tighten(side: str, old_sl: float, new_sl, price: float,
+                  entry: float | None = None) -> bool:
     """GUARDRAIL: True hanya bila stop bergerak MENDEKAT harga (kurangi risiko) & belum
-    terpicu. Menjamin Gemini TAK PERNAH bisa melonggarkan stop. Pure → mudah diuji."""
+    terpicu. Menjamin Gemini TAK PERNAH bisa melonggarkan stop. Pure → mudah diuji.
+    Bila `entry` diberikan, pastikan SL tetap di sisi benar (long: sl<entry, short: sl>entry)."""
     try:
         new_sl = float(new_sl)
     except (TypeError, ValueError):
         return False
     if side == "long":
+        if entry is not None and new_sl >= entry:
+            return False
         return old_sl < new_sl < price       # naik (lebih ketat), masih di bawah harga
+    if entry is not None and new_sl <= entry:
+        return False
     return price < new_sl < old_sl            # turun (lebih ketat), masih di atas harga
 
 
