@@ -2599,19 +2599,22 @@ class ForwardTester:
                     self._decide_price_cache[sym] = (c["price"], dec)
 
                 # AI decide cache: simpan SEMUA hasil FRESH untuk reuse di range market
-                if sym in _fresh_set and _sniper_range_cache.get(sym, False):
-                    try:
-                        from .indicators import adx as _adx_c2, atr as _atr_c2
-                        _st = self.cfg.get("strategy", {})
-                        _adx_v = float(_adx_c2(df_closed, self.cfg["signals"]["adx_period"])[0].iloc[-1])
-                        if _adx_v <= _st.get("adx_range", 18):
-                            _atr_v = float(_atr_c2(df_closed, self.cfg["signals"]["atr_period"]).iloc[-1])
-                            self._decide_cache[sym] = {
-                                "adx": _adx_v, "price": c["price"], "atr": _atr_v,
-                                "decision": copy.deepcopy(dec), "ts": time.time()
-                            }
-                    except Exception:
-                        pass
+                if sym in _fresh_set:
+                    log.info(f"AI STORE TRY {sym}: fresh_in={sym in _fresh_set} range={_sniper_range_cache.get(sym, '?')} side={dec.get('side')} price={c.get('price')}")
+                    if _sniper_range_cache.get(sym, False):
+                        try:
+                            from .indicators import adx as _adx_c2, atr as _atr_c2
+                            _st = self.cfg.get("strategy", {})
+                            _adx_v = float(_adx_c2(df_closed, self.cfg["signals"]["adx_period"])[0].iloc[-1])
+                            if _adx_v <= _st.get("adx_range", 18):
+                                _atr_v = float(_atr_c2(df_closed, self.cfg["signals"]["atr_period"]).iloc[-1])
+                                self._decide_cache[sym] = {
+                                    "adx": _adx_v, "price": c["price"], "atr": _atr_v,
+                                    "decision": copy.deepcopy(dec), "ts": time.time()
+                                }
+                                log.info(f"AI STORE OK {sym}: adx={_adx_v:.1f} ≤{_st.get('adx_range', 18)} side={dec.get('side')}")
+                        except Exception as exc:
+                            log.info(f"AI STORE ERR {sym}: {exc}")
 
                 # ── ENTRY CONFLUENCE GATE (SHADOW: catat, jangan blokir) ──────────────
                 try:
