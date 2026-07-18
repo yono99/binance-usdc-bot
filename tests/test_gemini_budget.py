@@ -67,7 +67,6 @@ def ft(make_df, monkeypatch):
     ft._sniper_budget_boost_pct = 0.0
     ft._sniper_micro_tp_min = 0.01
     ft._sniper_micro_tp_max = 0.30
-    ft._sniper_scalp_exit_bars = 3
     ft._sniper_require_scalp = True
     ft._sniper_devil_advocate_for_scalp = False
 

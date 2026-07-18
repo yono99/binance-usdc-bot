@@ -201,7 +201,6 @@ class ForwardTester:
         self._sniper_budget_boost_pct = float(_sniper.get("budget_boost_pct", 300))
         self._sniper_micro_tp_min = float(_sniper.get("micro_tp_pct_min", 0.005))
         self._sniper_micro_tp_max = float(_sniper.get("micro_tp_pct_max", 0.30))
-        self._sniper_scalp_exit_bars = int(_sniper.get("scalp_exit_bars", 3))
         self._sniper_require_scalp = bool(_sniper.get("require_setup_scalp_range", True))
         self._sniper_range_bonus_mult = float(_sniper.get("range_bonus_mult", 3.0))
         self._sniper_devil_advocate_for_scalp = bool(_sniper.get("devil_advocate_for_scalp", False))
@@ -1745,13 +1744,6 @@ class ForwardTester:
                      if buf_full is not None else {})   # kesepakatan multi-TF (shadow)
         settle = "USDC" if sym.endswith(":USDC") else "USDT"
         entry_fee_rate = rs.fee_rate(settle, rs.order_type == "limit")   # kaki ENTRY: maker bila limit
-        # ── SIDEWAYS SNIPER: stempel scalp_exit_bars untuk exit cepat ──────────
-        _scalp_exit = 0
-        if self._sideways_sniper and self._sniper_scalp_exit_bars > 0 and gem:
-            _setup = gem["dec"].get("setup", "")
-            if not self._sniper_require_scalp or _setup == "scalp_range":
-                _scalp_exit = self._sniper_scalp_exit_bars
-        # ─────────────────────────────────────────────────────────────────────
         self.open[sym] = {"side": "long" if is_long else "short", "entry": entry, "qty": qty,
                           "sl": sl, "tp": tp, "liq": liq, "bet": bet,
                           "risk0": abs(entry - sl) * qty,   # 1R BEKU saat open — SL boleh di-trail, R tidak ikut bergeser
@@ -1761,8 +1753,7 @@ class ForwardTester:
                           "leverage": rs.leverage,
                           **self.vrp.stamp(),   # stempel regime VRP saat open (A/B shadow)
                           **self._regime_stamp(buf_full, self.cfg),  # regime → laporan EV
-                          **mtf_stamp,
-                          "scalp_bars": _scalp_exit}   # SIDEWAYS SNIPER: 0=nonaktif, N=bar tersisa
+                          **mtf_stamp}
         if gem:                                     # catat keputusan Gemini → settle saat tutup
             self.open[sym]["conviction"] = gem_conv   # untuk skor Brier saat close
             try:
@@ -1885,7 +1876,7 @@ class ForwardTester:
         _wallet_total = self.balance_usdt + self.balance_usdc
         log.info(f"CLOSE {reason.upper()} {sym} pnl=${pnl:+.2f} bal=${_wallet_total:.2f}")
         icon = {"liq": "💥 <b>LIKUIDASI</b>", "sl": "🛑 SL", "tp": "✅ TP",
-                "manual": "✋ CLOSE", "eod": "⏹ EOD", "scalp_exit": "⚡ SCALP EXIT"}.get(reason, reason)
+                "manual": "✋ CLOSE", "eod": "⏹ EOD"}.get(reason, reason)
         self.notify.send(f"{icon} {sym}\nPnL ${pnl:+.2f} · R {r:+.2f} · saldo ${_wallet_total:.2f}")
         # Cleanup old entries (older than 5 minutes) to prevent memory leak
         cutoff = time.time() - 300
@@ -2041,23 +2032,6 @@ class ForwardTester:
                                         f"{prog * 100:.0f}% — pertimbangkan kunci profit / exit")
                 self._last_manage[sym] = 0.0      # buka throttle → _gemini_manage jalan siklus ini
                 log.info(f"GIVE-BACK {sym}: puncak {peak * 100:.0f}%→{prog * 100:.0f}% TP — panggil Gemini")
-        # ── SIDEWAYS SNIPER: exit cepat scalp_range (tak profit dalam N bar) ──
-        # Range tak punya momentum; hold lama = give back = rugi. Paksa exit bila
-        # posisi scalp_range belum profit setelah _scalp_exit_bars bar. Decrement
-        # tiap siklus di sini (hanya saat bar tertutup baru & posisi belum profit).
-        _scalp_bars = pos.get("scalp_bars", 0)
-        if _scalp_bars > 0:
-            # Decrement tiap siklus — selama posisi masih hidup & bar tertutup baru
-            in_profit = ((last_price > pos["entry"]) if long else (last_price < pos["entry"]))
-            if in_profit:
-                pos["scalp_bars"] = 0               # sudah profit, exit wajar lewat TP
-            else:
-                pos["scalp_bars"] = _scalp_bars - 1  # satu bar terbuang tanpa profit
-                if pos["scalp_bars"] <= 0:
-                    log.info(f"SIDEWAYS SNIPER {sym}: exit cepat (tak profit dalam "
-                             f"{self._sniper_scalp_exit_bars} bar) @ {last_price:.6f}")
-                    self._close_usd(sym, last_price, "scalp_exit")
-                    return                            # SKIP SL/TP/liq — posisi sudah ditutup
         # Urutan konservatif: likuidasi → SL → TP (bila satu bar menyentuh dua sisi, ambil yg merugikan).
         if (lo <= pos["liq"]) if long else (hi >= pos["liq"]):
             self._close_usd(sym, pos["liq"], "liq")
@@ -2194,7 +2168,6 @@ class ForwardTester:
             self._sniper_budget_boost_pct = 0.0
             self._sniper_micro_tp_min = 0.01
             self._sniper_micro_tp_max = 0.30
-            self._sniper_scalp_exit_bars = 3
             self._sniper_require_scalp = True
             self._sniper_range_bonus_mult = 3.0
             self._sniper_devil_advocate_for_scalp = False

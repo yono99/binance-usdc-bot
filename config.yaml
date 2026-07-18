@@ -50,7 +50,6 @@ gemini:
     pregate_atr_pct_range: 0.003
     price_cache_pct_range: 0.0
     require_setup_scalp_range: true
-    scalp_exit_bars: 3
 market:
   poll_seconds: 20
   quote: USDC
