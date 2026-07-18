@@ -2594,8 +2594,8 @@ class ForwardTester:
                 if c.get("price"):
                     self._decide_price_cache[sym] = (c["price"], dec)
 
-                # AI decide cache: simpan hasil FRESH (bukan cached) untuk reuse di range market
-                if sym in _fresh_set and dec["side"] in ("long", "short") and _sniper_range_cache.get(sym, False):
+                # AI decide cache: simpan SEMUA hasil FRESH (long/short/flat) untuk reuse
+                if sym in _fresh_set and _sniper_range_cache.get(sym, False):
                     try:
                         _adx_p = self.cfg.get("signals", {}).get("adx_period", 14)
                         from .indicators import adx as _adx_calc2, atr as _atr_calc2
@@ -2606,6 +2606,8 @@ class ForwardTester:
                                 "adx": _adx_v, "price": c["price"], "atr": _atr_v,
                                 "decision": copy.deepcopy(dec), "ts": time.time()
                             }
+                            log.debug(f"AI CACHE STORE {sym}: adx={_adx_v:.1f} "
+                                      f"side={dec.get('side')} price={c['price']}")
                     except Exception:
                         pass
 
