@@ -169,4 +169,9 @@ Riwayat evolusi. Endpoint JSON: `/api/decisions`, `/api/lessons`, `/api/agent-he
 
 ## Berkas terkait
 `bot/react_agent.py` · `bot/decision_log.py` · `bot/lessons.py` · `bot/evolve.py` ·
-gerbang di `bot/engine.py` & `bot/forward.py` · **Entry Confluence Gate: `bot/entry_confluence.py` + `bot/ec_calibrate.py` + `tests/test_entry_confluence.py` + [ENTRY_CONFLUENCE_GATE.md](ENTRY_CONFLUENCE_GATE.md)**.
+gerbang di `bot/engine.py` · `bot/forward.py` · **Entry Confluence Gate: `bot/entry_confluence.py` + `bot/ec_calibrate.py` + `tests/test_entry_confluence.py` + [ENTRY_CONFLUENCE_GATE.md](ENTRY_CONFLUENCE_GATE.md)**.
+
+## Rencana operasional aktif
+Posture paper **Jalan A** (manager-mode + A/B shadow, risk dry dikunci, larangan H30/L2
+profit-hunting) didokumentasikan di **[PLAN_OPERASIONAL.md](PLAN_OPERASIONAL.md)** —
+selaras [TUJUAN.md](TUJUAN.md) §2.1.

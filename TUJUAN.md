@@ -34,6 +34,20 @@ disembunyikan. Nilai proyek ini = **sistem uji yang jujur**, bukan angka pamer.
 6. **LLM sebagai pengarah yang disiplin.** LLM meningkatkan **kualitas keputusan &
    disiplin**, dari data kita sendiri (§4).
 
+### 2.1 Tujuan operasional aktif (2026-07-19) — Jalan A
+
+Setelah riset arah (22+ hipotesis) **tidak** menghasilkan edge tradeable, prioritas
+operasional dikunci ulang. Detail penuh: **[PLAN_OPERASIONAL.md](PLAN_OPERASIONAL.md)**.
+
+| Prioritas | Isi |
+|---|---|
+| 1 | Survival paper (`dry`) dengan rem ketat (loss harian, max trade, leverage, slot) |
+| 2 | **Jalan A:** agent = manajer disiplin + A/B shadow (`reduces_risk`), bukan peramal |
+| 3 | H28 paper param beku — menyusul setelah proses 7 hari stabil |
+| 4 | Hipotesis baru hanya sumber struktural belum diuji; H30 maker ritel **tutup** |
+
+KPI harian = **proses & risk**, bukan “hijau tiap hari”.
+
 ---
 
 ## 3. Ekspektasi jujur

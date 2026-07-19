@@ -17,6 +17,10 @@ Satu basis kode, **tiga mode** lewat satu variabel `MODE`:
 > temuan, cara reproduksi). Nilai di sini adalah *sistem pengujian yang jujur & reproducible*,
 > bukan klaim profit. Pada data yang dapat di-backtest, **tidak ditemukan edge tradeable** —
 > dan itu didokumentasikan, bukan disembunyikan.
+>
+> **Operasional aktif (2026-07):** survival + **Jalan A** (agent manajer disiplin, A/B shadow) —
+> lihat **[PLAN_OPERASIONAL.md](PLAN_OPERASIONAL.md)** dan **[TUJUAN.md](TUJUAN.md)** §2.1.
+> Bukan target “profit tiap hari”.
 
 ## ⚠️ Baca dulu — jujur soal ekspektasi
 
