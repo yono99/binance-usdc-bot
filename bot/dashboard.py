@@ -123,8 +123,22 @@ def _ui_mode() -> str | None:
     return get_active_mode() or (store.get_kv("status") or {}).get("mode")
 
 
+def _is_partial_close(e: dict) -> bool:
+    """Partial TP/scale-out: jangan 'menghabiskan' open di open_map (posisi masih hidup)."""
+    reason = str(e.get("reason") or "").lower()
+    if e.get("partial") or e.get("event") == "forward_close_partial":
+        return True
+    return "partial" in reason or reason.endswith("_partial")
+
+
 def build_trades(events: list[dict], mode: str | None = None) -> list[dict]:
-    """Rekonstruksi trade lengkap: pasangkan forward_open dengan forward_close (per simbol)."""
+    """Rekonstruksi trade lengkap: pasangkan forward_open dengan forward_close (per simbol).
+
+    Perbaikan riwayat (2026-07):
+    - Partial close TIDAK memakan open_map → close final tetap dapat entry/side.
+    - Side/entry di event close dipakai fallback bila open yatim (double-close / restart).
+    - Close yatim tanpa side & entry disembunyikan (baris UI kosong / 'duplikat hantu').
+    """
     open_map: dict = {}
     trades = []
     for e in events:
@@ -133,13 +147,41 @@ def build_trades(events: list[dict], mode: str | None = None) -> list[dict]:
         ev = e.get("event")
         if ev == "forward_open":
             open_map[e["symbol"]] = e
-        elif ev == "forward_close":
-            o = open_map.pop(e["symbol"], {})
+        elif ev in ("forward_close", "forward_close_partial"):
+            # Partial: catat baris (opsional) tanpa pop open — posisi masih open.
+            if _is_partial_close(e):
+                o = open_map.get(e["symbol"], {}) or {}
+                side = e.get("side") if e.get("side") is not None else o.get("side")
+                entry = e.get("entry") if e.get("entry") is not None else o.get("entry")
+                if side is None and entry is None:
+                    continue
+                trades.append({
+                    "id": e.get("id"), "symbol": e.get("symbol"), "side": side,
+                    "entry": entry, "exit": e.get("exit"),
+                    "sl": o.get("sl") if o.get("sl") is not None else e.get("sl"),
+                    "tp": o.get("tp") if o.get("tp") is not None else e.get("tp"),
+                    "liq": o.get("liq"), "lev": o.get("lev"), "bet": o.get("bet"),
+                    "r": e.get("r"), "pnl_usd": e.get("pnl_usd"),
+                    "reason": e.get("reason"), "equity": e.get("equity"),
+                    "open_ts": o.get("ts"), "close_ts": e.get("ts"),
+                    "partial": True,
+                })
+                continue
+            o = open_map.pop(e["symbol"], {}) or {}
+            # Prefer field close (selalu di-journal _close_usd); fallback open pasangan.
+            side = e.get("side") if e.get("side") is not None else o.get("side")
+            entry = e.get("entry") if e.get("entry") is not None else o.get("entry")
+            # Close yatim tanpa identitas entry → jangan tampilkan (duplikat hantu di UI)
+            if not o and side is None and entry is None:
+                continue
             trades.append({
-                "id": e.get("id"), "symbol": e.get("symbol"), "side": o.get("side"),
-                "entry": o.get("entry"), "exit": e.get("exit"),
-                "sl": o.get("sl"), "tp": o.get("tp"), "liq": o.get("liq"),
-                "lev": o.get("lev"), "bet": o.get("bet"),
+                "id": e.get("id"), "symbol": e.get("symbol"), "side": side,
+                "entry": entry, "exit": e.get("exit"),
+                "sl": o.get("sl") if o.get("sl") is not None else e.get("sl"),
+                "tp": o.get("tp") if o.get("tp") is not None else e.get("tp"),
+                "liq": o.get("liq") if o.get("liq") is not None else e.get("liq"),
+                "lev": o.get("lev") if o.get("lev") is not None else e.get("lev"),
+                "bet": o.get("bet") if o.get("bet") is not None else e.get("bet"),
                 "r": e.get("r"), "pnl_usd": e.get("pnl_usd"),
                 "reason": e.get("reason"), "equity": e.get("equity"),
                 "open_ts": o.get("ts"), "close_ts": e.get("ts"),

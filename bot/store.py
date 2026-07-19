@@ -225,12 +225,22 @@ def insert_event(event: str, payload: dict, ts: str | None = None) -> int:
 
 
 def close_exists(mode: str, symbol: str, since: float | None = None) -> bool:
-    """Cek apakah sudah ada forward_close untuk symbol ini dalam rentang waktu.
+    """Cek apakah sudah ada forward_close PENUH untuk symbol ini dalam rentang waktu.
     Mode isolation: HANYA event dengan mode=ybs atau data lama (mode IS NULL)
-    yang dianggap blocking — mencegah false positive lintas mode."""
+    yang dianggap blocking — mencegah false positive lintas mode.
+
+    Partial TP (`forward_close_partial` / reason mengandung 'partial') DIABAIKAN —
+    partial bukan close penuh; bila dihitung, close final <600s setelah partial
+    akan diblokir (posisi macet di state).
+    """
     init_db()
     with _conn() as c:
-        q = "SELECT COUNT(*) FROM events WHERE event='forward_close' AND symbol=? AND (mode=? OR mode IS NULL) "
+        # Hanya event full close; partial pakai event terpisah ATAU reason *partial*
+        q = (
+            "SELECT COUNT(*) FROM events WHERE event='forward_close' AND symbol=? "
+            "AND (mode=? OR mode IS NULL) "
+            "AND IFNULL(data,'') NOT LIKE '%partial%' "
+        )
         params: list = [symbol, mode]
         if since is not None:
             since_iso = datetime.fromtimestamp(since, tz=timezone.utc).isoformat()

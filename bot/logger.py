@@ -66,6 +66,7 @@ def journal(event: str, payload: dict) -> None:
         from .notify_sse import notify
         # map event trade → tipe SSE yang dimengerti frontend
         kind = ("trade" if event in ("forward_open", "forward_close",
+                                     "forward_close_partial",
                                      "forward_open_filled", "forward_open_pending")
                 else "screen" if event == "forward_skip"
                 else "event")

@@ -54,6 +54,61 @@ def test_build_and_filter_trades():
     assert len(filter_trades(tr, dto="2026-01-01")) == 1
 
 
+def test_build_trades_hides_orphan_close_without_side_entry():
+    """Close yatim tanpa side/entry = baris hantu di UI — disembunyikan."""
+    events = [
+        {"event": "forward_open", "symbol": "AAA", "side": "long", "entry": 1.0, "ts": "t0"},
+        {"event": "forward_close", "symbol": "AAA", "side": "long", "entry": 1.0,
+         "exit": 1.1, "reason": "sl", "r": -1, "ts": "t1"},
+        # double-close yatim, payload rusak (tanpa side/entry)
+        {"event": "forward_close", "symbol": "AAA", "exit": 1.05, "reason": "sl",
+         "r": -0.5, "ts": "t2"},
+    ]
+    tr = build_trades(events)
+    assert len(tr) == 1
+    assert tr[0]["entry"] == 1.0 and tr[0]["side"] == "long"
+
+
+def test_build_trades_orphan_uses_close_side_entry_fallback():
+    """Open hilang tapi close punya side/entry → tetap tampil (bukan baris kosong)."""
+    events = [
+        {"event": "forward_close", "symbol": "BBB", "side": "short", "entry": 50.0,
+         "exit": 49.0, "reason": "tp", "r": 1.0, "ts": "t1"},
+    ]
+    tr = build_trades(events)
+    assert len(tr) == 1
+    assert tr[0]["side"] == "short" and tr[0]["entry"] == 50.0
+
+
+def test_build_trades_partial_does_not_consume_open():
+    """Partial TP tidak memakan open_map → close final tetap dapat entry dari open."""
+    events = [
+        {"event": "forward_open", "symbol": "CCC", "side": "long", "entry": 10.0,
+         "sl": 9.0, "tp": 12.0, "ts": "t0"},
+        {"event": "forward_close", "symbol": "CCC", "side": "long", "entry": 10.0,
+         "exit": 11.5, "reason": "tp_partial", "r": 0.5, "ts": "t1"},
+        {"event": "forward_close", "symbol": "CCC", "side": "long", "entry": 10.0,
+         "exit": 12.0, "reason": "tp", "r": 0.8, "ts": "t2"},
+    ]
+    tr = build_trades(events)
+    assert len(tr) == 2
+    assert tr[0].get("partial") is True and tr[0]["entry"] == 10.0
+    assert tr[1]["reason"] == "tp" and tr[1]["entry"] == 10.0 and tr[1]["side"] == "long"
+
+
+def test_build_trades_partial_event_name():
+    events = [
+        {"event": "forward_open", "symbol": "DDD", "side": "long", "entry": 2.0, "ts": "t0"},
+        {"event": "forward_close_partial", "symbol": "DDD", "side": "long", "entry": 2.0,
+         "exit": 2.1, "reason": "tp_partial", "partial": True, "ts": "t1"},
+        {"event": "forward_close", "symbol": "DDD", "side": "long", "entry": 2.0,
+         "exit": 2.2, "reason": "tp", "ts": "t2"},
+    ]
+    tr = build_trades(events)
+    assert len(tr) == 2
+    assert tr[1]["entry"] == 2.0
+
+
 def test_compute_stats_empty(tmp_path):
     s = compute_stats(tmp_path / "kosong.jsonl")
     assert s["trades"] == 0

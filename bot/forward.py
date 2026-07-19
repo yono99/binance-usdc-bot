@@ -1423,8 +1423,15 @@ class ForwardTester:
                 self.ex.client.cancel_all_orders(sym)   # bersihkan SL/TP yatim
             except Exception:
                 pass
-            journal("forward_close", {"symbol": sym, "reason": "live_exit",
-                                      "equity": round(self.balance_usdt + self.balance_usdc, 2)})
+            # Sertakan side/entry dari pos agar dashboard tak tampil baris yatim kosong
+            # bila open event hilang / double-reconcile.
+            journal("forward_close", {
+                "symbol": sym, "reason": "live_exit",
+                "side": _pos.get("side"),
+                "entry": round(float(_pos["entry"]), 6) if _pos.get("entry") is not None else None,
+                "exit": round(float(_pos.get("mark") or _pos.get("entry") or 0), 6) or None,
+                "equity": round(self.balance_usdt + self.balance_usdc, 2),
+            })
             log.info(f"LIVE CLOSE terdeteksi {sym}")
             self.notify.send(f"✋ <b>LIVE CLOSE</b> {sym} (SL/TP/manual)")
         balances = self.ex.balances(self.balance_usdt + self.balance_usdc)
@@ -1958,15 +1965,19 @@ class ForwardTester:
         pos["qty"] = remain_qty
         pos["bet"] = pos["bet"] * (1 - pct)  # reduce bet proportionally
         
-        # Log
-        journal("forward_close", {"symbol": sym, "side": pos.get("side"), "entry": round(pos["entry"], 6),
-                                  "exit": round(exit_fill, 6), "reason": reason,
-                                  "pnl_usd": round(pnl, 4), "r": round(r, 4),
-                                  "regime": pos.get("regime", "unknown"),
-                                  "mae_pct": round(pos.get("mae_pct", 0.0), 3),
-                                  "mfe_pct": round(pos.get("mfe_pct", 0.0), 3),
-                                  "funding_usd": round(funding, 4),
-                                  "equity": round(self.balance_usdt + self.balance_usdc, 2)})
+        # Event TERPISAH dari forward_close penuh — agar build_trades tak memakan open_map
+        # (bug UI: close final jadi yatim tanpa entry/side setelah partial TP).
+        journal("forward_close_partial", {
+            "symbol": sym, "side": pos.get("side"), "entry": round(pos["entry"], 6),
+            "exit": round(exit_fill, 6), "reason": reason or "tp_partial",
+            "partial": True, "partial_pct": pct,
+            "pnl_usd": round(pnl, 4), "r": round(r, 4),
+            "regime": pos.get("regime", "unknown"),
+            "mae_pct": round(pos.get("mae_pct", 0.0), 3),
+            "mfe_pct": round(pos.get("mfe_pct", 0.0), 3),
+            "funding_usd": round(funding, 4),
+            "equity": round(self.balance_usdt + self.balance_usdc, 2),
+        })
         _wallet_total = self.balance_usdt + self.balance_usdc
         log.info(f"PARTIAL CLOSE {reason.upper()} {sym} pct={pct*100:.0f}% pnl=${pnl:+.2f} bal=${_wallet_total:.2f}")
         
