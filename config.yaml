@@ -26,6 +26,7 @@ flat_shadow:
   sample: 200
 gemini:
   allow_live_trader: true
+  # Frugal RPD (2026-07): chunk ≥ cap → 1 decide call/wave; hemat request = frekuensi + news + boost
   batch_chunk_size: 48
   devil_advocate:
     enabled: false
@@ -36,19 +37,19 @@ gemini:
   giveback_tp_frac: 0.5
   min_regime_score: 0.4
   model: gemini-3-flash-preview
-  news_veto: true
+  news_veto: false                 # hemat ~96 req/hari (cache 15m); trade-off: tanpa veto berita
   planner_min_trades: 3
   pregate_atr_pct: 0.08
-  price_cache_pct: 0.10
+  price_cache_pct: 0.15            # 0.10→0.15: lebih banyak cache hit → skip re-decide
   role: veto
   sideways_sniper:
-    budget_boost_pct: 300
+    budget_boost_pct: 0            # 300→0: cegah budget 48 → 2 call/wave
     devil_advocate_for_scalp: false
     enabled: true
     micro_tp_pct_max: 0.3
     micro_tp_pct_min: 0.005
     pregate_atr_pct_range: 0.003
-    price_cache_pct_range: 0.0
+    price_cache_pct_range: 0.05    # 0→0.05: range tak re-decide tiap tick
     require_setup_scalp_range: true
 market:
   poll_seconds: 20

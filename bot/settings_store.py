@@ -104,8 +104,8 @@ class RuntimeSettings:
                                                  # HANYA manual (POST /api/dd-reset) — keputusan sadar pemilik.
     poll_seconds: int = 60                      # heartbeat bot (baca setting+monitor+status). Sinyal dievaluasi per bar TF.
     # --- Penyetelan Gemini (atur frekuensi panggilan → hemat RPM/token), semua di UI ---
-    gemini_decide_seconds: int = 180           # throttle keputusan Gemini per simbol (teknik gemini) — 180s = 3 menit
-    gemini_manage_seconds: int = 120            # throttle kelola posisi Gemini (exit-only) — 120 dtk hemat RPD
+    gemini_decide_seconds: int = 900           # throttle decide Gemini/simbol — 900s = 1× bar 15m (hemat RPD)
+    gemini_manage_seconds: int = 900            # throttle manage posisi — 900s; SL/TP native tetap tiap poll
     gemini_min_hold_s: int = 300                # GRACE: manajer Gemini tak boleh exit sebelum posisi
     #                                             ditahan ≥ ini (anti-whipsaw "baru entry langsung close").
     #                                             SL/TP TETAP jaga selama grace. 0 = nonaktif.
@@ -129,7 +129,7 @@ class RuntimeSettings:
     agent_ab_shadow: bool = False               # A/B: ReAct catat verdict tanpa memblokir
     agent_manager_mode: bool = False             # JALAN A: agent = manajer disiplin (rules arah,
     #                                              planner+autonomous ON, tool_loop OFF, no gemini-arah)
-    news_veto: bool = True                       # veto entry saat berita high-impact (toggle UI)
+    news_veto: bool = False                      # default OFF hemat RPD; nyalakan di UI bila perlu
     # --- Gerbang SIZE berbasis confidence (kalibrasi, Phase 2): tier hot-reload ---
     conf_full: float = 0.75                      # ≥ ini → ukuran penuh
     conf_min: float = 0.40                       # < ini → ABSTAIN (tak buka posisi)

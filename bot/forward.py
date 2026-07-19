@@ -179,7 +179,8 @@ class ForwardTester:
         self._calib_drifting = False              # Phase 6: status drift (anti-spam alarm)
         self._last_news_note = ""
         self._last_manage: dict = {}              # throttle kelola-posisi per simbol
-        self._manage_interval = 120               # detik minimum antar review posisi (~2 menit)
+        # Frugal RPD default: 900s = 1× bar 15m (di-override hot-reload dari RuntimeSettings)
+        self._manage_interval = 900
         self._min_hold_s = 300                    # GRACE anti-whipsaw: manajer tak exit sblm ditahan segini
         _gcfg = self.cfg.get("gemini", {})        # pemicu give-back menuju TP (knob kalibrasi)
         self._giveback_tp_frac = float(_gcfg.get("giveback_tp_frac", 0.5))
@@ -190,7 +191,7 @@ class ForwardTester:
         self._gemini_decide_budget = self._gemini_decide_cap
         self._gemini_decide_used = 0
         self._last_decide: dict = {}
-        self._decide_interval = 60
+        self._decide_interval = 900               # frugal: 1 decide/simbol per bar 15m
         self._decide_price_cache: dict[str, tuple[float, dict]] = {}
         self._decide_cache: dict[str, dict] = {}  # AI decision cache (range regime hemat RPD)
         self._last_rpd_warn = 0.0
@@ -199,8 +200,8 @@ class ForwardTester:
         _sniper = self.cfg.get("gemini", {}).get("sideways_sniper", {})
         self._sideways_sniper = bool(_sniper.get("enabled", True))
         self._sniper_pregate_atr_range = float(_sniper.get("pregate_atr_pct_range", 0.01))
-        self._sniper_price_cache_range = float(_sniper.get("price_cache_pct_range", 0.0))
-        self._sniper_budget_boost_pct = float(_sniper.get("budget_boost_pct", 300))
+        self._sniper_price_cache_range = float(_sniper.get("price_cache_pct_range", 0.05))
+        self._sniper_budget_boost_pct = float(_sniper.get("budget_boost_pct", 0))
         self._sniper_micro_tp_min = float(_sniper.get("micro_tp_pct_min", 0.005))
         self._sniper_micro_tp_max = float(_sniper.get("micro_tp_pct_max", 0.30))
         self._sniper_require_scalp = bool(_sniper.get("require_setup_scalp_range", True))

@@ -4,9 +4,11 @@ from bot.settings_store import RuntimeSettings, _from_dict
 
 def test_defaults():
     s = RuntimeSettings()
-    assert s.gemini_decide_seconds == 60 and s.gemini_manage_seconds == 30
+    # Frugal RPD: 900s = 1× bar 15m (decide + manage)
+    assert s.gemini_decide_seconds == 900 and s.gemini_manage_seconds == 900
     assert s.gemini_portfolio_seconds == 300 and s.gemini_plan_hours == 6
     assert s.gemini_tool_iters == 4
+    assert s.news_veto is False
 
 
 def test_clamp_bounds():

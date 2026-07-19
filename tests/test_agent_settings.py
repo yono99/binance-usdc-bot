@@ -25,7 +25,7 @@ def test_get_agent_settings(monkeypatch):
     monkeypatch.setattr(dashboard, "load_settings", lambda mode=None: RuntimeSettings(agent_planner=True))
     b = json.loads(dashboard.api_get_agent_settings().body)
     assert b["agent_planner"] is True and b["agent_full_auto"] is False
-    assert b["news_veto"] is True                      # default ON, tersedia di UI
+    assert b["news_veto"] is False                     # default OFF hemat RPD; toggle di UI
 
 
 def test_news_veto_toggle_off(monkeypatch):

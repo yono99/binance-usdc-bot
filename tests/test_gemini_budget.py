@@ -26,7 +26,10 @@ def ft(make_df, monkeypatch):
     ft.last_closed = {}
     ft._last_manage = {}
     ft._last_decide = {}
-    ft._manage_interval = 60
+    ft._recently_closed = {}
+    # Interval sengaja 180 (bukan default frugal 900): cycles=180/60=3 →
+    # need=ceil(5/3)=2 agar uji CAP (budget=2) tetap bermakna.
+    ft._manage_interval = 180
     ft._decide_interval = 180
     ft.use_gemini_trader = True
     ft.use_planner = False
@@ -57,6 +60,7 @@ def ft(make_df, monkeypatch):
     ft.rs = None
     ft.react = types.SimpleNamespace(challenge_gemini=lambda *a, **k: None, devil_threshold=0.7)
     ft._decide_price_cache = {}
+    ft._decide_cache = {}
     ft._last_rpd_warn = 0.0
     ft.news = types.SimpleNamespace(check=lambda: (False, ""))
     ft.vrp = types.SimpleNamespace(check=lambda: (False, None), mode="shadow")
