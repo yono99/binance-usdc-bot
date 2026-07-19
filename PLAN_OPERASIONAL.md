@@ -93,6 +93,8 @@ Detail konsep: [AGENT.md](AGENT.md) (Jalan A, A/B harness, planner).
 
 ### Harian (~10 menit)
 
+Checklist siap pakai (centang + log 1 baris): **[CHECKLIST_HARIAN.md](CHECKLIST_HARIAN.md)**.
+
 - Apakah daily loss 5% dihormati (stop entry bila kena)?  
 - Jumlah trade ≤ 30?  
 - Error bot / double process? (`pm2 list`, satu `forwardtest`)  

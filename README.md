@@ -19,8 +19,8 @@ Satu basis kode, **tiga mode** lewat satu variabel `MODE`:
 > dan itu didokumentasikan, bukan disembunyikan.
 >
 > **Operasional aktif (2026-07):** survival + **Jalan A** (agent manajer disiplin, A/B shadow) —
-> lihat **[PLAN_OPERASIONAL.md](PLAN_OPERASIONAL.md)** dan **[TUJUAN.md](TUJUAN.md)** §2.1.
-> Bukan target “profit tiap hari”.
+> lihat **[PLAN_OPERASIONAL.md](PLAN_OPERASIONAL.md)**, **[CHECKLIST_HARIAN.md](CHECKLIST_HARIAN.md)**
+> (ritual ~10 menit), dan **[TUJUAN.md](TUJUAN.md)** §2.1. Bukan target “profit tiap hari”.
 
 ## ⚠️ Baca dulu — jujur soal ekspektasi
 
