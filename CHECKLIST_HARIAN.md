@@ -145,8 +145,17 @@ Salin ke notes pribadi (disarankan) atau append di bawah jika kamu memang ingin 
 
 ---
 
+## Setelah tutup Grok CLI
+
+Chat sesi **tidak** otomatis diingat. Agar sesi berikutnya sadar plan ini:
+
+1. File repo (sudah ada): `memory/SESSION_HANDOFF.md` + plan ini — **paling andal**
+2. Opsional: aktifkan Grok Memory + `/flush` sebelum quit (lihat handoff §5)
+3. Atau `/resume` sesi yang sama
+
 ## Changelog
 
 | Tanggal | |
 |---|---|
 | 2026-07-19 | Checklist dibuat; Day 0 = posture AB sudah diterapkan di server |
+| 2026-07-19 | Catatan persistensi sesi CLI + link SESSION_HANDOFF |

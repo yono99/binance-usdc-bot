@@ -7,6 +7,12 @@ Menggantikan veto Gemini yang pasif (`gemini.allows`) dengan loop penalaran akti
 > diarbitrase. Agen hanya **mengelola keputusan & disiplin** (gate entry, pelajaran,
 > evolusi threshold tervalidasi OOS). Tiap "edge" tetap harus lolos bukti OOS.
 
+## Sesi Grok CLI baru — baca dulu
+Konteks operasional **tidak** ikut otomatis saat TUI ditutup. Sumber kebenaran sesi berikutnya:
+**[memory/SESSION_HANDOFF.md](memory/SESSION_HANDOFF.md)** · **[PLAN_OPERASIONAL.md](PLAN_OPERASIONAL.md)** ·
+**[CHECKLIST_HARIAN.md](CHECKLIST_HARIAN.md)** · rule `.grok/rules/operasional-aktif.md`.
+Cara mengaktifkan Grok Memory opsional: lihat handoff §4–§5.
+
 ## Loop ReAct (tiap kandidat entry)
 
 ```
