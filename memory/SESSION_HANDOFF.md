@@ -36,27 +36,30 @@
 - **Batas jujur:** paper mikro; KPI proses/risk, bukan profit harian.
   Open paper berubah tiap siklus — cek UI/API, jangan hardcode jumlah di handoff.
 
-### Gemini keys Proxmox (audit 2026-07-20)
+### Gemini keys Proxmox (audit + purge 2026-07-20)
 
-- **Konfigurasi:** `.env` `GEMINI_API_KEYS` = **26 unik** (`/api/account` → `gemini_keys: 26`).
-- **Panel “Per key”** = key yang *pernah* tercatat di `gemini_usage`, **bukan** inventory 26.
-  Sebelum fix rotasi, usage cuma key#0–11 (health-sort memfavoritkan key juara).
-- **Key 403 DENIED (mati / ganti di Google AI Studio)** — index 0-based di `.env` CSV:
+- **Sekarang:** `.env` `GEMINI_API_KEYS` = **19 unik sehat** (server only; **tidak** di git).
+  Backup: `.env.env.bak_403_*` / `.env.env.bak_403b_*` di `/root/binance-usdc-bot/`.
+- **Dibuang (403 project denied)** — 7 key total (2 putaran purge):
 
-  | Key# | Prefiks (aman) | sha16 | Error |
-  |---:|---|---|---|
-  | **1** | `AIzaSyBVMy…` | `c6ed6dfaecc364ff` | 403 project denied access |
-  | **2** | `AIzaSyARbR…` | `380f399d35ddae05` | 403 project denied access |
-  | **8** | `AIzaSyC0Mb…` | `38b1eb0d28f61a31` | 403 project denied access |
+  | Putaran | Prefiks | sha16 | Catatan |
+  |---|---|---|---|
+  | 1 | `AIzaSyBVMy…` | `c6ed6dfaecc364ff` | ex-index #1 |
+  | 1 | `AIzaSyARbR…` | `380f399d35ddae05` | ex-index #2 |
+  | 1 | `AIzaSyC0Mb…` | `38b1eb0d28f61a31` | ex-index #8 |
+  | 2 | `AIzaSyDmtg…` | `8fc506d8d92ca21e` | ketahuan saat rot-test |
+  | 2 | `AIzaSyBhkY…` | `f5847f0f25b5b336` | ketahuan saat rot-test |
+  | 2 | `AQ.Ab8RN6IH…` | `511b962b5a3669d5` | ketahuan saat rot-test |
+  | 2 | `AQ.Ab8RN6Ir…` | `044d4e512a118993` | ketahuan saat rot-test |
 
-  → **Efektif sehat ≈ 23/26.** Ganti/hapus 3 key di atas di `.env` server (bukan di git).
-  Setelah fix client: 403 denied → cooldown **6 jam** durable + **SKIP** (tak spam tiap call).
-- **Cooldown limit (setelah patch):**
-  - 429 RPM: parse `retry in Xs` / `retryDelay` dari error; default **60s**; SKIP key.
-  - 429 RPD (per day): SKIP **(key,model)** sampai ~**08:00 UTC** (atau delay API ≥5 mnt).
-  - 403 generik: **5 menit**; project denied: **6 jam**.
-- **Jalan A:** manager-mode ON → panggilan Gemini hemat (planner/portfolio/regime),
-  bukan batch 86 simbol — rotasi merata tetap berlaku tiap call.
+- **Uji rotasi (setelah purge + LRU fix `ee1c2e0`):** 19 call → **19/19 sukses**,
+  unique key **19/19**, 1 call/key, **0 error 403**, ~39s. Rotasi merata **PASS**.
+- **Panel “Per key”** = usage history, bukan inventory; index bisa bergeser setelah purge.
+- **Cooldown limit (client):**
+  - 429 RPM: parse `retry in Xs` / `retryDelay`; default **60s**; SKIP key.
+  - 429 RPD: SKIP **(key,model)** sampai ~**08:00 UTC** (atau delay API ≥5 mnt).
+  - 403 generik: **5 menit**; project denied: **6 jam** durable + SKIP.
+- **Jalan A:** manager-mode ON → call Gemini hemat; rotasi LRU tetap tiap call.
 
 ---
 
