@@ -31,7 +31,9 @@
 | Volspike | range/vol spike fade | **0** (train≤0) | OOS kuat, train fail |
 | Round2 H-EH-24..31 | loser/winner 3d, ST rev LS, lowvol, highvol short, BTC MA, resid mom | **0** | highvol_short_h10 +3.7% n=33 NOT_PROVEN |
 
-**Status global: BELUM ADA EDGE PROMOTE_PAPER.**
+**Status global: BELUM ADA EDGE PROMOTE_PAPER (= 0).**  
+**PROMOTE_FILTER_PAPER = 2** (breadth_lo + corr/vol) — meta risk, shadow di dry, **bukan** entry.  
+**WATCHLIST = 1** (LINK residual-z). Scoreboard lengkap: [SESSION_HANDOFF.md](SESSION_HANDOFF.md).
 
 ---
 

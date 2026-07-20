@@ -4,7 +4,31 @@
 > Di-load lewat project rules (`AGENT.md` + `.grok/rules/`).  
 > Update baris “Status terakhir” bila posture server berubah.
 
-**Terakhir diisi:** 2026-07-21 (risk-filter shadow wired; PROMOTE_PAPER still 0)
+**Terakhir diisi:** 2026-07-21 (handoff: scoreboard edge jujur + risk-filter dry live)
+
+### Scoreboard edge (jawab “sudah dapat berapa edge?”)
+
+| Kelas | Jumlah | Arti |
+|---|---:|---|
+| **PROMOTE_PAPER** (edge entry, boleh paper-size) | **0** | Belum ada. Jangan klaim profit edge. |
+| **PROMOTE_FILTER_PAPER** (meta risk overlay) | **2** | Bukan entry alpha — hanya kandidat ↓DD |
+| **WATCHLIST** (arah OOS+ tapi gagal bar penuh) | **1** | LINK residual-z fade vs BTC (p_adj gagal) |
+| Arms OOS diuji (A–R10 + risk harness) | ~300+ | “Tidak ketemu entry” = hasil valid |
+
+**Dua filter (bukan edge entry):**
+1. `skip_breadth_lo` — skip entry saat breadth (% alt > SMA50) di bottom 30% lookback 100d  
+2. `skip_corr_or_volhi` — skip saat avg corr tinggi **atau** BTC vol20 tinggi (kuartil atas)
+
+**Wire runtime (shadow only):** `bot/risk_filter.py` · `ForwardTester._refresh_risk_filter`  
+- `agent.risk_filter_shadow: true` → log `RISK_FILTER_SHADOW` + stamp open  
+- **`agent.risk_filter_block: false`** → **tidak** hard-block (wajib sampai paper risk A/B)  
+- Panel: `data/risk_filter_panel.npz` (+ snap bila unpickle OK)  
+- Dry live smoke: `allow=False`, reasons=`breadth_lo` (breadth≈0.025) — **shadow saja**
+
+**ReAct A/B dry (awal):** n kecil (~7) → exp_R **NOT_PROVEN**; indikasi reduces_risk underpowered.
+
+Detail angka: [EDGE_HUNT.md](EDGE_HUNT.md) · [RESEARCH_LOG.md](../RESEARCH_LOG.md) ·  
+`logs/edge_hunt_validate_risk_filter.json`
 
 ### Lanjut sesi baru (baca 60 detik — anti konteks penuh)
 
@@ -12,36 +36,42 @@ Bila chat/TUI penuh atau sesi baru: **jangan** andalkan transcript. Baca urutan 
 
 | # | File | Untuk apa |
 |---|---|---|
-| 1 | **[EDGE_HUNT.md](EDGE_HUNT.md)** | scoreboard + antrian + WATCHLIST |
-| 2 | file ini § Status terakhir | posture server + larangan |
+| 0 | **[CONTINUE.md](CONTINUE.md)** | 1 halaman fakta terkunci |
+| 1 | **file ini** (scoreboard + § Status) | edge count + posture server |
+| 2 | **[EDGE_HUNT.md](EDGE_HUNT.md)** | scoreboard hunt + antrian |
 | 3 | [PLAN_OPERASIONAL.md](../PLAN_OPERASIONAL.md) | survival + Jalan A |
-| 4 | [RESEARCH_LOG.md](../RESEARCH_LOG.md) (tail Edge Hunt) | detail angka putaran |
+| 4 | [RESEARCH_LOG.md](../RESEARCH_LOG.md) (tail) | detail putaran |
 
-**Git tip:** `bec33c1` (R7–R10) · `3e535d4` (A–R6). `git pull` dulu.
+**Git tip (master):** `9e37df6` (handoff tip) · `b8e924f` (npz panel) · `c67d34c` (shadow wire) ·  
+sebelumnya R7–R10 di tree yang sama. `git pull` dulu di server.
 
 **Perintah lanjut yang disarankan (pilih satu jalur, jangan OHLCV retread):**
 ```text
-# A) Kumpulkan risk_filter SHADOW di dry (sudah wire) — A/B risk maxDD/std/worst
+# A) Kumpulkan risk_filter SHADOW di dry — A/B risk maxDD/std/worst (bukan exp_R entry)
 # B) Shadow LINK residual (WATCHLIST only) — log only, no sizing
 # C) Scaffold funding/OI panel hist bila cache ada — konstruk ≠ H15/H24/H25
 ```
 
-**Sudah ditolak / jangan ulang tanpa novelty:** H24–H32, H-CYC short unlock, crash-bounce pure, short-alts markdown-only, 1h majors net cost, re-tune thr LINK.
-
-**Risk filter (2026-07-21):** `bot/risk_filter.py` + forward gate.  
-`risk_filter_shadow: true` · **`risk_filter_block: false`**.  
-PROMOTE_FILTER_PAPER: breadth_lo + corr/vol — **bukan** entry. Jangan hard-block tanpa paper risk A/B.
+**Sudah ditolak / jangan ulang tanpa novelty:** H24–H32, H-CYC short unlock, crash-bounce pure,
+short-alts markdown-only, 1h majors net cost, re-tune thr LINK, `risk_filter_block` tanpa bukti paper.
 
 ### Status terakhir (2026-07-21)
 
-- **Edge hunt open loop SELESAI tahap 1 (belum ketemu edge):**
+- **Edge hunt open loop SELESAI tahap 1 — ENTRY EDGE = 0:**
   - ~300 arms OOS (A–F, deep, crash, volspike, R2–R10 pairs)
-  - **PROMOTE_PAPER = 0** (jujur; jangan wire entry baru)
-  - **WATCHLIST only:** LINK residual-z fade vs BTC — OOS+ lockbox+ cost×2+ tapi p_adj gagal
+  - **PROMOTE_PAPER = 0** (jujur; jangan wire entry baru / jangan bilang “sudah ada edge”)
+  - **PROMOTE_FILTER_PAPER = 2** (breadth_lo + corr/vol) — meta only, shadow di dry
+  - **WATCHLIST = 1:** LINK residual-z fade vs BTC — OOS+ lockbox+ cost×2+ tapi **p_adj gagal**
   - Log: [EDGE_HUNT.md](EDGE_HUNT.md) · `RESEARCH_LOG.md` · `logs/edge_hunt*.json`
-  - Harness: `edge_hunt.py` + `edge_hunt_round*.py` + validators
+  - Harness: `edge_hunt.py` + `edge_hunt_round*.py` + `edge_hunt_risk_filter.py` + validators
   - **Jangan** retread H24–H32 / crash-bounce murni / short-alts markdown-only
-  - Lanjut: alt-data forward (OI/L2/funding panel) atau risk-filter A/B, bukan re-tune thr
+  - Lanjut: kumpulkan shadow risk-filter / alt-data hist / LINK log-only — **bukan** re-tune thr
+
+- **Risk-filter deploy dry SELESAI (2026-07-21):**
+  - Modul + gate + tes + docs + `data/risk_filter_panel.npz`
+  - Server `192.168.1.107`: `git pull` + `./restart.sh` → **tepat 1** forwardtest dry
+  - Filter evaluasi OK (bukan `no_panel`); hard block **OFF**
+  - Commits: `c67d34c` → `b8e924f` → tip handoff
 
 - **P2/P3 siklus SELESAI (ukur + inject, bukan hard gate):**
   - Modul: `bot/cycle_regime.py` · riset `cyc02_cycle_unlock_altseason.py`
@@ -52,10 +82,10 @@ PROMOTE_FILTER_PAPER: breadth_lo + corr/vol — **bukan** entry. Jangan hard-blo
   - **Jangan** hard gate / auto-short unlock / FLAT dari cycle labels
   - Detail: [CRYPTO_CYCLE_KNOWLEDGE.md](CRYPTO_CYCLE_KNOWLEDGE.md) §4 P2/P3
 
-- **GitHub + Proxmox P2/P3 deploy:** commit **`dc9f78b`** pushed; server `git pull` +
-  `./restart.sh` OK (tepat 1 forwardtest dry). Risk lock restored: loss **5** / trades 30 /
-  max_open_positions 5 / lev 5 / bet 4. Agent: manager OFF, ab_shadow ON;
-  dump_short_boost false. **Cek risk tiap deploy** (sering drift loss %).
+- **Proxmox paper dry (postur terkunci — cek tiap deploy):**
+  risk loss **5** / trades 30 / max_open 5 / lev 5 / bet 4; manager **OFF**, ab_shadow **ON**;
+  dump_short_boost false; risk_filter_shadow ON / block OFF.
+  **Cek risk tiap deploy** (sering drift loss %).
 
 - **P0 H-CYC-01 SELESAI** — beta>1 CONFIRMED; short_weak **REJECT**.
 - **P0b SELESAI** — 598 alt frac~65%; block_long hold1 REJECT; boost short OFF.
@@ -161,13 +191,15 @@ Dokumen induk:
 | `bet_usd` | 4 |
 | `max_drawdown_pct` | 20 |
 
-### Agent (postur 2026-07-20, setelah audit agent_flat)
+### Agent (postur 2026-07-20/21, setelah audit agent_flat + risk-filter)
 
 | Flag | Nilai |
 |---|---|
 | `agent_manager_mode` | **OFF** (dimatikan 2026-07-20) |
 | `agent_ab_shadow` | **ON** |
 | `agent_autonomous` / planner / full_auto / tool_loop | **OFF** |
+| `risk_filter_shadow` (config.yaml `agent.`) | **ON** (log would-deny) |
+| `risk_filter_block` | **OFF** (jangan nyalakan tanpa paper risk A/B) |
 
 **Kenapa manager OFF:** audit 8× `agent_flat` → sum R **−2.91**, mean **−0.36**; chart
 menunjukkan ~3/8 premature cut (WLD/ZEC recovery). Manager memaksa `autonomous=True`
@@ -209,15 +241,17 @@ FLAT/manual. Set `true` di config hanya bila ingin kunci profit via BE lagi.
 ```
 [0] Kontrak     ✅
 [1] Survival    ✅ dry lock
-[2] Jalan A     ✅ ab_shadow ON; manager OFF (2026-07-20)
-[3] H28         ⏸ setelah 7 hari checklist
-[4] Hipotesis   ⏸ spek ketat — kandidat: siklus BTC/alt (lihat §7)
-[5] Live        🚫
+[2] Jalan A     ✅ ab_shadow ON; manager OFF; risk_filter SHADOW ON / block OFF
+[3] Edge hunt   ✅ tahap 1 done — PROMOTE_PAPER=0; FILTER=2 shadow; WATCHLIST=1
+[4] H28         ⏸ setelah 7 hari checklist
+[5] Hipotesis   ⏸ spek ketat — jangan retread; alt-data / kumpulkan shadow
+[6] Live        🚫
 ```
 
 **Tugas user harian:** isi [CHECKLIST_HARIAN.md](../CHECKLIST_HARIAN.md) (~10 menit).  
-**Tugas agent sesi baru:** baca file ini + plan + [CRYPTO_CYCLE_KNOWLEDGE.md](CRYPTO_CYCLE_KNOWLEDGE.md);
-**jangan** usulkan OHLCV/L2 edge hunt; **jangan** implement §7 tanpa minta eksplisit + spek OOS.
+**Tugas agent sesi baru:** baca [CONTINUE.md](CONTINUE.md) + file ini + plan + EDGE_HUNT;  
+**ingat scoreboard:** edge entry **0**; filter **2** shadow only;  
+**jangan** usulkan OHLCV/L2 retread / hard-block filter / live tanpa promotion.
 
 ---
 
@@ -293,9 +327,10 @@ Cek: `/memory` · sesi lama: `/resume`.
 ## 6. Prompt pembuka sesi baru (copy-paste)
 
 ```
-Baca memory/SESSION_HANDOFF.md + PLAN_OPERASIONAL.md + CHECKLIST_HARIAN.md
-+ memory/CRYPTO_CYCLE_KNOWLEDGE.md (P0–P3 siklus: context inject, bukan hard gate).
-Lanjutkan operasional Jalan A (manager OFF, ab_shadow ON; jangan usul edge OHLCV/L2).
-Status: awasi 7 hari; bantu [checklist / audit server / H28 bila gerbang lolos /
-        expand unlock_calendar manual bila diminta; jangan hard-gate cycle].
+Baca memory/CONTINUE.md + memory/SESSION_HANDOFF.md (scoreboard edge dulu) +
+PLAN_OPERASIONAL.md + CHECKLIST_HARIAN.md + memory/EDGE_HUNT.md.
+Fakta: PROMOTE_PAPER=0; PROMOTE_FILTER_PAPER=2 (shadow only); WATCHLIST=1 LINK.
+Lanjutkan Jalan A (manager OFF, ab_shadow ON, risk_filter_block OFF).
+Jangan klaim edge entry; jangan hard-block filter; jangan OHLCV/L2 retread.
+Status: kumpulkan shadow risk / checklist 7 hari; H28 hanya bila gerbang lolos.
 ```
