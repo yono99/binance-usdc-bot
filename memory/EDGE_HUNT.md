@@ -207,22 +207,69 @@ Strict `edge_hunt_validate_r6.py`:
 | R4 neutral/RV | 15 | 0 |
 | R5 lead/liq/beta | 26 | 0 |
 | R6 breadth/unlock | 23 | 0 |
-| **Total** | **~200+** | **0** |
+| R7 $vol/Amihud/meta | 14 | 0 |
+| R8 1h majors | 22 | 0 |
+| R9 smallcap1800 | 16 | 0 |
+| R10 pairs residual | ~60 | 0 (LINK **WATCHLIST**) |
+| **Total** | **~300+** | **0** |
 
-**Honest status:** belum ada edge paper-eligible di panel daily snap.  
-Pola berulang: OOS markdown short-alts / highvol short **train−**; train+ sering **OOS−** atau n/p gagal.
+**Honest status:** belum ada edge paper-eligible (PROMOTE_PAPER).  
+Pola berulang: OOS markdown short-alts / highvol short **train−**; train+ sering **OOS−** atau n/p gagal; sub-day majors dimakan cost.  
+**WATCHLIST (bukan promote):** LINK residual-z fade — OOS+ lockbox+ cost2x+ tapi p_adj gagal.
+
+---
+
+## Round 7 — true $vol / Amihud / Parkinson / meta filter — `edge_hunt_round7.py`
+
+**CANDIDATES=0.** Hanya `low_parkinson_ls_h10` train+&OOS+ (n=33) NOT_PROVEN.  
+Amihud train+ OOS−. Meta lowcorr tak mengangkat ST-rev. Vol-surprise OOS+ train−.
+
+## Round 8 — 1h majors microstructure — `edge_hunt_round8.py`
+
+Panel 8000×6 majors. **CANDIDATES=0, TRAIN+OOS+=0.**  
+Overnight / hour-of-day / 4h mom / BTC lead: hampir semua **REJECTED** net cost 0.18%.  
+Selaras METHODOLOGY: liquid majors sub-day diarbitrase.
+
+## Round 9 — smallcap1800 — `edge_hunt_round9.py`
+
+Panel 1601×76. **CANDIDATES=0.**  
+Lean crash_bounce dd12: strict validate **PROMOTED NONE** (excess vs BTC ≤0 / p_adj).
+
+---
+
+## Round 10 — pairs residual z fade (majors) — `edge_hunt_round10b.py`
+
+Panel majors 1601×9 (ADA..XRP). **CANDIDATES=0.**
+
+Train+ & OOS+ leans (discovery):
+- `pair_LINK_btc_z1.5_h3/h5`
+- `basket_residz_z1.5_h5`
+
+### Strict `edge_hunt_validate_pairs.py` (50/30/20 + cost×2, family trials=4)
+
+| arm | train | OOS | n | lock | cost2x OOS | verdict |
+|---|---:|---:|---:|---:|---:|---|
+| link_z1.5_h3 | ~0 | **+1.88%** | 41 | **+2.45%** | +1.70% | NOT_PROVEN p_adj=0.42 |
+| link_z1.5_h5 | +1.19% | **+1.66%** | 35 | **+4.25%** | +1.48% | NOT_PROVEN p_adj=0.84 |
+| basket_z1.5_h5 | − | +1.42% | 76 | +2.02% | + | NOT_PROVEN (train−) |
+| basket_z1.5_h3 | ~0 | −0.86% | 113 | + | | REJECTED |
+
+**PROMOTED: NONE** (p_adj ≥ 0.05).  
+**WATCHLIST (bukan edge):** LINK residual fade vs BTC — OOS+ lock+ cost2x+ tapi **tidak signifikan** setelah multi-trial.  
+Jangan wire paper entry; boleh pantau paper shadow nanti bila n bertambah.
+
+1h ETH residual: semua REJECTED (cost).
 
 ---
 
 ## Antrian berikutnya
 
-1. ~~R3–R6~~ done, 0 promote
-2. **True dollar volume** dari OHLCV snap (bukan activity proxy)
-3. **Multi-day non-overlap portfolio** sim (capacity / turnover)
-4. **Funding hist** hanya jika cache panel ada + konstruk beda H15/24/25
-5. **1h majors** microstructure proxy (bukan session long yang sudah D)
-6. **Meta:** ensemble *filter* (bukan entry) — block entries only; ukur risk A/B bukan exp_R
-7. Stop pure OHLCV retread; prioritaskan data non-price bila tersedia
+1. ~~R3–R10~~ done, 0 PROMOTE_PAPER (~300 arms)
+2. **WATCHLIST only:** LINK residual z fade — butuh n lebih besar / OOS lebih panjang, bukan re-tune thr
+3. Sector lead-lag (H13) re-check only if construction novel vs prior reject
+4. Paper dry A/B: agent risk filter (Jalan A) — ukur **risk** bukan exp_R
+5. Kumpulkan alt-data forward (OI/L2/funding panel) — hist OOS butuh waktu
+6. Jangan retread H24–H32 / crash-bounce / pure OHLCV tanpa novelty
 
 ---
 

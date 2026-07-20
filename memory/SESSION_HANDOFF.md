@@ -4,9 +4,18 @@
 > Di-load lewat project rules (`AGENT.md` + `.grok/rules/`).  
 > Update baris “Status terakhir” bila posture server berubah.
 
-**Terakhir diisi:** 2026-07-20 (P2 ukur + P3 inject cycle_context)
+**Terakhir diisi:** 2026-07-21 (edge hunt loop A–R10, zero PROMOTE_PAPER)
 
-### Status terakhir (2026-07-20)
+### Status terakhir (2026-07-21)
+
+- **Edge hunt open loop SELESAI tahap 1 (belum ketemu edge):**
+  - ~300 arms OOS (A–F, deep, crash, volspike, R2–R10 pairs)
+  - **PROMOTE_PAPER = 0** (jujur; jangan wire entry baru)
+  - **WATCHLIST only:** LINK residual-z fade vs BTC — OOS+ lockbox+ cost×2+ tapi p_adj gagal
+  - Log: [EDGE_HUNT.md](EDGE_HUNT.md) · `RESEARCH_LOG.md` · `logs/edge_hunt*.json`
+  - Harness: `edge_hunt.py` + `edge_hunt_round*.py` + validators
+  - **Jangan** retread H24–H32 / crash-bounce murni / short-alts markdown-only
+  - Lanjut: alt-data forward (OI/L2/funding panel) atau risk-filter A/B, bukan re-tune thr
 
 - **P2/P3 siklus SELESAI (ukur + inject, bukan hard gate):**
   - Modul: `bot/cycle_regime.py` · riset `cyc02_cycle_unlock_altseason.py`

@@ -562,3 +562,57 @@ Strict validate_r6: PROMOTED NONE.
 Documented in memory/EDGE_HUNT.md. Continuing non-retread search.
 
 ---
+
+## Edge Hunt R7 (dollar-vol) + R8 (1h majors) — 2026-07-21
+
+### R7 `edge_hunt_round7.py` / logs/edge_hunt_round7.json
+True $volume, Amihud, Parkinson, meta risk filters. **CANDIDATES=0.**
+Only train+&OOS+: low_parkinson_ls_h10 (+0.06% / +0.95% n=33) NOT_PROVEN.
+Amihud train+ OOS- (IS trap). Meta lowcorr filter does not lift ST-rev.
+Vol-surprise fade OOS+ train-.
+
+### R8 `edge_hunt_round8.py` / logs/edge_hunt_round8.json
+1h majors BTC/ETH/SOL/BNB/XRP/DOGE 8000 bars. **CANDIDATES=0, TRAIN+OOS+=0.**
+Overnight fade/cont, hour-of-day, 4h mom, BTC lead — almost all **REJECTED** net of 0.18% RT.
+Cost dominates sub-day on liquid majors (consistent with METHODOLOGY).
+
+---
+
+## Edge Hunt R9 smallcap1800 — 2026-07-21
+
+### R9 `edge_hunt_round9.py` / logs/edge_hunt_round9.json
+Universe: data/snap_smallcap1800 panel 1601x76. **CANDIDATES=0.**
+Train+&OOS+ only: sc_crash_bounce_dd12_h3 (n=29 INCONCLUSIVE under min_n=30).
+Winner short / low idiovol / mom12-1: OOS+ train- or p_adj fail.
+
+### Strict `edge_hunt_validate_sc_crash.py`
+50/30/20 + costx2 + dayEW + excess BTC. **PROMOTED NONE.**
+sc_dd12_h3: train+ oos+ lock+ day+ but **excess vs BTC negative** and p_adj fails trials=24.
+Most other thr/hold: lock negative or OOS negative.
+
+Lesson: smallcap dump-bounce still mostly market beta, not idio alpha.
+
+---
+
+## Edge Hunt R10 pairs residual (majors) — 2026-07-21
+
+### R10b `edge_hunt_round10b.py` / logs/edge_hunt_round10.json
+Majors daily residual-z fade vs BTC. **CANDIDATES=0.**
+Train+&OOS+ discovery: LINK z1.5 h3/h5, basket z1.5 h5.
+
+### Strict `edge_hunt_validate_pairs.py`
+| arm | train | OOS | lock | verdict |
+|---|---:|---:|---:|---|
+| LINK z1.5 h3 | ~0 | +1.88% n=41 | **+2.45%** | NOT_PROVEN p_adj=0.42 |
+| LINK z1.5 h5 | +1.19% | +1.66% n=35 | **+4.25%** | NOT_PROVEN p_adj=0.84 |
+| basket z1.5 h5 | - | +1.42% | +2.0% | train- |
+| basket z1.5 h3 | | -0.86% | | REJECTED |
+
+**PROMOTED NONE.** Best lean of entire hunt so far is LINK residual fade:
+directionally consistent OOS+lock+cost2x but **fails significance** after multi-trial.
+Status: **WATCHLIST only** — do not paper-trade as edge; may shadow later.
+
+### Global after R10
+~300 arms. Zero PROMOTE_PAPER. Documented memory/EDGE_HUNT.md.
+
+---
