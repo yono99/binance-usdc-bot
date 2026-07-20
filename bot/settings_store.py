@@ -290,6 +290,20 @@ def set_active_mode(mode: str) -> None:
     store.set_kv("active_mode", {"mode": mode})
 
 
+def _gemini_from_env() -> tuple[list[str], bool]:
+    """Key Gemini SELALU dari .env (bukan KV runtime) — secret + inventory mutakhir.
+
+    KV runtime sempat menyimpan snapshot `gemini_keys` lama (mis. 26) → UI
+    `/api/account` menampilkan angka basi setelah purge .env. Baca env tiap load.
+    """
+    import os
+    from dotenv import load_dotenv
+    load_dotenv(ROOT / ".env")
+    keys = [k.strip() for k in os.getenv("GEMINI_API_KEYS", "").split(",") if k.strip()]
+    enabled = os.getenv("GEMINI_ENABLED", "false").lower() == "true" and bool(keys)
+    return keys, enabled
+
+
 def load_settings(mode: str | None = None) -> RuntimeSettings:
     """Pengaturan PER-MODE. mode=None → mode aktif (pilihan UI/.env).
     Tiap mode (dry/test/live) punya setting terpisah di kv 'runtime:<mode>'."""
@@ -303,9 +317,14 @@ def load_settings(mode: str | None = None) -> RuntimeSettings:
             if legacy is None and LEGACY_STORE.exists():
                 legacy = json.loads(LEGACY_STORE.read_text(encoding="utf-8"))
             data = legacy or {}
-        return _from_dict(data, mode=requested)
+        s = _from_dict(data, mode=requested)
     except Exception:
-        return _from_dict({}, mode=requested)
+        s = _from_dict({}, mode=requested)
+    # Overlay key dari .env (jangan percaya snapshot KV)
+    keys, enabled = _gemini_from_env()
+    s.gemini_keys = keys
+    s.gemini_enabled = enabled
+    return s
 
 
 def save_settings(s: RuntimeSettings, set_active: bool = True) -> None:
@@ -331,7 +350,10 @@ def save_settings(s: RuntimeSettings, set_active: bool = True) -> None:
             if existing:
                 s.balance_usdt = float(existing.get("balance_usdt", s.balance_usdt))
                 s.balance_usdc = float(existing.get("balance_usdc", s.balance_usdc))
-    store.set_kv("runtime:" + eff, asdict(s))
+    # Jangan persist secret key list ke KV (sumber kebenaran = .env saja)
+    payload = asdict(s)
+    payload["gemini_keys"] = []
+    store.set_kv("runtime:" + eff, payload)
     if set_active:
         set_active_mode(s.mode)
 
