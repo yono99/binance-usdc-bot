@@ -1,0 +1,336 @@
+{
+  "meta": {
+    "snapshot": "data\\snap",
+    "tf": "1d",
+    "min_bars": 200,
+    "dump_pct": 2.0,
+    "n_alts": 598,
+    "btc": "BTC/USDT:USDT",
+    "btc_bars": 2000,
+    "range": [
+      "2021-01-09 00:00:00+00:00",
+      "2026-07-01 00:00:00+00:00"
+    ],
+    "cost_rt": 0.0018
+  },
+  "universe_slices": [
+    {
+      "n_alts_loaded": 50,
+      "n_dump_days_btc": 362,
+      "n_dump_days_used": 362,
+      "mean_alts_per_dump_day": 50.0,
+      "mean_btc_ret": -0.040691325122779835,
+      "mean_alt_ret_ew_day": -0.05204119837998945,
+      "mean_frac_alt_deeper_per_day": 0.6443646408839778,
+      "median_frac_alt_deeper_per_day": 0.72,
+      "mean_rel_weakness_day": -0.011349873257209606,
+      "n_pair_days": 18100,
+      "frac_pair_days_alt_deeper": 0.6443646408839779,
+      "mean_rel_pair": -0.011349873257209606,
+      "universe_cap": 50,
+      "universe_used": 50
+    },
+    {
+      "n_alts_loaded": 78,
+      "n_dump_days_btc": 362,
+      "n_dump_days_used": 362,
+      "mean_alts_per_dump_day": 77.73480662983425,
+      "mean_btc_ret": -0.040691325122779835,
+      "mean_alt_ret_ew_day": -0.05121797396331911,
+      "mean_frac_alt_deeper_per_day": 0.6391594010119647,
+      "median_frac_alt_deeper_per_day": 0.717948717948718,
+      "mean_rel_weakness_day": -0.010526648840539263,
+      "n_pair_days": 28140,
+      "frac_pair_days_alt_deeper": 0.6396943852167732,
+      "mean_rel_pair": -0.0106331956391351,
+      "universe_cap": 78,
+      "universe_used": 78
+    },
+    {
+      "n_alts_loaded": 100,
+      "n_dump_days_btc": 362,
+      "n_dump_days_used": 362,
+      "mean_alts_per_dump_day": 97.86740331491713,
+      "mean_btc_ret": -0.040691325122779835,
+      "mean_alt_ret_ew_day": -0.051459911641712014,
+      "mean_frac_alt_deeper_per_day": 0.6362823431928109,
+      "median_frac_alt_deeper_per_day": 0.72,
+      "mean_rel_weakness_day": -0.010768586518932172,
+      "n_pair_days": 35428,
+      "frac_pair_days_alt_deeper": 0.6378288359489669,
+      "mean_rel_pair": -0.011117669636115969,
+      "universe_cap": 100,
+      "universe_used": 100
+    },
+    {
+      "n_alts_loaded": 150,
+      "n_dump_days_btc": 362,
+      "n_dump_days_used": 362,
+      "mean_alts_per_dump_day": 129.18232044198896,
+      "mean_btc_ret": -0.040691325122779835,
+      "mean_alt_ret_ew_day": -0.05241902166694863,
+      "mean_frac_alt_deeper_per_day": 0.644494335107698,
+      "median_frac_alt_deeper_per_day": 0.732258064516129,
+      "mean_rel_weakness_day": -0.011727696544168793,
+      "n_pair_days": 46764,
+      "frac_pair_days_alt_deeper": 0.642053716534086,
+      "mean_rel_pair": -0.01192500205210748,
+      "universe_cap": 150,
+      "universe_used": 150
+    },
+    {
+      "n_alts_loaded": 200,
+      "n_dump_days_btc": 362,
+      "n_dump_days_used": 362,
+      "mean_alts_per_dump_day": 151.98618784530387,
+      "mean_btc_ret": -0.040691325122779835,
+      "mean_alt_ret_ew_day": -0.05220415451380683,
+      "mean_frac_alt_deeper_per_day": 0.6391964840022865,
+      "median_frac_alt_deeper_per_day": 0.7275,
+      "mean_rel_weakness_day": -0.011512829391026987,
+      "n_pair_days": 55019,
+      "frac_pair_days_alt_deeper": 0.6289645395227104,
+      "mean_rel_pair": -0.011155849891369422,
+      "universe_cap": 200,
+      "universe_used": 200
+    },
+    {
+      "n_alts_loaded": 300,
+      "n_dump_days_btc": 362,
+      "n_dump_days_used": 362,
+      "mean_alts_per_dump_day": 187.8342541436464,
+      "mean_btc_ret": -0.040691325122779835,
+      "mean_alt_ret_ew_day": -0.05308176502371644,
+      "mean_frac_alt_deeper_per_day": 0.646950618551278,
+      "median_frac_alt_deeper_per_day": 0.7402673707021533,
+      "mean_rel_weakness_day": -0.012390439900936604,
+      "n_pair_days": 67996,
+      "frac_pair_days_alt_deeper": 0.6309047591034767,
+      "mean_rel_pair": -0.011869898426747098,
+      "universe_cap": 300,
+      "universe_used": 300
+    },
+    {
+      "n_alts_loaded": 400,
+      "n_dump_days_btc": 362,
+      "n_dump_days_used": 362,
+      "mean_alts_per_dump_day": 211.84806629834253,
+      "mean_btc_ret": -0.040691325122779835,
+      "mean_alt_ret_ew_day": -0.053409132220565335,
+      "mean_frac_alt_deeper_per_day": 0.6501106618881184,
+      "median_frac_alt_deeper_per_day": 0.7494394618834082,
+      "mean_rel_weakness_day": -0.012717807097785498,
+      "n_pair_days": 76689,
+      "frac_pair_days_alt_deeper": 0.6288776747643078,
+      "mean_rel_pair": -0.012001402127296857,
+      "universe_cap": 400,
+      "universe_used": 400
+    },
+    {
+      "n_alts_loaded": 500,
+      "n_dump_days_btc": 362,
+      "n_dump_days_used": 362,
+      "mean_alts_per_dump_day": 228.59668508287294,
+      "mean_btc_ret": -0.040691325122779835,
+      "mean_alt_ret_ew_day": -0.05319858373705763,
+      "mean_frac_alt_deeper_per_day": 0.6487220387993762,
+      "median_frac_alt_deeper_per_day": 0.7368577368577369,
+      "mean_rel_weakness_day": -0.012507258614277792,
+      "n_pair_days": 82752,
+      "frac_pair_days_alt_deeper": 0.619694992266048,
+      "mean_rel_pair": -0.01105177893527509,
+      "universe_cap": 500,
+      "universe_used": 500
+    },
+    {
+      "n_alts_loaded": 598,
+      "n_dump_days_btc": 362,
+      "n_dump_days_used": 362,
+      "mean_alts_per_dump_day": 241.51657458563537,
+      "mean_btc_ret": -0.040691325122779835,
+      "mean_alt_ret_ew_day": -0.05314316997331346,
+      "mean_frac_alt_deeper_per_day": 0.6492328451350858,
+      "median_frac_alt_deeper_per_day": 0.7368577368577369,
+      "mean_rel_weakness_day": -0.012451844850533623,
+      "n_pair_days": 87429,
+      "frac_pair_days_alt_deeper": 0.6137665991833373,
+      "mean_rel_pair": -0.01024451551250373,
+      "universe_cap": "all",
+      "universe_used": 598
+    }
+  ],
+  "full_descriptive": {
+    "n_alts_loaded": 598,
+    "n_dump_days_btc": 362,
+    "n_dump_days_used": 362,
+    "mean_alts_per_dump_day": 241.51657458563537,
+    "mean_btc_ret": -0.040691325122779835,
+    "mean_alt_ret_ew_day": -0.05314316997331346,
+    "mean_frac_alt_deeper_per_day": 0.6492328451350858,
+    "median_frac_alt_deeper_per_day": 0.7368577368577369,
+    "mean_rel_weakness_day": -0.012451844850533623,
+    "n_pair_days": 87429,
+    "frac_pair_days_alt_deeper": 0.6137665991833373,
+    "mean_rel_pair": -0.01024451551250373
+  },
+  "long_on_dump": {
+    "1": {
+      "train": {
+        "split": "train",
+        "n": 268,
+        "mean_long": 0.007427504899270687,
+        "median_long": 0.011239706297077236,
+        "win_long": 0.5970149253731343,
+        "p_long_neg": 0.9774028065307134,
+        "mean_short_all": -0.007427504899270687,
+        "p_short_pos": 0.9774028065307134,
+        "mean_short_all_approx": -0.009227504899270687,
+        "block_long_saves_per_event": -0.007427504899270687
+      },
+      "oos": {
+        "split": "oos",
+        "n": 94,
+        "mean_long": 0.0009442378872901145,
+        "median_long": -0.0022501957657699205,
+        "win_long": 0.4787234042553192,
+        "p_long_neg": 0.5917617785277088,
+        "mean_short_all": -0.0009442378872901145,
+        "p_short_pos": 0.5917617785277088,
+        "mean_short_all_approx": -0.0027442378872901147,
+        "block_long_saves_per_event": -0.0009442378872901145
+      }
+    },
+    "3": {
+      "train": {
+        "split": "train",
+        "n": 268,
+        "mean_long": 0.012894145939135604,
+        "median_long": 0.012928819606130973,
+        "win_long": 0.5671641791044776,
+        "p_long_neg": 0.9849694859316557,
+        "mean_short_all": -0.012894145939135604,
+        "p_short_pos": 0.9849694859316557,
+        "mean_short_all_approx": -0.014694145939135603,
+        "block_long_saves_per_event": -0.012894145939135604
+      },
+      "oos": {
+        "split": "oos",
+        "n": 93,
+        "mean_long": -0.004236334046628157,
+        "median_long": -0.0034339868653306496,
+        "win_long": 0.45161290322580644,
+        "p_long_neg": 0.26683943677643285,
+        "mean_short_all": 0.004236334046628157,
+        "p_short_pos": 0.26683943677643285,
+        "mean_short_all_approx": 0.0024363340466281567,
+        "block_long_saves_per_event": 0.004236334046628157
+      }
+    },
+    "5": {
+      "train": {
+        "split": "train",
+        "n": 268,
+        "mean_long": 0.020213771281298462,
+        "median_long": 0.029435764515516813,
+        "win_long": 0.6194029850746269,
+        "p_long_neg": 0.9969956674258559,
+        "mean_short_all": -0.020213771281298462,
+        "p_short_pos": 0.996995667425856,
+        "mean_short_all_approx": -0.02201377128129846,
+        "block_long_saves_per_event": -0.020213771281298462
+      },
+      "oos": {
+        "split": "oos",
+        "n": 93,
+        "mean_long": -0.007823176258764273,
+        "median_long": -0.008979415613667118,
+        "win_long": 0.43010752688172044,
+        "p_long_neg": 0.1522545465488992,
+        "mean_short_all": 0.007823176258764273,
+        "p_short_pos": 0.1522545465488992,
+        "mean_short_all_approx": 0.006023176258764274,
+        "block_long_saves_per_event": 0.007823176258764273
+      }
+    },
+    "7": {
+      "train": {
+        "split": "train",
+        "n": 268,
+        "mean_long": 0.024114409655029815,
+        "median_long": 0.029948038656665475,
+        "win_long": 0.5932835820895522,
+        "p_long_neg": 0.9970981474440898,
+        "mean_short_all": -0.024114409655029815,
+        "p_short_pos": 0.9970981474440898,
+        "mean_short_all_approx": -0.025914409655029814,
+        "block_long_saves_per_event": -0.024114409655029815
+      },
+      "oos": {
+        "split": "oos",
+        "n": 92,
+        "mean_long": -0.019165617040304065,
+        "median_long": -0.012362617583263007,
+        "win_long": 0.45652173913043476,
+        "p_long_neg": 0.010735924064237292,
+        "mean_short_all": 0.019165617040304065,
+        "p_short_pos": 0.010735924064237292,
+        "mean_short_all_approx": 0.017365617040304065,
+        "block_long_saves_per_event": 0.019165617040304065
+      }
+    },
+    "cut_ts": "2024-11-09 00:00:00+00:00",
+    "n_btc_bars": 2000
+  },
+  "block_long_verdict": {
+    "verdict": "REJECTED_AS_FILTER",
+    "reason": "LONG on dump not reliably negative \u2014 blocking long may not help"
+  },
+  "compare_78_vs_full": {
+    "n78_like": {
+      "n_alts_loaded": 78,
+      "n_dump_days_btc": 362,
+      "n_dump_days_used": 362,
+      "mean_alts_per_dump_day": 77.73480662983425,
+      "mean_btc_ret": -0.040691325122779835,
+      "mean_alt_ret_ew_day": -0.05121797396331911,
+      "mean_frac_alt_deeper_per_day": 0.6391594010119647,
+      "median_frac_alt_deeper_per_day": 0.717948717948718,
+      "mean_rel_weakness_day": -0.010526648840539263,
+      "n_pair_days": 28140,
+      "frac_pair_days_alt_deeper": 0.6396943852167732,
+      "mean_rel_pair": -0.0106331956391351,
+      "universe_cap": 78,
+      "universe_used": 78
+    },
+    "n_full": {
+      "n_alts_loaded": 598,
+      "n_dump_days_btc": 362,
+      "n_dump_days_used": 362,
+      "mean_alts_per_dump_day": 241.51657458563537,
+      "mean_btc_ret": -0.040691325122779835,
+      "mean_alt_ret_ew_day": -0.05314316997331346,
+      "mean_frac_alt_deeper_per_day": 0.6492328451350858,
+      "median_frac_alt_deeper_per_day": 0.7368577368577369,
+      "mean_rel_weakness_day": -0.012451844850533623,
+      "n_pair_days": 87429,
+      "frac_pair_days_alt_deeper": 0.6137665991833373,
+      "mean_rel_pair": -0.01024451551250373
+    },
+    "user_claim": "lebih banyak simbol \u2192 frac deeper mungkin >64%",
+    "delta_frac_day": 0.010073444123121167
+  },
+  "dump_flag_audit": {
+    "definition": "forward._btc_lead: dump_flag = ret_BTC_3bar_pct <= -4*btc.dump_pct (default dump_pct=0.5 \u2192 thr\u2248-2% over 3 bars of TF buffer)",
+    "used_for": [
+      "Gemini context (prompt)",
+      "SHORT conviction \u00d71.5 boost (gemini path only) \u2014 ASSUMES short edge (P0 rejected)",
+      "NOT used as hard block_long"
+    ],
+    "related_gates": {
+      "btc_gate": "blocks counter-trend when |btc_ret|>=dump_pct (0.5% default, 1-bar) \u2014 rules path signals.py",
+      "btc_macro_tier / entry_confluence": "blocks long when btc_lead_score <= -dump_pct",
+      "gap": "dump_flag thr (~2%/3bar) \u2260 btc_gate thr (0.5%/1bar); boost short unproven; block_long not explicit dump_flag"
+    },
+    "paper_note": "boost only fires if use_gemini_trader + short + dump_flag; manager OFF does not remove boost if technique=gemini"
+  }
+}

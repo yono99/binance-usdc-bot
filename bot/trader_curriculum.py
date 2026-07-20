@@ -132,42 +132,38 @@ STRUKTUR PASAR & PRICE ACTION (lebih penting dari pola hafalan):
 """
 
 KNOWLEDGE["btc_dominance"] = """\
-BTC DOMINANCE ASYMMETRY — SHORT-PRIORITY saat BTC DUMP (edge struktural):
-- Logika struktural: BTC turun 2-5% (btc_lead.dump_flag=True) → investor pencari aman pindah ke BTC
-  → BTC.D (dominance) naik → ALT KELUAR dana + beta>1 → alt TURUN LEBIH DALAM (1.5-3× BTC move).
-- Ini ASYMMETRY yang nyata: saat BTC pump, alt ikut (tapi tak selalu lebih, bisa seedulu juga);
-  saat BTC DUMP, alt SELALU turun lebih dalam (beta amplified + outflow darurat). Short alt saat
-  BTC dump = edge struktural, bukan noise bar.
-- ATURAN PAKAI (saat btc_lead.dump_flag=True):
-  1. Conviction SHORT alt = BOOST 1.5× (risk-off asymmetry, bukan spekulasi).
-  2. Conviction LONG alt = REDUCE 0.5× (melawan outflow = bahaya).
-  3. Setup label = "btc_dominance_short" (tag untuk evidence-gate pelacakan).
-- SAAT dump_flag=False & dominance_dir=+1 (BTC menguat halus): alt tak dump, long BTC langsung
-  = lebih sahih daripada long alt (BTC lead dengan clean beta).
-- SAAT dominance_dir=-1 (alt outperform BTC): risk-on altseason — LONG alt lebih bagus dari BTC,
-  terutama DPI/fundamental kuat. Ini fase "alt piggy" — alt dengan beta tinggiUntuk naik lebih.
-- HINDARI: saat dump_flag=True TAPI alt sudah oversold ekstrem (RSI<15 + kapitulasi 3-bar) →
-  bounce risk. Tunggu bounce ke support dulu lalu short (don't catch falling knife di bottom).
+BTC DOMINANCE / DUMP CONTEXT — RISK FILTER (bukan entry edge OOS):
+- Fakta deskriptif (H-CYC-01/01b, OOS diukur): saat BTC dump ≳2%, alt sering turun LEBIH DALAM
+  (beta>1, ~65% hari). Itu STRUKTUR PASAR, bukan sinyal short otomatis.
+- Trade short-after-dump (filter relative weakness) = NOT_PROVEN/REJECTED OOS → JANGAN boost
+  conviction SHORT hanya karena dump_flag. dump_short_boost di engine DEFAULT OFF.
+- ATURAN PAKAI (disiplin, stance only):
+  1. dump_flag=True → turunkan keyakinan LONG alt / prefer SKIP long; jangan force short.
+  2. Jangan label "btc_dominance_short" sebagai edge; tag itu DISABLED kecuali operator
+     opt-in dump_short_boost=true setelah spek OOS baru.
+  3. Melawan mothercoin (long alt saat BTC jelas jatuh, short alt saat BTC melonjak keras)
+     = turunkan conviction atau flat — filter ARAH/RISIKO, tetap lolos evidence-gate setup.
+- cycle_context (bila ada): phase / dominance.regime / unlock.in_window = STANCE ONLY
+  (size / SKIP). Bukan hard entry, bukan FLAT posisi terbuka, bukan auto-short unlock.
+- SAAT dominance.regime=alt_season / dominance_dir=-1: risk-on rotasi mungkin — tetap
+  butuh setup; jangan FOMO long tanpa konfluensi.
+- HINDARI: short pisau jatuh (RSI sangat rendah + kapitulasi) hanya karena dump_flag.
 """
 
 KNOWLEDGE["halving_cycle"] = """\
-HALVING CYCLE MACRO — fase 4-tahun BTC (macro regime awareness):
-- Tanggal halving historis: 2012-11-28, 2016-07-09, 2020-05-11, 2024-04-19. ~4 tahun sekali
-  reward penambang turun 50% → suplai baru berkurang → secara historis Bull market 12-18 bulan
-  setelah halving, diikuti Bear 12-18 bulan, lalu Accumulation 12-18 bulan menuju halving berikutnya.
-- Konteks berisi `halving_phase`: accumulation | pre-halving | post-halving | bull | blow-off | bear
-- ATURAN CALIBRASI CONVICTION (bukan pengganti keputusan, tapi prioritas arah):
-  - 'bull' (1 tahun setelah halving): TREND-FOLLOWING LONG lebih sahih. breakout_continuation LONG
-    conviction boost 1.3×. Hindari SHORT trend (tak melawan arus bull macro).
-  - 'blow-off' (1.5-2 tahun setelah): waspada pembalikan. LONG hanya dengan konfirmasi kuat,
-    prefer range/scalp (konsisten), atau exhaustion_reversal SHORT di blow-off top.
-  - 'bear' (2-3 tahun setelah): SHORT trend lebih sahih. trend_continuation SHORT conviction boost
-    1.3×. LONG hanya scalp/oversold bounce.
-  - 'accumulation' (3-4 tahun, menuju halving): range/sideways dominan. scalp_range + range_fade
-    optimum. conviction LONG sedikit boost (akumulasi gradual).
-  - 'pre-halving' (6 bulan sebelum): LONG conviction boost (antisipasi supply shock).
-- INI KONTEKS MACRO, bukan sinyal entry tunggal. Tetap lolos regime mikro (ADX/registr 15m) +
-  konfluensi struktur. Jangan paksa trade melawan phase karena micro-setup tampak "bagus".
+HALVING + MEASURED CYCLE — macro stance (bukan entry edge OOS):
+- Tanggal halving historis: 2012-11-28, 2016-07-09, 2020-05-11, 2024-04-19. Sample kecil;
+  "selalu bull pasca-halving" = folklore partial, bukan kausal pasti.
+- `halving_phase` (kalender kasar): accumulation | pre-halving | post-halving | bull | blow-off | bear
+- `cycle_context.phase` (harga TERUKUR, H-CYC-03): accumulation | uptrend | distribution | markdown
+  — prefer label ini bila ada; kalender saja bisa meleset (mis. kalender bear tapi harga uptrend).
+- H-CYC-03 OOS: fase harga / BTC.D split lemah untuk hard gate → CONTEXT_ONLY.
+  Pakai untuk stance (defensive di markdown/distribution; jangan size-up hanya karena "bull").
+- JANGAN: boost conviction ×1.3 hanya dari label fase; JANGAN FLAT posisi karena ganti fase;
+  JANGAN hard-block setup yang lolos rules hanya karena calendar_phase.
+- Unlock: cycle_context.unlock.in_window=true → prefer SKIP long / size kecil; short unlock
+  H-CYC-02 masih INCONCLUSIVE (calendar tipis) — jangan auto short.
+- Tetap lolos regime mikro + konfluensi. Macro = bias risiko, bukan trigger bar-close.
 """
 
 KNOWLEDGE["chart_patterns"] = """\

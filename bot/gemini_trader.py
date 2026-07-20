@@ -173,7 +173,8 @@ class GeminiTrader:
                       balance_usdt: float | None = None,
                       balance_usdc: float | None = None,
                       news_note: str = "", portfolio: dict | None = None,
-                      btc_lead: dict | None = None, halving_phase: str = "") -> dict:
+                      btc_lead: dict | None = None, halving_phase: str = "",
+                      cycle_context: dict | None = None) -> dict:
         ctx = {
             "symbol": symbol,
             "market": _market_summary(df, self.cfg),
@@ -185,6 +186,8 @@ class GeminiTrader:
             "halving_phase": halving_phase or "unknown",  # fase siklus 4-tahun: macro regime.
             #   'accumulation' / 'pre-halving' / 'post-halving' / 'bull' / 'blow-off' / 'bear'
             #   Bull/bear kalibrasi conviction: trend-following LONG saat bull, SHORT saat bear.
+            # P3: measured phase + BTC.D + unlock window — CONTEXT ONLY (H-CYC-02/03; no hard gate).
+            "cycle_context": cycle_context or {},
             "position": position,                   # posisi terbuka di simbol INI (atau None)
             "portfolio": portfolio,                 # SEMUA posisi terbuka + eksposur (korelasi/risiko)
             "balance_usdt": round(balance_usdt, 2) if balance_usdt is not None else None,

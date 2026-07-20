@@ -301,6 +301,64 @@ class ForwardTester:
         btc = (getattr(self, "cfg", None) or {}).get("btc") or {}
         return bool(btc.get("dump_short_boost", False))
 
+    def _cycle_context(self, symbol: str | None = None) -> dict:
+        """P2/P3: fase harga + BTC.D + unlock window — CONTEXT ONLY (bukan hard gate).
+
+        Cache per poll cycle (invalidate tiap on_cycle lewat _cycle_ctx_cache clear).
+        Fail-soft: {} minimal dengan phase unknown.
+        """
+        cache = getattr(self, "_cycle_ctx_cache", None)
+        key = symbol or "*"
+        if isinstance(cache, dict) and key in cache:
+            return cache[key]
+        if not isinstance(cache, dict):
+            cache = {}
+            self._cycle_ctx_cache = cache
+        try:
+            from . import cycle_regime as cr
+            btc_close = None
+            for btc_sym in ("BTC/USDC:USDC", "BTC/USDT:USDT"):
+                buf = self.buffers.get(btc_sym)
+                if buf is not None and len(buf) > 50 and "close" in buf.columns:
+                    btc_close = buf["close"]
+                    break
+            btcdom = None
+            for k, buf in self.buffers.items():
+                if "BTCDOM" in k.upper() and buf is not None and "close" in getattr(buf, "columns", []):
+                    btcdom = buf["close"]
+                    break
+            if btcdom is None:
+                # daily snap fallback (regime TF kasar, OK untuk stance)
+                from pathlib import Path
+                for p in (Path("data/snap/BTCDOM_USDT_USDT__1d.pkl"),
+                          Path("data/snap_smallcap1800/BTCDOM_USDT_USDT__1d.pkl")):
+                    if p.exists():
+                        try:
+                            btcdom = pd.read_pickle(p)["close"]
+                        except Exception:
+                            btcdom = None
+                        break
+            cal = getattr(self, "_unlock_cal", None)
+            if cal is None:
+                from pathlib import Path
+                cp = Path("data/unlock_calendar.csv")
+                try:
+                    cal = cr.load_unlock_calendar(cp) if cp.exists() else cr.load_unlock_calendar(
+                        Path("data/unlock_calendar.example.csv"))
+                except Exception:
+                    cal = cr.load_unlock_calendar(Path("__missing__"))
+                self._unlock_cal = cal
+            ctx = cr.build_cycle_context(btc_close, btcdom, symbol=symbol, unlock_calendar=cal)
+        except Exception as e:
+            log.debug(f"cycle_context: {e}")
+            ctx = {"phase": "unknown", "calendar_phase": self._halving_phase(),
+                   "dominance": {"regime": "unknown"}, "unlock": {"in_window": False}}
+        cache[key] = ctx
+        # also cache generic for reuse of phase/dom without symbol unlock
+        if key != "*" and "*" not in cache:
+            cache["*"] = {k: v for k, v in ctx.items() if k != "unlock"}
+        return ctx
+
     def _pair_cleanliness_check(self, symbol: str, df: pd.DataFrame) -> dict:
         """C3: Pair Cleanliness Filter for fade family setups.
         
@@ -413,7 +471,8 @@ class ForwardTester:
                   lessons=self.lessons.recent(10), shadow=self.ab_shadow,
                   memory=self.agent_memory,     # ingat observasi/keputusan lintas-tick
                   btc_lead=self._btc_lead(),                # dominansi BTC (alt ber-beta lebih tinggi)
-                  halving_phase=self._halving_phase())       # fase siklus halving (macro regime)
+                  halving_phase=self._halving_phase(),      # fase kalender (legacy boost path)
+                  cycle_context=self._cycle_context(sym))   # P3: phase/dom/unlock CONTEXT only
         if self.tool_loop:                      # agent OTONOM: nalar+panggil tool iteratif
             from .tools import ToolContext, build_tools
             ctx = ToolContext(ex=self.ex, open_positions=self.open, buffers=self.buffers,
@@ -2682,7 +2741,11 @@ class ForwardTester:
         for sym, df in _cache_hits:
             cached = self._decide_cache[sym]
             decisions[sym] = copy.deepcopy(cached["decision"])
-            contexts[sym] = {"btc_lead": self._btc_lead(), "halving_phase": self._halving_phase()}
+            contexts[sym] = {
+                "btc_lead": self._btc_lead(),
+                "halving_phase": self._halving_phase(),
+                "cycle_context": self._cycle_context(sym),
+            }
             alt_data[sym] = {}
             log.info(f"AI CACHE HIT {sym}: reuse range decision "
                      f"(adx={cached['adx']:.1f}, Δprice={abs(self.sig_cache.get(sym,{}).get('price',0)-cached['price'])/max(cached['price'],1e-9)*100:.3f}%)")
@@ -2691,6 +2754,8 @@ class ForwardTester:
             log.info(f"CACHE: {len(_cache_hits)} hit, {len(_cache_miss)} miss — hemat {len(_cache_hits)} Gemini calls")
         # Gabung cache-hit + pool candidates untuk entry gate (cache-hit sudah ada decisions-nya)
         _all_candidates = gemini_candidates + _cache_hits
+        # Fresh cycle labels once per decide wave (P3 context)
+        self._cycle_ctx_cache = {}
 
         # ── Cache miss: Gemini decide_batch untuk simbol yang beneran baru ──
         if _cache_miss:
@@ -2713,7 +2778,8 @@ class ForwardTester:
                                                  news_note=self._last_news_note,
                                                  portfolio=self._portfolio_view(),
                                                   btc_lead=self._btc_lead(),
-                                                  halving_phase=self._halving_phase())
+                                                  halving_phase=self._halving_phase(),
+                                                  cycle_context=self._cycle_context(sym))
                 contexts[sym] = ctx
 
             fresh = self.gtrader.decide_batch({s: contexts[s] for s, _ in _cache_miss})

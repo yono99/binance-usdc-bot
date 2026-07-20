@@ -4,27 +4,26 @@
 > Di-load lewat project rules (`AGENT.md` + `.grok/rules/`).  
 > Update baris “Status terakhir” bila posture server berubah.
 
-**Terakhir diisi:** 2026-07-20 (deploy f346d72 + dump_short_boost OFF)
+**Terakhir diisi:** 2026-07-20 (P2 ukur + P3 inject cycle_context)
 
 ### Status terakhir (2026-07-20)
 
-- **GitHub + Proxmox:** commit **`f346d72`** pushed; server `git pull` + `./restart.sh` OK.
-  - PM2: **1** `forwardtest --mode dry` + dashboard online.
-  - Runtime verify: `dump_short_boost=false`, `_dump_short_boost_enabled()=False`.
-  - decision_log: 0× `BTC_DUMP_BOOST` di rationale (boost historis juga jarang/0 di log ini).
-  - **Risk lock restored after restart:** `daily_max_loss_pct` drift **90 → 5** (lagi).
-    Trades 30 / pos 5 / lev 5 / bet 4 OK. Agent: manager OFF, ab_shadow ON.
-    **Cek risk tiap deploy** — restart/store kadang me-reset loss % longgar.
+- **P2/P3 siklus SELESAI (ukur + inject, bukan hard gate):**
+  - Modul: `bot/cycle_regime.py` · riset `cyc02_cycle_unlock_altseason.py`
+  - Wire: `forward._cycle_context` → ReAct observe + Gemini `build_context`
+  - Curriculum: `btc_dominance` / `halving_cycle` = stance only (hapus klaim boost short OOS)
+  - Verdict: phase/dom **CONTEXT_ONLY**; unlock **INCONCLUSIVE** (isi `data/unlock_calendar.csv` manual)
+  - Snap asof: phase=**markdown**, cal=bear, dom=neutral, DD ATH ~−52%
+  - **Jangan** hard gate / auto-short unlock / FLAT dari cycle labels
+  - Detail: [CRYPTO_CYCLE_KNOWLEDGE.md](CRYPTO_CYCLE_KNOWLEDGE.md) §4 P2/P3
 
-- **P0 H-CYC-01 SELESAI** — `cyc01_dump_weakness.py` (78 sym panel).
-  - beta>1 CONFIRMED; short_weak entry **REJECT/NOT_PROVEN**.
-- **P0b SELESAI** — `cyc01b_universe_and_blocklong.py` (**598 alt** @ `data/snap` 1d).
-  - Universe besar: frac deeper **64.9%** vs 78→**63.9%** (Δ hanya **+1pp**) — **bukan** >>64%.
-  - `block_long` hold1: train/OOS long **+** (bounce) → **REJECTED_AS_FILTER**.
-  - OOS hold7 long −1.9% (regime-dependent only).
-  - **dump_flag** → **PATCH LIVE:** `btc.dump_short_boost: false`; boost di-gate di `forward.py`.
-    `dump_flag` tetap di context; `btc_gate` counter-trend tetap ON.
-  - Detail: [CRYPTO_CYCLE_KNOWLEDGE.md](CRYPTO_CYCLE_KNOWLEDGE.md) §4 P0b.
+- **GitHub + Proxmox (sebelum P2/P3):** commit dump_short_boost OFF di master; setelah P3
+  commit baru → `git pull` + `./restart.sh` + **restore risk 5** (sering drift 90).
+  - Agent: manager OFF, ab_shadow ON; dump_short_boost false.
+  - **Cek risk tiap deploy.**
+
+- **P0 H-CYC-01 SELESAI** — beta>1 CONFIRMED; short_weak **REJECT**.
+- **P0b SELESAI** — 598 alt frac~65%; block_long hold1 REJECT; boost short OFF.
 
 - **`agent_manager_mode` = OFF** (pemilik setuju setelah audit `agent_flat` vs chart).
   Autonomous/FLAT massal tidak lagi di-force. `agent_ab_shadow` tetap ON.
@@ -206,11 +205,12 @@ Sebagian sudah stub di kode (`dump_flag`, `dominance_dir`, `_halving_phase`) —
 | **P0b** | Universe 598 + block_flag + block_long | ✅ frac~65% stabil; block_long hold1 REJECT; boost short unproven |
 | **P1** | Disable `BTC_DUMP_BOOST` ×1.5 short | ✅ `btc.dump_short_boost: false` + gate di forward |
 | **P1** | ~~`alt_beta_short` / hard block_long~~ | ❌ ditolak data |
-| **P1** | `dominance_dir` / alt-season breadth | ⏸ backlog |
-| **P2** | Token unlock calendar | ⏸ backlog |
-| **P2** | Fase siklus terukur | ⏸ backlog |
+| **P1** | `dominance_dir` / alt-season breadth | ✅ diukur via BTCDOM → CONTEXT_ONLY |
+| **P2** | Token unlock calendar | ✅ kerangka + example; **INCONCLUSIVE** n=3 |
+| **P2** | Fase siklus terukur | ✅ CONTEXT_ONLY (markdown now) |
+| **P3** | Inject cycle_context ReAct/Gemini | ✅ stance/SKIP only — no hard gate |
 
-**Larangan:** manager ON, H30/L2, claim short-after-dump / block_long universal, merge boost short.
+**Larangan:** manager ON, H30/L2, claim short-after-dump / block_long universal, hard gate fase/unlock, FLAT dari cycle labels.
 
 ---
 
@@ -259,8 +259,8 @@ Cek: `/memory` · sesi lama: `/resume`.
 
 ```
 Baca memory/SESSION_HANDOFF.md + PLAN_OPERASIONAL.md + CHECKLIST_HARIAN.md
-+ memory/CRYPTO_CYCLE_KNOWLEDGE.md (backlog siklus; jangan implement tanpa minta).
++ memory/CRYPTO_CYCLE_KNOWLEDGE.md (P0–P3 siklus: context inject, bukan hard gate).
 Lanjutkan operasional Jalan A (manager OFF, ab_shadow ON; jangan usul edge OHLCV/L2).
 Status: awasi 7 hari; bantu [checklist / audit server / H28 bila gerbang lolos /
-        P0 riset siklus HANYA jika diminta eksplisit].
+        expand unlock_calendar manual bila diminta; jangan hard-gate cycle].
 ```

@@ -89,9 +89,9 @@ permutation, paper arm).
 | BTC dump → short alt (beta) | **Sebagian** | `bot/forward.py` `_btc_lead` (`dump_flag`, `dominance_dir`); `bot/altdata.py` `btc_gate*` / fade confirm; prompt `gemini_trader` |
 | Threshold dump ~2% | **Ada, longgar** | `btc.dump_pct` → `dump_flag = r3 <= -4*dump_pct` (default ~2% 3-bar) — **belum** filter “alt turun LEBIH dalam dari BTC” per pair |
 | Relative weakness alt vs BTC | **Belum ketat** | `dominance_dir` masih **proxy kasar** (bukan hitung ret_alt − ret_btc per symbol) |
-| Halving phase | **Ada (kasar)** | `_halving_phase()` tanggal hardcode → label string ke Gemini/ReAct; **bukan** 4 fase akumulasi/uptrend/distribusi terukur dari harga |
-| Alt season | **Stub** | `dominance_dir=-1` saat BTC naik — **bukan** breadth/BTC.D nyata |
-| Token unlock / supply | **Belum** | Tidak ada calendar unlock di pipeline entry |
+| Halving phase | **Ada + terukur** | Kalender `_halving_phase` + **`cycle_regime.measured_cycle_phase`** (harga) di `cycle_context` |
+| Alt season | **Proxy BTCDOM** | `dominance_regime` dari buffer/snap BTCDOM → `cycle_context.dominance` (CONTEXT_ONLY) |
+| Token unlock / supply | **Kerangka** | CSV `data/unlock_calendar.csv` (opsional) + example; inject `unlock.in_window` — **bukan** entry |
 | ETF flow / makro rates | **Belum** | Tidak di wire ke gate |
 | Short multi-hari post-unlock | **Belum** | Horizon bot = bar TF pendek + SL/TP; hold days–weeks perlu **mode swing** terpisah |
 
@@ -215,18 +215,40 @@ OOS hold 5–7 long negatif (regime 2024-11+) → **regime-dependent**; bukan sp
 
 3. ~~`block_long_on_btc_dump` hard filter universal~~ — **REJECTED** sebagai spek hold1 (lihat P0b).  
 4. ~~`alt_beta_short` entry~~ — **REJECTED** (P0).  
-5. **Patch hygiene:** disable dump short-boost (rekomendasi; belum dikode).  
-6. **`dominance_dir` nyata** — breadth / BTC.D (tetap backlog).
+5. ✅ **Patch hygiene:** `btc.dump_short_boost: false` + gate di `forward.py`.  
+6. ✅ **`dominance` via BTCDOM** — diukur di P2 (bukan hard gate).
 
-### P2 — Event struktural
+### P2 — Event struktural ✅ SELESAI ukur (2026-07-20)
 
-6. **Token unlock calendar** — masih open (belum diukur).  
-7. **Fase siklus terukur** — stance/size only.
+**Script:** `cyc02_cycle_unlock_altseason.py` · **Modul:** `bot/cycle_regime.py`  
+**Data:** `data/snap` @1d · 598 alt · BTCDOM ada · cut OOS ~2024-11-09  
+**Artefak:** `logs/cyc02_cycle_unlock.json`
 
-### P3 — AI layer
+#### Konteks sekarang (asof snap ~2026-07-01)
 
-8. Inject dump/regime ke ReAct sebagai **SKIP long / size**, bukan FLAT.  
-9. Lessons: “IF btc_dump THEN skip long alt” — hanya setelah shadow gate.
+| Field | Nilai |
+|---|---|
+| `phase` (harga) | **markdown** (di bawah MA200, slope−, DD ATH ~−52%) |
+| `calendar_phase` | bear (~2.2y post-halving 2024) |
+| `dominance.regime` | **neutral** (BTCDOM 20d ~−1.4%, BTC ~−6.8%) |
+| unlock | `no_calendar` / example only |
+
+#### Verdict P2
+
+| Kode | Hasil |
+|---|---|
+| **H-CYC-03 phase** | **CONTEXT_ONLY** — OOS alt EW per fase lemah/tidak stabil; **bukan** hard gate entry |
+| **H-CYC-03b dominance / alt-season** | **CONTEXT_ONLY** — split risk_off/alt_season lemah OOS |
+| **H-CYC-02 unlock** | **INCONCLUSIVE** — example CSV n=3 event; butuh `data/unlock_calendar.csv` (manual, feed publik 402/403) |
+
+**Implikasi:** label fase/dom **boleh** ke prompt (stance). **Jangan** hard-block trade, auto-short unlock, atau FLAT dari label.
+
+### P3 — AI layer ✅ WIRE (2026-07-20)
+
+8. ✅ Inject `cycle_context` ke ReAct + Gemini (`forward._cycle_context` → observe/build_context).  
+   Stance only: SKIP long / size kecil; **bukan** FLAT/manage dari cycle labels.  
+9. ✅ Curriculum `btc_dominance` / `halving_cycle` diluruskan (hapus klaim boost short OOS).  
+10. Lessons “IF dump THEN skip long” — **belum** auto; tunggu shadow A/B + n cukup.
 
 ### Larangan tetap
 
@@ -248,13 +270,17 @@ H-CYC-01  BTC dump + alt relative weakness → short alt
   Hasil:    jangan merge entry short; pertimbangkan risk-filter long saja
 
 H-CYC-01b block_long_on_btc_dump (disiplin, bukan alpha)
-  Status:   spek open — belum diukur sebagai gate paper
+  Status:   diukur P0b — REJECTED_AS_FILTER hold1 (bounce); regime-dep hold7
   Klaim:    mengurangi loss long alt pada hari dump (reduces_risk)
   Null:     rules long tanpa gate
 
 H-CYC-02  Token unlock window → short swing
-  Status:   backlog P2 — belum diukur
-  ...
+  Status:   P2 INCONCLUSIVE (n=3 example) — expand data/unlock_calendar.csv
+  Hakim:    train/OOS + cost; hard gate dilarang sampai n besar + CANDIDATE
+
+H-CYC-03  Measured cycle phase + BTC.D stance
+  Status:   P2 CONTEXT_ONLY; P3 inject prompt ✅ (bukan hard gate)
+  Modul:    bot/cycle_regime.py · wire forward/react/gemini
 ```
 
 ---
@@ -280,4 +306,4 @@ Ilmu ini **melengkapi** mimpi SQLite-lessons:
 
 ---
 
-*Diisi: 2026-07-20. P0 H-CYC-01 diukur — lihat §4.*
+*Diisi: 2026-07-20. P0–P3 siklus: ukur + inject context — lihat §4.*

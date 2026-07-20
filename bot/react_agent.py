@@ -38,6 +38,10 @@ _BTC_NOTE = (
     "DIPERBESAR & DIPERPANJANG di alt (BTC turun 1 bar → alt bisa turun 2-3 bar). Pakai "
     "'BTC leader' di state: untuk LONG alt HINDARI masuk saat BTC turun; BTC lemah = "
     "konfluensi SHORT alt. Untuk BTC sendiri, abaikan field ini."
+    "\nCYCLE CONTEXT (stance only, NOT auto entry/exit): phase=accumulation|uptrend|"
+    "distribution|markdown; dominance.regime=risk_off|alt_season|btc_lead|neutral; "
+    "unlock.in_window=true means supply unlock near — prefer SKIP long / smaller size, "
+    "do NOT FLAT open positions just for cycle labels. Short-after-dump is NOT proven edge."
 )
 
 ACTIONS = ("ENTER_LONG", "ENTER_SHORT", "SKIP", "REDUCE_RISK", "FLAT")
@@ -103,12 +107,13 @@ class ReactAgent:
     def observe(self, sig: Signal, *, regime: str | None = None, alt: dict | None = None,
                 n_positions: int = 0, max_positions: int = 0, daily_pnl_r: float = 0.0,
                 lessons: list | None = None, memory=None, btc_lead: dict | None = None,
-                halving_phase: str | None = None) -> dict:
+                halving_phase: str | None = None, cycle_context: dict | None = None) -> dict:
         alt = alt or {}
         return {
             "recent_memory": memory.summary(sig.symbol) if memory is not None else [],
             "btc_lead": btc_lead or {},
             "halving_phase": (halving_phase or "").strip() or "unknown",
+            "cycle_context": cycle_context or {},
             "symbol": sig.symbol,
             "price": sig.price,
             "atr": sig.atr,
@@ -173,6 +178,8 @@ class ReactAgent:
             f"- Open positions: {s['n_positions']}/{s['max_positions']}  Daily PnL: {s['daily_pnl_r']}R\n"
             f"- BTC leader (1bar/3bar %, dir): {json.dumps(s.get('btc_lead', {}), default=str)}\n"
             f"- Halving phase (macro): {s.get('halving_phase', 'unknown')}\n"
+            f"- Cycle context (phase/dominance/unlock — stance only): "
+            f"{json.dumps(s.get('cycle_context', {}), default=str)}\n"
             f"- Recent lessons: {json.dumps(s['recent_lessons'], default=str)}\n"
             f"- Recent memory (this symbol): {json.dumps(s.get('recent_memory', []), default=str)}\n"
         )
@@ -315,13 +322,14 @@ class ReactAgent:
                           regime: str | None = None, alt: dict | None = None,
                           n_positions: int = 0, max_positions: int = 0, daily_pnl_r: float = 0.0,
                           lessons: list | None = None, shadow: bool = False, memory=None,
-                          btc_lead: dict | None = None, halving_phase: str | None = None) -> Decision:
+                          btc_lead: dict | None = None, halving_phase: str | None = None,
+                          cycle_context: dict | None = None) -> Decision:
         """Loop ReAct sejati: nalar → panggil tool → observasi → nalar → aksi final.
         Gagal/parse-error/maxiters → fallback ke decide() single-shot (TAK pernah blokir).
         memory (opsional): observasi tool & keputusan diingat lintas-tick."""
         obs_kwargs = dict(regime=regime, alt=alt, n_positions=n_positions, max_positions=max_positions,
                           daily_pnl_r=daily_pnl_r, lessons=lessons, memory=memory, btc_lead=btc_lead,
-                          halving_phase=halving_phase)
+                          halving_phase=halving_phase, cycle_context=cycle_context)
         if not self.enabled or not tools:
             return self.decide(sig, shadow=shadow, **obs_kwargs)
         state = self.observe(sig, **obs_kwargs)
@@ -356,13 +364,14 @@ class ReactAgent:
     def decide(self, sig: Signal, *, regime: str | None = None, alt: dict | None = None,
                n_positions: int = 0, max_positions: int = 0, daily_pnl_r: float = 0.0,
                lessons: list | None = None, shadow: bool = False, memory=None,
-               btc_lead: dict | None = None, halving_phase: str | None = None) -> Decision:
+               btc_lead: dict | None = None, halving_phase: str | None = None,
+               cycle_context: dict | None = None) -> Decision:
         """shadow=True (mode A/B): agen tetap menalar & MENCATAT verdict, tapi eksekusi
         dipaksa mengikuti rules (permits()=True) → bisa bandingkan rules vs rules+ReAct."""
         state = self.observe(sig, regime=regime, alt=alt, n_positions=n_positions,
                              max_positions=max_positions, daily_pnl_r=daily_pnl_r,
                              lessons=lessons, memory=memory, btc_lead=btc_lead,
-                             halving_phase=halving_phase)
+                             halving_phase=halving_phase, cycle_context=cycle_context)
         scores = {"long": state["long_score"], "short": state["short_score"]}
 
         if not self.enabled:

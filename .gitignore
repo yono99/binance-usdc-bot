@@ -2,8 +2,14 @@
 .env.*
 __pycache__/
 *.pyc
-data/
-logs/
+data/**
+# template unlock calendar (bukan kalender live penuh)
+!data/
+!data/unlock_calendar.example.csv
+!data/sl_calibration.json
+logs/**
+!logs/
+!logs/cyc0*.json
 *.log
 # database SQLite (jangan commit data) — pengaman bila aturan logs/ diubah
 *.db
