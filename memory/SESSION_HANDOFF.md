@@ -4,9 +4,17 @@
 > Di-load lewat project rules (`AGENT.md` + `.grok/rules/`).  
 > Update baris “Status terakhir” bila posture server berubah.
 
-**Terakhir diisi:** 2026-07-20 (P0 H-CYC-01 selesai)
+**Terakhir diisi:** 2026-07-20 (deploy f346d72 + dump_short_boost OFF)
 
 ### Status terakhir (2026-07-20)
+
+- **GitHub + Proxmox:** commit **`f346d72`** pushed; server `git pull` + `./restart.sh` OK.
+  - PM2: **1** `forwardtest --mode dry` + dashboard online.
+  - Runtime verify: `dump_short_boost=false`, `_dump_short_boost_enabled()=False`.
+  - decision_log: 0× `BTC_DUMP_BOOST` di rationale (boost historis juga jarang/0 di log ini).
+  - **Risk lock restored after restart:** `daily_max_loss_pct` drift **90 → 5** (lagi).
+    Trades 30 / pos 5 / lev 5 / bet 4 OK. Agent: manager OFF, ab_shadow ON.
+    **Cek risk tiap deploy** — restart/store kadang me-reset loss % longgar.
 
 - **P0 H-CYC-01 SELESAI** — `cyc01_dump_weakness.py` (78 sym panel).
   - beta>1 CONFIRMED; short_weak entry **REJECT/NOT_PROVEN**.
@@ -14,11 +22,9 @@
   - Universe besar: frac deeper **64.9%** vs 78→**63.9%** (Δ hanya **+1pp**) — **bukan** >>64%.
   - `block_long` hold1: train/OOS long **+** (bounce) → **REJECTED_AS_FILTER**.
   - OOS hold7 long −1.9% (regime-dependent only).
-  - **dump_flag audit** → **PATCH APPLIED:** `btc.dump_short_boost: false` (default).
-    Kedua titik boost di `forward.py` di-gate; `dump_flag` tetap di context.
-    `btc_gate` counter-trend tetap ON. UI setup `btc_dominance_short` = DISABLED.
+  - **dump_flag** → **PATCH LIVE:** `btc.dump_short_boost: false`; boost di-gate di `forward.py`.
+    `dump_flag` tetap di context; `btc_gate` counter-trend tetap ON.
   - Detail: [CRYPTO_CYCLE_KNOWLEDGE.md](CRYPTO_CYCLE_KNOWLEDGE.md) §4 P0b.
-  - Artefak: `logs/cyc01b_universe_blocklong.json`
 
 - **`agent_manager_mode` = OFF** (pemilik setuju setelah audit `agent_flat` vs chart).
   Autonomous/FLAT massal tidak lagi di-force. `agent_ab_shadow` tetap ON.
