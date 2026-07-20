@@ -1950,6 +1950,13 @@ class ForwardTester:
         # Persist SEGERA setelah open — crash/restart antara open & end-of-cycle
         # dulu bikin journal ada OPEN tapi botstate.open kosong (ghost).
         self._persist_state()
+        # Status UI juga di-refresh mid-cycle: siklus Gemini bisa >5 menit; tanpa ini
+        # open_count di header tetap 0 meski botstate sudah punya posisi.
+        try:
+            if self.rs is not None:
+                self._write_status(self.rs, False, "")
+        except Exception as e:  # boundary
+            log.debug(f"write_status after open: {e}")
         log.info(f"OPEN {self.open[sym]['side'].upper()} {sym} x{rs.leverage} bet=${bet:.2f} "
                  f"@ {entry:.4f} SL={sl:.4f} TP={tp:.4f} LIQ={liq:.4f}")
         self.notify.send(

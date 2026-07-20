@@ -20,10 +20,11 @@
     berubah; mode-switch persist dulu; crash-recovery open journal <2h
   - `bot/dashboard.py`: `open_positions` dari `botstate`/`status` (bukan event ghost)
   - `scripts/reconcile_dry_ghosts.py`: tutup 15+2 ghost paper (reason=`reconcile_state_flat`)
-- **State sekarang:** 1 bot PM2 (`--poll 30 --use-store --mode dry`), open=0, ghosts=0,
-  screen terakhir ghost = `reconcile: flat`, bal paper ~USDT $5.79 / USDC $3.76,
-  `enabled=true`, Jalan A (manager + ab_shadow) tetap.
-- **Jangan** jalankan `python forwardtest.py` manual di server saat PM2 bot online.
+- **State sekarang (07:00 UTC):** 1 bot PM2 (`--poll 30 --use-store --mode dry` + lock),
+  paper open **APT short + BCH short** (day_trades=2), bal free ~USDT $5.79 / USDC $3.76,
+  ghost journal lama di-close `reconcile_state_flat`, `enabled=true`, Jalan A tetap.
+- **Jangan** jalankan `python forwardtest.py` manual di server saat PM2 bot online
+  (lock akan exit 2; zombie lama sempat timpa state).
 - **Batas jujur:** paper mikro; KPI proses/risk, bukan profit harian.
 
 ---
