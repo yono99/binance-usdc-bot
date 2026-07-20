@@ -206,7 +206,7 @@ Sebagian sudah stub di kode (`dump_flag`, `dominance_dir`, `_halving_phase`) —
 | **P1** | Disable `BTC_DUMP_BOOST` ×1.5 short | ✅ `btc.dump_short_boost: false` + gate di forward |
 | **P1** | ~~`alt_beta_short` / hard block_long~~ | ❌ ditolak data |
 | **P1** | `dominance_dir` / alt-season breadth | ✅ diukur via BTCDOM → CONTEXT_ONLY |
-| **P2** | Token unlock calendar | ✅ kerangka + example; **INCONCLUSIVE** n=3 |
+| **P2** | Token unlock / supply → bearish | ✅ n=471 curated; **OOS short7 NOT_PROVEN** (train hijau, OOS −0.31%) |
 | **P2** | Fase siklus terukur | ✅ CONTEXT_ONLY (markdown now) |
 | **P3** | Inject cycle_context ReAct/Gemini | ✅ stance/SKIP only — no hard gate |
 

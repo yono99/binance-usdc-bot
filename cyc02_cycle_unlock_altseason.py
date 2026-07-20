@@ -222,47 +222,62 @@ def study_dominance(btc: pd.Series, btcdom: pd.Series | None, alts: dict[str, pd
     return {"cut": str(cut), "rows": rows}
 
 
-def study_unlock(btc: pd.Series, alts: dict[str, pd.Series], cal: pd.DataFrame,
-                 holds: list[int], pre: int, post: int, cost: float) -> dict:
-    if cal is None or len(cal) == 0:
-        return {
-            "status": "NO_DATA",
-            "reason": (
-                "No unlock calendar loaded. Public unlock APIs often paywalled. "
-                "Copy data/unlock_calendar.example.csv → data/unlock_calendar.csv and fill rows."
-            ),
-            "events": 0,
-        }
-    # map base → series
+def _base_map(alts: dict[str, pd.Series]) -> dict[str, pd.Series]:
     base_map: dict[str, pd.Series] = {}
     for sym, s in alts.items():
-        base = sym.split("/")[0].upper()
+        base = sym.split("/")[0].upper().replace("1000", "")
+        # keep both 1000PEPE → PEPE and original
+        raw = sym.split("/")[0].upper()
+        base_map[raw] = s
+        if raw.startswith("1000") and len(raw) > 4:
+            base_map[raw[4:]] = s
         base_map[base] = s
-        if base.startswith("1000") and len(base) > 4:
-            base_map[base[4:]] = s
+    return base_map
 
+
+def _fwd_rets_for_events(
+    cal: pd.DataFrame,
+    base_map: dict[str, pd.Series],
+    holds: list[int],
+    cost: float,
+    *,
+    min_pct: float = 0.0,
+    oos_cut: pd.Timestamp | None = None,
+) -> dict:
+    """Return long/short lists by hold, optionally split train/oos."""
+    long_all = {h: [] for h in holds}
+    short_all = {h: [] for h in holds}
+    long_tr = {h: [] for h in holds}
+    short_tr = {h: [] for h in holds}
+    long_oos = {h: [] for h in holds}
+    short_oos = {h: [] for h in holds}
     events = []
-    long_by_h = {h: [] for h in holds}
-    short_by_h = {h: [] for h in holds}
+    matched = 0
     for _, row in cal.iterrows():
+        pct = row.get("pct_supply")
+        try:
+            pct_f = float(pct) if pct is not None and not (isinstance(pct, float) and math.isnan(pct)) else 0.0
+        except (TypeError, ValueError):
+            pct_f = 0.0
+        if pct_f < min_pct:
+            continue
         base = str(row["symbol"]).split("/")[0].upper()
         s = base_map.get(base)
         if s is None:
-            events.append({"base": base, "status": "no_price_series"})
+            events.append({"base": base, "status": "no_price_series", "pct": pct_f})
             continue
         u = pd.Timestamp(row["unlock_date"])
         if u.tzinfo is None:
             u = u.tz_localize("UTC")
-        # entry at unlock day close if available else next
         if u not in s.index:
-            # nearest forward bar
             fut = s.index[s.index >= u]
             if len(fut) == 0:
-                events.append({"base": base, "status": "no_bars_after"})
+                events.append({"base": base, "status": "no_bars_after", "pct": pct_f})
                 continue
             t = fut[0]
         else:
             t = u
+        got = False
         for hold in holds:
             loc = s.index.get_loc(t)
             if not isinstance(loc, (int, np.integer)):
@@ -271,35 +286,181 @@ def study_unlock(btc: pd.Series, alts: dict[str, pd.Series], cal: pd.DataFrame,
             if loc + hold >= len(s):
                 continue
             fwd = float(s.iloc[loc + hold] / s.iloc[loc] - 1.0)
-            long_by_h[hold].append(fwd - cost)
+            lg, sh = fwd - cost, -fwd - cost
+            long_all[hold].append(lg)
+            short_all[hold].append(sh)
+            if oos_cut is not None:
+                if t >= oos_cut:
+                    long_oos[hold].append(lg)
+                    short_oos[hold].append(sh)
+                else:
+                    long_tr[hold].append(lg)
+                    short_tr[hold].append(sh)
+            got = True
+        if got:
+            matched += 1
+            events.append({
+                "base": base,
+                "status": "ok",
+                "entry": str(pd.Timestamp(t).date()),
+                "unlock": str(u.date()),
+                "pct_supply": pct_f,
+            })
+        else:
+            events.append({"base": base, "status": "thin_forward", "pct": pct_f})
+    return {
+        "matched": matched,
+        "events": events,
+        "long_all": long_all,
+        "short_all": short_all,
+        "long_tr": long_tr,
+        "short_tr": short_tr,
+        "long_oos": long_oos,
+        "short_oos": short_oos,
+    }
+
+
+def _null_random_same_symbols(
+    cal: pd.DataFrame,
+    base_map: dict[str, pd.Series],
+    holds: list[int],
+    cost: float,
+    *,
+    n_draw: int,
+    seed: int = 42,
+) -> dict:
+    """Null: random entry dates on same symbols as matched unlocks (same n)."""
+    rng = np.random.default_rng(seed)
+    bases = []
+    for _, row in cal.iterrows():
+        base = str(row["symbol"]).split("/")[0].upper()
+        if base in base_map:
+            bases.append(base)
+    if not bases:
+        return {str(h): pack([]) for h in holds}
+    short_by_h = {h: [] for h in holds}
+    for _ in range(n_draw):
+        base = bases[int(rng.integers(0, len(bases)))]
+        s = base_map[base]
+        if len(s) < max(holds) + 5:
+            continue
+        # random bar with room for max hold
+        hi = len(s) - max(holds) - 1
+        if hi < 5:
+            continue
+        loc = int(rng.integers(5, hi))
+        for hold in holds:
+            fwd = float(s.iloc[loc + hold] / s.iloc[loc] - 1.0)
             short_by_h[hold].append(-fwd - cost)
-        events.append({
-            "base": base,
-            "status": "ok",
-            "entry": str(t.date()),
-            "unlock": str(u.date()),
-            "pct_supply": row.get("pct_supply"),
-        })
+    return {str(h): pack(short_by_h[h]) for h in holds}
+
+
+def study_unlock(btc: pd.Series, alts: dict[str, pd.Series], cal: pd.DataFrame,
+                 holds: list[int], pre: int, post: int, cost: float,
+                 oos_frac: float = 0.30) -> dict:
+    if cal is None or len(cal) == 0:
+        return {
+            "status": "NO_DATA",
+            "reason": (
+                "No unlock calendar loaded. Public unlock APIs often paywalled. "
+                "Run scripts/build_unlock_calendar_hist.py or fill data/unlock_calendar.csv."
+            ),
+            "events": 0,
+        }
+    base_map = _base_map(alts)
+    # chronological cut from calendar dates that match prices
+    dates = pd.to_datetime(cal["unlock_date"], utc=True).dropna().sort_values()
+    if len(dates) == 0:
+        return {"status": "NO_DATA", "reason": "calendar has no valid dates", "events": 0}
+    cut = dates.iloc[int(len(dates) * (1.0 - oos_frac))]
+    if not isinstance(cut, pd.Timestamp):
+        cut = pd.Timestamp(cut, tz="UTC")
+
+    full = _fwd_rets_for_events(cal, base_map, holds, cost, min_pct=0.0, oos_cut=cut)
+    large = _fwd_rets_for_events(cal, base_map, holds, cost, min_pct=2.0, oos_cut=cut)
+
+    def _pack_split(bucket: dict, holds_: list[int]) -> dict:
+        return {
+            "all": {str(h): pack(bucket["short_all"][h]) for h in holds_},
+            "train": {str(h): pack(bucket["short_tr"][h]) for h in holds_},
+            "oos": {str(h): pack(bucket["short_oos"][h]) for h in holds_},
+            "long_all": {str(h): pack(bucket["long_all"][h]) for h in holds_},
+            "long_oos": {str(h): pack(bucket["long_oos"][h]) for h in holds_},
+            "n_matched": bucket["matched"],
+        }
+
+    arms = {
+        "all_events": _pack_split(full, holds),
+        "large_pct_ge_2": _pack_split(large, holds),
+    }
+    null = _null_random_same_symbols(
+        cal, base_map, holds, cost, n_draw=max(full["matched"] * 3, 50)
+    )
+
+    # primary: short hold=7, all events, OOS if n>=10 else all
+    s7_oos = arms["all_events"]["oos"].get("7", {})
+    s7_all = arms["all_events"]["all"].get("7", {})
+    s7 = s7_oos if s7_oos.get("n", 0) >= 10 else s7_all
+    s7_src = "oos" if s7 is s7_oos and s7_oos.get("n", 0) >= 10 else "all"
+    s7_large = arms["large_pct_ge_2"]["oos"].get("7") or arms["large_pct_ge_2"]["all"].get("7", {})
+    null7 = null.get("7", {})
 
     out = {
         "status": "MEASURED",
+        "source_note": (
+            "Calendar may be curated approx (scripts/build_unlock_calendar_hist.py). "
+            "Not a live TokenUnlocks feed."
+        ),
         "n_calendar_rows": int(len(cal)),
-        "n_matched_price": sum(1 for e in events if e.get("status") == "ok"),
-        "events": events[:50],
-        "long_after_unlock": {str(h): pack(long_by_h[h]) for h in holds},
-        "short_after_unlock": {str(h): pack(short_by_h[h]) for h in holds},
+        "n_matched_price": full["matched"],
+        "n_matched_large": large["matched"],
+        "oos_cut": str(cut),
+        "events_sample": full["events"][:40],
+        "short_after_unlock": arms["all_events"]["all"],  # back-compat
+        "long_after_unlock": arms["all_events"]["long_all"],
+        "arms": arms,
+        "null_random_same_symbols_short": null,
+        "primary": {
+            "side": "short",
+            "hold": 7,
+            "split": s7_src,
+            "stats": s7,
+            "large_stats": s7_large,
+            "null_stats": null7,
+        },
     }
-    # verdict short
-    s7 = out["short_after_unlock"].get("7") or out["short_after_unlock"].get(str(holds[-1]), {})
-    if s7.get("n", 0) >= 15 and s7.get("mean", 0) > 0 and s7.get("p_pos", 1) < 0.05:
+
+    n = s7.get("n", 0) or 0
+    mean = s7.get("mean") or 0.0
+    p_pos = s7.get("p_pos", 1.0)
+    null_mean = null7.get("mean")
+    beats_null = (
+        null_mean is not None
+        and n >= 15
+        and mean > null_mean
+        and mean > 0
+    )
+    if n >= 15 and mean > 0 and p_pos < 0.05 and beats_null:
         out["verdict"] = "CANDIDATE"
-        out["reason"] = f"short after unlock mean={s7['mean']:+.4%} n={s7['n']} p={s7['p_pos']:.4f}"
-    elif s7.get("n", 0) < 15:
+        out["reason"] = (
+            f"short@{s7_src} hold7 mean={mean:+.4%} n={n} p_pos={p_pos:.4f} "
+            f"> null={null_mean:+.4%} — still needs live calendar + paper arm"
+        )
+    elif n < 15:
         out["verdict"] = "INCONCLUSIVE"
-        out["reason"] = f"n too small for short hold (n={s7.get('n', 0)}) — expand calendar"
+        out["reason"] = f"n too small for short hold7 (n={n}) — expand calendar"
+    elif mean <= 0 or p_pos >= 0.05:
+        out["verdict"] = "NOT_PROVEN"
+        out["reason"] = (
+            f"short@{s7_src} hold7 mean={mean:+.4%} n={n} p_pos={p_pos:.3f} "
+            f"(null mean={null_mean}) — supply-unlock bearish NOT reliable as entry"
+        )
     else:
         out["verdict"] = "NOT_PROVEN"
-        out["reason"] = f"short mean={s7.get('mean')} n={s7.get('n')} p={s7.get('p_pos')}"
+        out["reason"] = (
+            f"short mean positive but does not clearly beat null "
+            f"(mean={mean:+.4%} null={null_mean})"
+        )
     return out
 
 
@@ -429,13 +590,28 @@ def main() -> int:
                 cal = load_unlock_calendar(ex)
             except Exception:
                 cal = pd.DataFrame()
-    un = study_unlock(btc, alts, cal, args.holds, 3, 7, cost)
-    print("UNLOCK:", un.get("status"), un.get("verdict"), un.get("reason") or un.get("reason", ""))
+    un = study_unlock(btc, alts, cal, args.holds, 3, 7, cost, oos_frac=args.oos_frac)
+    print("UNLOCK:", un.get("status"), un.get("verdict"), "—", un.get("reason") or "")
     if un.get("status") == "MEASURED":
+        print(f"  calendar rows={un.get('n_calendar_rows')} matched={un.get('n_matched_price')} "
+              f"large>={2}%={un.get('n_matched_large')} cut={un.get('oos_cut')}")
+        prim = un.get("primary") or {}
+        print(f"  primary: short hold7 @{prim.get('split')}: {prim.get('stats')}")
         for h in args.holds:
             s = un["short_after_unlock"].get(str(h), {})
             if s.get("n"):
-                print(f"  short hold={h}: n={s['n']} mean={s['mean']:+.3%} p_pos={s['p_pos']:.3f}")
+                print(f"  short ALL hold={h}: n={s['n']} mean={s['mean']:+.3%} "
+                      f"win={s.get('win', float('nan')):.1%} p_pos={s['p_pos']:.3f}")
+        arms = un.get("arms") or {}
+        for name, arm in arms.items():
+            o7 = (arm.get("oos") or {}).get("7", {})
+            t7 = (arm.get("train") or {}).get("7", {})
+            if o7.get("n") or t7.get("n"):
+                print(f"  [{name}] train7 n={t7.get('n')} mean={t7.get('mean')} | "
+                      f"oos7 n={o7.get('n')} mean={o7.get('mean')}")
+        n7 = (un.get("null_random_same_symbols_short") or {}).get("7", {})
+        if n7.get("n"):
+            print(f"  null random short hold7: n={n7['n']} mean={n7['mean']:+.3%}")
 
     out = {
         "meta": {

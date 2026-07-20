@@ -91,7 +91,7 @@ permutation, paper arm).
 | Relative weakness alt vs BTC | **Belum ketat** | `dominance_dir` masih **proxy kasar** (bukan hitung ret_alt − ret_btc per symbol) |
 | Halving phase | **Ada + terukur** | Kalender `_halving_phase` + **`cycle_regime.measured_cycle_phase`** (harga) di `cycle_context` |
 | Alt season | **Proxy BTCDOM** | `dominance_regime` dari buffer/snap BTCDOM → `cycle_context.dominance` (CONTEXT_ONLY) |
-| Token unlock / supply | **Kerangka** | CSV `data/unlock_calendar.csv` (opsional) + example; inject `unlock.in_window` — **bukan** entry |
+| Token unlock / supply | **Diukur + kerangka** | CSV curated 471 event; OOS short **NOT_PROVEN**; inject `unlock.in_window` stance only |
 | ETF flow / makro rates | **Belum** | Tidak di wire ke gate |
 | Short multi-hari post-unlock | **Belum** | Horizon bot = bar TF pendek + SL/TP; hold days–weeks perlu **mode swing** terpisah |
 
@@ -239,9 +239,44 @@ OOS hold 5–7 long negatif (regime 2024-11+) → **regime-dependent**; bukan sp
 |---|---|
 | **H-CYC-03 phase** | **CONTEXT_ONLY** — OOS alt EW per fase lemah/tidak stabil; **bukan** hard gate entry |
 | **H-CYC-03b dominance / alt-season** | **CONTEXT_ONLY** — split risk_off/alt_season lemah OOS |
-| **H-CYC-02 unlock** | **INCONCLUSIVE** — example CSV n=3 event; butuh `data/unlock_calendar.csv` (manual, feed publik 402/403) |
+| **H-CYC-02 unlock** | **NOT_PROVEN** (ukur ulang 2026-07-20, n=471 kurasi) — lihat §4 H-CYC-02 di bawah |
 
 **Implikasi:** label fase/dom **boleh** ke prompt (stance). **Jangan** hard-block trade, auto-short unlock, atau FLAT dari label.
+
+#### H-CYC-02 — supply unlock → bearish / short (ukur serius)
+
+**Sumber data (jujur):**
+- TokenUnlocks / DefiLlama emissions API → **402 berbayar / terblokir** (bukan free scrape andal).
+- Seed open-source (mis. GitHub unlock calendar) → mayoritas event **upcoming 2026**, tipis untuk OOS historis.
+- **Yang dipakai:** `scripts/build_unlock_calendar_hist.py` → `data/unlock_calendar.csv`  
+  **471 event · 33 simbol · 2023-01 → 2026-03** — jadwal vesting publik **terkurasi/aproksimasi** (cliff + monthly), **bukan** feed on-chain 100%.
+
+**Metode:** entry close hari unlock (atau bar berikutnya), hold 1/7/20d, cost RT 0.18%, short = −fwd − cost.  
+Null: random entry di simbol yang sama. Split OOS ~30% kalender (cut **2025-05-01**).
+
+| Arm | n | mean short | win | p_pos (mean>0) | Catatan |
+|---|---:|---:|---:|---:|---|
+| short hold1 **all** | 471 | **+0.32%** | 54% | 0.12 | tipis |
+| short hold7 **all** (train+OOS) | 471 | **+1.38%** | 55% | **0.019** | kelihatan bagus **pool** |
+| short hold20 **all** | 471 | **+2.82%** | 63% | **0.013** | sama — pool |
+| short hold7 **train** | 328 | **+2.11%** | — | — | era 2023–2025-04 |
+| short hold7 **OOS** | **143** | **−0.31%** | 54% | 0.60 | **gagal OOS** |
+| short hold7 large pct≥2% train | 32 | +6.0% | — | — | n kecil |
+| short hold7 large pct≥2% OOS | **2** | — | — | — | terlalu tipis |
+| null random short hold7 | 1413 | **−1.03%** | — | — | random short rugi (pasar naik rata2) |
+
+**Verdict H-CYC-02**
+
+| Kode | Arti |
+|---|---|
+| **Deskriptif “unlock sering di era supply shock”** | **Masuk akal** — di train, short pasca-unlock mean > 0 dan > null |
+| **Trade edge short unlock (hold 7d, OOS)** | **NOT_PROVEN** — OOS mean **negatif**; train−OOS **tidak konsisten** |
+| **Hard gate / auto-short unlock** | **Dilarang** |
+| **Context `unlock.in_window`** | **Tetap boleh** (SKIP long / size) — disiplin, bukan alpha |
+| **Kalender live TokenUnlocks** | Masih gap — bila Anda export CSV manual dari situs, bisa re-run spek yang sama |
+
+**Mengapa ilmu “supply naik = bearish” bisa terasa benar tapi gagal di bot:**  
+(1) banyak unlock **sudah di-price-in**; (2) bounce / bid pasca-unlock; (3) regime OOS 2025–26 beda dari train; (4) kalender kurasi punya noise tanggal/pct; (5) bot horizon + biaya ≠ “hold swing sampai terserap” di chart manual.
 
 ### P3 — AI layer ✅ WIRE (2026-07-20)
 
@@ -275,8 +310,10 @@ H-CYC-01b block_long_on_btc_dump (disiplin, bukan alpha)
   Null:     rules long tanpa gate
 
 H-CYC-02  Token unlock window → short swing
-  Status:   P2 INCONCLUSIVE (n=3 example) — expand data/unlock_calendar.csv
-  Hakim:    train/OOS + cost; hard gate dilarang sampai n besar + CANDIDATE
+  Status:   2026-07-20 MEASURED n=471 curated — OOS hold7 NOT_PROVEN (mean −0.31%)
+  Data:     data/unlock_calendar.csv via scripts/build_unlock_calendar_hist.py
+  Hakim:    train/OOS + cost + null random; hard gate dilarang
+  Catatan:  pool all-sample short7 +EV palsu (train-driven); live TokenUnlocks masih paywall
 
 H-CYC-03  Measured cycle phase + BTC.D stance
   Status:   P2 CONTEXT_ONLY; P3 inject prompt ✅ (bukan hard gate)
