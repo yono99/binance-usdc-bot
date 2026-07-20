@@ -6,18 +6,25 @@
 
 **Terakhir diisi:** 2026-07-20
 
-### Status terakhir (2026-07-20)
+### Status terakhir (2026-07-20 ~04:10 UTC)
 
-- Bot PM2 online; dry `enabled=true`; manager + ab_shadow ON.
-- Risk dry dikunci ulang: `daily_max_loss_pct=5` (sempat drift ke 50).
-- **Bug fix deploy:** AI decide-cache sekarang **hanya** aktif jika `use_gemini_trader`;
-  di manager-mode cache dikosongkan agar tidak mereplay flat Gemini / melewati RULES.
-  File: `bot/forward.py` (server sudah di-scp + `pm2 restart bot`).
-- 0 entry sejak `agent_flat` 2026-07-19 ~06:11 UTC — bukan bot mati; campuran
-  (cache bug + rules flat + sepi sinyal). Setelah patch, tunggu bar 15m baru untuk
-  evaluasi RULES (sinyal `-` sebentar pasca-restart = normal sampai bar close).
-- **Batas jujur ke pemilik:** paper ~$10 **bukan** mesin bayar hutang/makan.
-  Maksimalisasi = disiplin + perbaikan bug + bukti OOS, **bukan** janji $ harian.
+- Bot PM2 online; dry `enabled=true`; manager + ab_shadow ON; risk dry **loss 5%**
+  (sempat drift ke 50 — dikunci lagi).
+- **Entry paper HIDUP lagi** (setelah 0 entry sejak `agent_flat` 2026-07-19):
+  OPEN ACE LONG, BCH SHORT, ZEC SHORT — `open_count=3`, `day_trades=3`.
+  Sinyal LONG/SHORT lain ada tapi ditahan **margin USDT habis** (pool ~$5.79) — normal
+  untuk akun mikro, bukan bug gate.
+- Root cause 0 entry (berlapis), semua di-deploy server:
+  1. AI decide-cache mereplay flat Gemini di manager-mode → clear cache bila non-gemini
+  2. `entry_confidence` 0.65 vs skor live p90≈0.37 → preset auto/gemini **0.30**; OF off
+  3. `decide_v4` OF fail-open bila CVD/taker kosong
+  4. `gate_overext` / `gate_runup` off di paper (ukur frekuensi dulu)
+  5. **Crash siklus:** `ReactAgent.decide(...halving_phase=)` TypeError → fix signature
+  6. Seed set `last_closed` → evaluasi tertunda 1 bar; seed **tidak** lagi set last_closed
+- File: `bot/forward.py`, `bot/react_agent.py`, `bot/settings_store.py`,
+  `bot/strategy_lab.py`, `config.yaml`.
+- **Batas jujur:** paper ~$10 **bukan** mesin bayar hutang. Disiplin + bukti OOS, bukan
+  janji $ harian. Jangan longgarkan risk / buka H30-L2 karena ada 3 entry.
 
 ---
 
@@ -85,7 +92,10 @@ Dokumen induk:
 - Duplikat trade history tanpa side/entry → fix `build_trades` + dashboard bersih
 - AI decide-cache menembus manager-mode (Jalan A) → 0 entry / flat Gemini palsu
   (fix 2026-07-20: gate `use_gemini_trader` + clear cache)
-- `daily_max_loss_pct` drift 50 → dikembalikan 5
+- `daily_max_loss_pct` drift 50 → dikembalikan 5 (ulang 2026-07-20; cek tiap sesi)
+- conf 0.65 + OF ketat + CVD kosong → 0 LONG/SHORT palsu (kalibrasi conf 0.30 / OF fail-open)
+- `ReactAgent.decide` tak terima `halving_phase` → crash seluruh `on_cycle` di bar close
+- seed `last_closed=index[-2]` → UI "—" / atr null s/d bar 15m berikutnya
 
 ---
 

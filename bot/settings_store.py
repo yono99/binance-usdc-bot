@@ -60,14 +60,18 @@ PRESETS: dict[str, dict] = {
     "swing": {"timeframe": "1h", "entry_confidence": 0.6, "sl_atr_mult": 2.0,
               "tp_atr_mult": 4.0, "use_htf": True, "regime": True,
               "use_funding": True, "use_oi": False, "use_of": False},
-    # smart autopilot: v4 penuh, regime auto trend/mean-reversion
-    "auto": {"timeframe": "15m", "entry_confidence": 0.65, "sl_atr_mult": 1.75,
+    # smart autopilot: v4. conf dikalibrasi ke distribusi skor live (p90 long≈0.35–0.40
+    # di paper 2026-07) — 0.65 membuat hampir 0 entry (bukan edge, cuma sepi total).
+    # use_of default off: CVD sering kosong di dry → fail-open di decide_v4; toggle on
+    # hanya bila feed taker sehat.
+    "auto": {"timeframe": "15m", "entry_confidence": 0.30, "sl_atr_mult": 1.75,
              "tp_atr_mult": 2.6, "use_htf": True, "regime": True,
-             "use_funding": True, "use_oi": False, "use_of": True},
+             "use_funding": True, "use_oi": False, "use_of": False},
     # Gemini praktisi trader: ARAH dari Gemini, SL/TP tetap ATR-deterministik (param di sini).
-    "gemini": {"timeframe": "15m", "entry_confidence": 0.65, "sl_atr_mult": 1.75,
+    # Saat manager-mode memaksa RULES, preset ini juga dipakai → conf harus realistis.
+    "gemini": {"timeframe": "15m", "entry_confidence": 0.30, "sl_atr_mult": 1.75,
                "tp_atr_mult": 2.6, "use_htf": True, "regime": True,
-               "use_funding": True, "use_oi": False, "use_of": True},
+               "use_funding": True, "use_oi": False, "use_of": False},
 }
 
 MAINT_MARGIN = 0.005  # asumsi maintenance margin ~0.5%

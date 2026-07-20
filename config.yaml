@@ -93,7 +93,7 @@ signals:
   ema_fast: 9
   ema_mid: 21
   ema_slow: 50
-  entry_confidence: 0.65
+  entry_confidence: 0.30   # kalibrasi skor live paper (p90≈0.37); 0.65 ≈ 0 entry
   rsi_period: 14
   weights:
     momentum: 0.3
@@ -122,8 +122,10 @@ strategy:
   funding_z_block: 1.5
   funding_z_window: 30
   gate_corr: true
-  gate_overext: true
-  gate_runup: true
+  # Paper 2026-07: overext+runup + conf ketat ≈ 0 entry di majors sepi.
+  # Matikan dulu agar RULES bisa diukur (Jalan A); nyalakan lagi setelah frekuensi sehat.
+  gate_overext: false
+  gate_runup: false
   htf_mult: 4
   mr_rsi_high: 70
   mr_rsi_low: 30

@@ -220,11 +220,20 @@ def precompute_v4(df: pd.DataFrame, cfg: dict, htf_mult: int, funding_z: np.ndar
 
 def decide_v4(f4: FeaturesV4, g: dict, cfg: dict, sessions: set | None) -> np.ndarray:
     """Keputusan v3, lalu konfirmasi order flow bila di-toggle:
-    long butuh net buying, short butuh net selling; veto bila divergensi."""
+    long butuh net buying, short butuh net selling; veto bila divergensi.
+
+    Fail-open: bila CVD/OF tidak tersedia (imbalance ~0 di seluruh jendela — tipikal
+    saat taker feed kosong), JANGAN terapkan filter OF. Sebelumnya imb=0 + cvd_min>0
+    mematikan SEMUA long/short → 0 entry palsu meski skor OHLCV lolos.
+    """
     side = decide_v3(f4.v3, g, cfg, sessions).copy()
     if g.get("use_of"):
         st = cfg["strategy"]
-        imb, mn = f4.cvd_imb, st["cvd_min"]
+        imb = np.asarray(f4.cvd_imb, dtype=float)
+        # Tak ada data OF bermakna → skip filter (biarkan keputusan v3).
+        if imb.size == 0 or float(np.nanmax(np.abs(imb))) < 1e-12:
+            return side.astype(int)
+        mn = st["cvd_min"]
         side = np.where((side == 1) & (imb < mn), 0, side)     # long perlu imbalance beli
         side = np.where((side == -1) & (imb > -mn), 0, side)   # short perlu imbalance jual
         side = np.where((side != 0) & f4.cvd_div, 0, side)     # veto divergensi

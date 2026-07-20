@@ -212,7 +212,9 @@ class ForwardTester:
         for sym in self.symbols:
             try:
                 self.buffers[sym] = fetch_history(self.ex, sym, self.tf, self.maxlen)
-                self.last_closed[sym] = self.buffers[sym].index[-2]
+                # Jangan set last_closed di sini: biarkan siklus pertama evaluasi bar
+                # closed terbaru. Kalau di-set ke index[-2], entry tertunda s/d bar 15m
+                # berikutnya → UI "—" / atr null pasca-restart (salah dibaca "0 sinyal").
                 log.info(f"seed {sym}: {len(self.buffers[sym])} bar {self.tf}")
             except Exception as e:  # boundary
                 log.error(f"seed {sym} gagal: {e}")
@@ -1020,6 +1022,21 @@ class ForwardTester:
                     f"Posture non-gemini (manager/rules) — AI decide-cache dikosongkan "
                     f"(entries={n_ai}, manager={bool(rs.agent_manager_mode)})"
                 )
+        # Jalan A: pastikan param RULES tidak "mati total". Conf 0.65 vs skor live p90≈0.37
+        # menghasilkan 0 LONG/SHORT (bukan disiplin — cuma sepi). Cap conf & matikan OF
+        # ketat bila CVD tak andal; risk lock (loss/trades/pos/lev) TIDAK disentuh di sini.
+        if rs.agent_manager_mode and not self.use_gemini_trader:
+            p = dict(self.params)
+            old_conf = float(p.get("entry_confidence", 0.65))
+            if old_conf > 0.30:
+                p["entry_confidence"] = 0.30
+            p["use_of"] = False
+            if p != self.params:
+                log.info(
+                    f"Manager-mode RULES params: conf {old_conf}→{p['entry_confidence']}, "
+                    f"use_of={p['use_of']} (agar sinyal entry terukur di paper)"
+                )
+            self.params = p
         self.news.enabled = self._news_base and bool(rs.news_veto)   # toggle news-veto dari UI
         if self.use_gemini_trader and self.gtrader is None:
             from .gemini_trader import GeminiTrader
