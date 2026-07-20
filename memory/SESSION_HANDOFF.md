@@ -4,9 +4,9 @@
 > Di-load lewat project rules (`AGENT.md` + `.grok/rules/`).  
 > Update baris “Status terakhir” bila posture server berubah.
 
-**Terakhir diisi:** 2026-07-20 ~08:30 UTC
+**Terakhir diisi:** 2026-07-20 ~09:00 UTC
 
-### Status terakhir (2026-07-20 ~08:30 UTC)
+### Status terakhir (2026-07-20 ~09:00 UTC)
 
 - **Root cause UI vs screening “ada posisi / margin habis”:**
   1. **Dua proses `forwardtest`** (PM2 + zombie manual pid lama tanpa `--mode dry`)
@@ -15,7 +15,7 @@
   3. **Log Screening on-change** menempel alasan lama (“sudah ada posisi”) setelah flat.
   4. Status file bisa **lag mid-cycle** (OPEN di botstate, `status:dry` belum rewrite)
      → UI `open_count` 0 palsu sampai bar close berikutnya.
-- **Perbaikan di master (commit `91d12ef` + `e343ba9` + docs/restart):**
+- **Perbaikan di master (commit `91d12ef` + `e343ba9` + docs/restart + key-rotation):**
   - `ecosystem.config.cjs`: bot args `--mode dry` (pin_mode) + single PM2 bot
   - `forwardtest.py`: **file lock** `logs/forwardtest.lock` (tepat 1 instance)
   - `bot/forward.py`: persist state segera setelah OPEN; **status mid-cycle** setelah OPEN;
@@ -25,6 +25,8 @@
   - **`restart.sh`**: `git pull` lalu stop PM2 → kill orphan → clear lock → `pm2 start`
     ecosystem → verifikasi **tepat 1** `forwardtest`. **Pakai ini**, bukan `pm2 restart` saja
     bila ada risiko zombie.
+  - **`bot/gemini_client.py`**: rotasi **LRU murni** (beban merata); limit → parse retry
+    delay dari error Google → **SKIP key** s/d cooldown habis (bukan nunggu di key mati).
 - **Deploy server setelah pull:**
   ```bash
   cd /root/binance-usdc-bot && git pull && chmod +x restart.sh && ./restart.sh
@@ -33,6 +35,28 @@
   (lock exit 2; zombie lama menimpa state).
 - **Batas jujur:** paper mikro; KPI proses/risk, bukan profit harian.
   Open paper berubah tiap siklus — cek UI/API, jangan hardcode jumlah di handoff.
+
+### Gemini keys Proxmox (audit 2026-07-20)
+
+- **Konfigurasi:** `.env` `GEMINI_API_KEYS` = **26 unik** (`/api/account` → `gemini_keys: 26`).
+- **Panel “Per key”** = key yang *pernah* tercatat di `gemini_usage`, **bukan** inventory 26.
+  Sebelum fix rotasi, usage cuma key#0–11 (health-sort memfavoritkan key juara).
+- **Key 403 DENIED (mati / ganti di Google AI Studio)** — index 0-based di `.env` CSV:
+
+  | Key# | Prefiks (aman) | sha16 | Error |
+  |---:|---|---|---|
+  | **1** | `AIzaSyBVMy…` | `c6ed6dfaecc364ff` | 403 project denied access |
+  | **2** | `AIzaSyARbR…` | `380f399d35ddae05` | 403 project denied access |
+  | **8** | `AIzaSyC0Mb…` | `38b1eb0d28f61a31` | 403 project denied access |
+
+  → **Efektif sehat ≈ 23/26.** Ganti/hapus 3 key di atas di `.env` server (bukan di git).
+  Setelah fix client: 403 denied → cooldown **6 jam** durable + **SKIP** (tak spam tiap call).
+- **Cooldown limit (setelah patch):**
+  - 429 RPM: parse `retry in Xs` / `retryDelay` dari error; default **60s**; SKIP key.
+  - 429 RPD (per day): SKIP **(key,model)** sampai ~**08:00 UTC** (atau delay API ≥5 mnt).
+  - 403 generik: **5 menit**; project denied: **6 jam**.
+- **Jalan A:** manager-mode ON → panggilan Gemini hemat (planner/portfolio/regime),
+  bukan batch 86 simbol — rotasi merata tetap berlaku tiap call.
 
 ---
 
@@ -109,6 +133,8 @@ FLAT/manual. Set `true` di config hanya bila ingin kunci profit via BE lagi.
 - conf 0.65 + OF ketat + CVD kosong → 0 LONG/SHORT palsu (kalibrasi conf 0.30 / OF fail-open)
 - `ReactAgent.decide` tak terima `halving_phase` → crash seluruh `on_cycle` di bar close
 - seed `last_closed=index[-2]` → UI "—" / atr null s/d bar 15m berikutnya
+- Key Gemini “tak sampai 26” di UI → inventory 26 OK; usage bias health-sort + 403 denied
+  (#1/#2/#8) + call hemat Jalan A (fix: LRU murni + skip limit dgn cooldown ter-parse)
 
 ---
 

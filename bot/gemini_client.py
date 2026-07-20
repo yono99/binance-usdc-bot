@@ -3,17 +3,18 @@
 
 Konsep:
 - Lacak kesehatan tiap key LINTAS panggilan (module-level): cooldown, fails, last_used.
-- ordered_keys(): key sehat dulu, diurut LRU (sebar beban); bila semua cooldown →
-  yang paling cepat pulih dulu.
-- mark_bad: 429/kuota → cooldown 60s; 403/key invalid → 5 menit.
-- Fallback antar-model (FALLBACK_MODELS, sama dgn elearning) + retry beberapa
-  putaran dengan backoff saat semua transien.
+- ordered_keys(): key sehat dulu, diurut LRU murni (sebar beban merata); bila semua
+  cooldown → yang paling cepat pulih dulu. Key limit/auth di-SKIP sampai cooldown habis.
+- mark_bad: baca retry delay dari error Google bila ada; 429 RPM → ~60s (atau delay
+  API); RPD harian → sampai ~08:00 UTC; 403 auth → 5 menit; project denied → 6 jam.
+- Fallback antar-model (FALLBACK_MODELS) + retry beberapa putaran dengan backoff.
 - Catat token tiap panggilan ke SQLite (gemini_usage) untuk pemantauan.
 """
 from __future__ import annotations
 
 import hashlib
 import os
+import re
 import threading
 import time
 
@@ -42,8 +43,10 @@ FALLBACK_MODELS = [
     "gemini-3.5-flash",              # last resort — RPD 20/hari saja
 ]
 
-COOLDOWN_RATE = 60.0        # 429 RPM (per-menit) → istirahatkan 60 dtk (jendela bergulir)
-COOLDOWN_AUTH = 5 * 60.0    # 403 / key invalid → 5 menit
+COOLDOWN_RATE = 60.0              # 429 RPM default bila API tak sebut delay
+COOLDOWN_AUTH = 5 * 60.0          # 403 / key invalid generik → 5 menit
+COOLDOWN_AUTH_DENIED = 6 * 3600.0 # project denied / permission permanen-ish → 6 jam (recheck)
+COOLDOWN_RATE_MAX = 3600.0        # cap parse retry utk path RPM (jangan kunci key seharian dari typo)
 
 # THROTTLE PER-KEY: jeda WAJIB antar-request UNTUK KEY YANG SAMA (batas RPM Google
 # = per PROJECT, bukan per key → key dari project BERBEDA punya kuota terpisah dan
@@ -222,7 +225,9 @@ def _classify(err: Exception) -> str:
         return "auth"
     if status == 429 or "quota" in msg or "exhausted" in msg or "resource_exhausted" in msg or "rate limit" in msg:
         # RPD (per-hari) vs RPM (per-menit) → cooldown beda. Google sebut "PerDay" di detail.
-        if "perday" in msg.replace(" ", "").replace("_", "") or "per day" in msg or "daily" in msg:
+        compact = msg.replace(" ", "").replace("_", "").replace("-", "")
+        if ("perday" in compact or "per day" in msg or "daily" in msg
+                or "generaterequestsperday" in compact or "requestsperday" in compact):
             return "rate_day"
         return "rate"
     if status == 504:
@@ -234,12 +239,50 @@ def _classify(err: Exception) -> str:
     return "other"
 
 
+def _parse_retry_seconds(err: Exception | str | None) -> float | None:
+    """Ambil delay retry dari pesan Google bila ada (detik). None = tak ketemu.
+
+    Format yang sering muncul:
+      - Please retry in 42.5s. / retry in 42s
+      - 'retryDelay': '48s' / \"retryDelay\": \"1.5s\"
+      - retry in 2m / 2 minutes
+    """
+    if err is None:
+        return None
+    text = str(err)
+    m = re.search(r"retry[_ ]?delay['\"\s:=]+([0-9]+(?:\.[0-9]+)?)\s*s", text, re.I)
+    if m:
+        return float(m.group(1))
+    m = re.search(r"retry\s+in\s+([0-9]+(?:\.[0-9]+)?)\s*s(?:ec(?:ond)?s?)?", text, re.I)
+    if m:
+        return float(m.group(1))
+    m = re.search(r"retry\s+in\s+([0-9]+(?:\.[0-9]+)?)\s*m(?:in(?:ute)?s?)?", text, re.I)
+    if m:
+        return float(m.group(1)) * 60.0
+    m = re.search(r"retry\s+in\s+([0-9]+(?:\.[0-9]+)?)\s*h(?:our)?s?", text, re.I)
+    if m:
+        return float(m.group(1)) * 3600.0
+    return None
+
+
+def _cooldown_remaining_s(key: str, now: float | None = None) -> float:
+    """Sisa detik cooldown key-level (0 = boleh dipakai)."""
+    now = time.time() if now is None else now
+    return max(0.0, _st(key)["cooldown_until"] - now)
+
+
 def _ordered_keys(keys: list[str]) -> list[str]:
+    """Key sehat dulu (cooldown habis), LRU murni agar beban merata.
+
+    Key yang masih limit/auth di-SKIP total (tidak dicoba). Bila semua cooling,
+    urut yang paling cepat pulih — pemanggil biasanya fail-open tanpa nunggu.
+    """
     now = time.time()
     healthy = [k for k in keys if _st(k)["cooldown_until"] <= now]
     if healthy:
-        return sorted(healthy, key=lambda k: _st(k)["last_used"])     # LRU: sebar beban
-    return sorted(keys, key=lambda k: _st(k)["cooldown_until"])       # semua cooldown → tercepat pulih
+        # LRU murni: last_used terkecil dulu (0 = belum pernah → prioritas meratakan pool)
+        return sorted(healthy, key=lambda k: _st(k)["last_used"])
+    return sorted(keys, key=lambda k: _st(k)["cooldown_until"])
 
 
 def _mark_ok(key: str) -> None:
@@ -253,22 +296,55 @@ def _mark_ok(key: str) -> None:
         _save_persisted()
 
 
-def _mark_bad(key: str, kind: str, model: str | None = None) -> None:
+def _mark_bad(key: str, kind: str, model: str | None = None,
+              err: Exception | str | None = None) -> float:
+    """Tandai key/model bermasalah. Return detik cooldown yang diterapkan (0 bila N/A).
+
+    - rate_day + model: skip (key,model) sampai reset RPD (~08:00 UTC) atau retry API
+    - rate / rate_day tanpa model: cooldown key = retry API atau COOLDOWN_RATE
+    - auth: 5 menit; project denied → 6 jam (durable, lewati key)
+    """
     s = _st(key)
     s["fails"] += 1
+    h8 = _key_hash(key)[:8]
+    parsed = _parse_retry_seconds(err)
+    msg_l = str(err or "").lower()
+
     if kind == "rate_day" and model:
-        # RPD habis = per (KEY, MODEL): model lain di key ini MASIH boleh jalan, dan sukses
-        # model fallback TAK BOLEH menghapus tanda ini. Durable sampai reset harian.
-        _persisted[_model_key(key, model)] = time.time() + _secs_to_rpd_reset()
+        # RPD habis = per (KEY, MODEL). Model lain di key ini MASIH boleh.
+        # Pakai delay API bila masuk akal (>5 mnt); else sampai reset harian.
+        if parsed is not None and parsed >= 300.0:
+            secs = parsed
+        else:
+            secs = _secs_to_rpd_reset()
+        _persisted[_model_key(key, model)] = time.time() + secs
         _save_persisted()
-        return
-    if kind in ("rate", "rate_day"):   # RPM (atau rate_day tanpa info model) → cooldown key singkat
-        s["cooldown_until"] = time.time() + COOLDOWN_RATE
+        log.warning(f"Gemini key#{h8} RPD model={model} → skip {secs:.0f}s "
+                    f"(~{secs / 3600:.1f}h, parsed={parsed})")
+        return secs
+
+    if kind in ("rate", "rate_day"):
+        if parsed is not None:
+            secs = min(max(parsed, 5.0), COOLDOWN_RATE_MAX)
+        else:
+            secs = COOLDOWN_RATE
+        s["cooldown_until"] = time.time() + secs
+        log.warning(f"Gemini key#{h8} {kind} → cooldown {secs:.0f}s "
+                    f"(lewati sampai pulih; parsed={parsed})")
     elif kind == "auth":
-        s["cooldown_until"] = time.time() + COOLDOWN_AUTH
-    if s["cooldown_until"] - time.time() > _PERSIST_MIN:   # cooldown panjang (auth) → durable
+        denied = ("denied access" in msg_l or "project has been denied" in msg_l
+                  or ("permission_denied" in msg_l and "project" in msg_l))
+        secs = COOLDOWN_AUTH_DENIED if denied else COOLDOWN_AUTH
+        s["cooldown_until"] = time.time() + secs
+        log.warning(f"Gemini key#{h8} auth{'/DENIED' if denied else ''} → "
+                    f"cooldown {secs:.0f}s (~{secs / 3600:.1f}h) — LEWATI key ini")
+    else:
+        secs = 0.0
+
+    if s["cooldown_until"] - time.time() > _PERSIST_MIN:   # cooldown panjang → durable
         _persisted[_key_hash(key)] = s["cooldown_until"]
         _save_persisted()
+    return secs
 
 
 def _next_available_s(keys: list[str]) -> float:
@@ -323,20 +399,17 @@ class GeminiClient:
         if self.keys and not any(_st(k)["cooldown_until"] <= now for k in self.keys):
             return None                     # → pakai fallback deterministik siklus ini
         last_err = ""
-        # Urutan model: primary pertama, lalu fallback diurutkan oleh kesehatan
-        # (success rate) descending — prefer model yang sedang sehat di key ini.
-        # Skor PER (key,model) — 1 key overload di model A tak menurunkan model A di key lain.
-        def _rank_key_model(k: str, m: str) -> float:
-            return _model_health_score(k, m)
+        # Urutan model: primary dulu; fallback diurut health model (bukan key) agar
+        # 504 di model A tak mengunci seluruh pool. ROTASI KEY = LRU murni — jangan
+        # sort by success-rate key (dulu bikin key "juara" makan semua call, key 12–25 idle).
+        def _rank_model(m: str) -> float:
+            if not self.keys:
+                return 0.5
+            return sum(_model_health_score(k, m) for k in self.keys) / len(self.keys)
 
-        # Untuk pemilihan model fallback, pakai skor rata-rata cross-key > aggregat global
         primary = self.models[0]
         if len(self.models) > 1:
-            fallbacks = sorted(
-                self.models[1:],
-                key=lambda m: sum(_rank_key_model(k, m) for k in self.keys) / max(1, len(self.keys)),
-                reverse=True,
-            )
+            fallbacks = sorted(self.models[1:], key=_rank_model, reverse=True)
             ordered_models = [primary] + fallbacks
         else:
             ordered_models = list(self.models)
@@ -344,11 +417,16 @@ class GeminiClient:
             any_transient = False
             for model in ordered_models:
                 model_down = False
-                # Urut key berdasarkan kesehatan model ini di key tersebut (healthiest first).
+                # LRU sehat saja; key cooldown / RPD-dead di-SKIP (tak ditembak).
                 healthy_keys = [k for k in _ordered_keys(self.keys)
                                 if not _model_dead(k, model)]
-                healthy_keys.sort(key=lambda k: _rank_key_model(k, model), reverse=True)
                 for key in healthy_keys:
+                    # Double-check cooldown (bisa baru di-set di iterasi key sebelumnya)
+                    left = _cooldown_remaining_s(key)
+                    if left > 0:
+                        continue
+                    if _model_dead(key, model):
+                        continue
                     ki = self.keys.index(key)
                     try:
                         _throttle(key)       # jeda WAJIB per-key → hormati RPM (per-project)
@@ -364,8 +442,8 @@ class GeminiClient:
                         ot = int(getattr(u, "candidates_token_count", 0) or 0)
                         tt = int(getattr(u, "total_token_count", 0) or (pt + ot))
                         store.log_gemini_usage(model, purpose, ki, pt, ot, tt, ok=True)
-                        _record_model_health(key, model, True)   # catat sukses utk ranking per-key:model
-                        _breaker_record_for(key, True)           # sukses → reset fail counter key
+                        _record_model_health(key, model, True)
+                        _breaker_record_for(key, True)
                         return txt
                     except Exception as e:  # boundary
                         last_err = str(e)
@@ -380,23 +458,26 @@ class GeminiClient:
                             _breaker_record_for(key, False)
                             return None
                         if kind in ("rate", "rate_day", "auth"):
-                            _mark_bad(key, kind, model)
-                            _breaker_record_for(key, False)   # 429/auth juga hitung ke breaker key
-                            store.log_gemini_usage(model, purpose, ki, 0, 0, 0, ok=False, error=f"{kind}: {last_err[:140]}")
+                            # Tentukan lama cooldown dari error → LEWATI key s/d pulih
+                            cd = _mark_bad(key, kind, model, err=e)
+                            _breaker_record_for(key, False)
+                            store.log_gemini_usage(
+                                model, purpose, ki, 0, 0, 0, ok=False,
+                                error=f"{kind}(skip {cd:.0f}s): {last_err[:120]}")
                             any_transient = True
-                            continue
+                            continue          # coba key berikutnya, jangan nunggu di sini
                         if kind == "overload":  # 504: server sibuk → cooldown key + ganti model
-                            _mark_bad(key, "rate")   # istirahatkan key 60s, coba key lain
-                            _record_model_health(key, model, False)  # 504 = model sibuk di key ini
+                            _mark_bad(key, "rate", err=e)
+                            _record_model_health(key, model, False)
                             model_down = True
                             any_transient = True
                             break
                         if kind == "model":     # model down/unavailable → coba model lain
-                            _record_model_health(key, model, False)  # model down di key ini
+                            _record_model_health(key, model, False)
                             model_down = True
                             any_transient = True
                             break
-                        _breaker_record_for(key, False)  # other transien → tetap catat ke breaker key
+                        _breaker_record_for(key, False)
                         any_transient = True
                 if model_down:
                     continue

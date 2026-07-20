@@ -116,6 +116,45 @@ def test_classify_rpd_vs_rpm():
     assert gc._classify(_Err(status_code=429)) == "rate"      # per-menit (tanpa 'per day')
 
 
+def test_parse_retry_seconds():
+    assert gc._parse_retry_seconds("Please retry in 42.5s.") == 42.5
+    assert gc._parse_retry_seconds("{'retryDelay': '48s'}") == 48.0
+    assert gc._parse_retry_seconds("retry in 2m") == 120.0
+    assert gc._parse_retry_seconds("retry in 1h") == 3600.0
+    assert gc._parse_retry_seconds("no delay here") is None
+
+
+def test_mark_bad_uses_parsed_retry_for_rate():
+    secs = gc._mark_bad("k1", "rate", err="RESOURCE_EXHAUSTED Please retry in 33s.")
+    assert secs == 33.0
+    left = gc._cooldown_remaining_s("k1")
+    assert 30.0 <= left <= 33.0
+    # key limited → di-SKIP dari healthy pool
+    assert "k1" not in gc._ordered_keys(["k1", "k2"])
+    assert gc._ordered_keys(["k1", "k2"])[0] == "k2"
+
+
+def test_mark_bad_auth_denied_long_cooldown():
+    secs = gc._mark_bad(
+        "k_denied", "auth",
+        err="403 PERMISSION_DENIED. Your project has been denied access. Please contact support.")
+    assert secs == gc.COOLDOWN_AUTH_DENIED
+    assert gc._cooldown_remaining_s("k_denied") > 5 * 3600
+    # durable persist
+    assert gc._key_hash("k_denied") in gc._persisted
+
+
+def test_ordered_keys_spreads_evenly_lru():
+    """Pool 26-style: last_used 0 dulu → meratakan ke key belum pernah dipakai."""
+    keys = [f"k{i}" for i in range(5)]
+    for i, k in enumerate(keys[:3]):
+        gc._st(k)["last_used"] = 1000.0 + i   # k0..k2 sudah dipakai
+    # k3,k4 last_used=0 → harus di depan
+    ordered = gc._ordered_keys(keys)
+    assert set(ordered[:2]) == {"k3", "k4"}
+    assert ordered[-1] == "k2"                 # paling baru dipakai di belakang
+
+
 def test_mark_bad_rpd_is_per_key_model_not_whole_key(monkeypatch):
     """RPD habis = per (key,model): tandai model itu mati sampai reset harian, TAPI biarkan
     key tetap hidup untuk model lain (dulu RPD mematikan seluruh key seharian)."""
@@ -132,3 +171,47 @@ def test_generate_skips_when_all_keys_cooling(monkeypatch):
     c = GeminiClient(["k1"], "gemini-2.5-flash")
     gc._mark_bad("k1", "rate")                    # satu-satunya key masuk cooldown 60s
     assert c.generate("halo") is None             # → tak menembak request; fallback deterministik
+
+
+def test_generate_skips_limited_key_tries_next(monkeypatch):
+    """Key kena limit di-SKIP; key sehat berikutnya dipanggil (rotasi merata + fail-soft)."""
+    monkeypatch.setattr(gc, "genai", object())
+    calls: list[str] = []
+
+    class _FakeModels:
+        def generate_content(self, model, contents):
+            raise AssertionError("should not call limited key")
+
+    class _FakeClient:
+        def __init__(self, api_key, **kw):
+            self.api_key = api_key
+            self.models = _FakeModels()
+
+    class _OkModels:
+        def generate_content(self, model, contents):
+            class R:
+                text = "ok-from-k2"
+                usage_metadata = None
+            return R()
+
+    def fake_get(key):
+        calls.append(key)
+        if key == "k2":
+            c = type("C", (), {})()
+            c.models = _OkModels()
+            return c
+        c = type("C", (), {})()
+        c.models = _FakeModels()
+        return c
+
+    monkeypatch.setattr(gc, "_get_client", fake_get)
+    monkeypatch.setattr(gc, "_MIN_INTERVAL", 0.0)
+    monkeypatch.setattr(gc, "store", type("S", (), {
+        "log_gemini_usage": staticmethod(lambda *a, **k: None),
+    })())
+    gc._mark_bad("k1", "rate", err="retry in 60s")
+    client = GeminiClient(["k1", "k2"], "gemini-3-flash-preview")
+    out = client.generate("p", purpose="test")
+    assert out == "ok-from-k2"
+    assert "k1" not in calls
+    assert calls == ["k2"]
