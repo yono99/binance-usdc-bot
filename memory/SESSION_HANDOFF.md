@@ -17,10 +17,10 @@
   - **Jangan** hard gate / auto-short unlock / FLAT dari cycle labels
   - Detail: [CRYPTO_CYCLE_KNOWLEDGE.md](CRYPTO_CYCLE_KNOWLEDGE.md) §4 P2/P3
 
-- **GitHub + Proxmox (sebelum P2/P3):** commit dump_short_boost OFF di master; setelah P3
-  commit baru → `git pull` + `./restart.sh` + **restore risk 5** (sering drift 90).
-  - Agent: manager OFF, ab_shadow ON; dump_short_boost false.
-  - **Cek risk tiap deploy.**
+- **GitHub + Proxmox P2/P3 deploy:** commit **`dc9f78b`** pushed; server `git pull` +
+  `./restart.sh` OK (tepat 1 forwardtest dry). Risk lock restored: loss **5** / trades 30 /
+  max_open_positions 5 / lev 5 / bet 4. Agent: manager OFF, ab_shadow ON;
+  dump_short_boost false. **Cek risk tiap deploy** (sering drift loss %).
 
 - **P0 H-CYC-01 SELESAI** — beta>1 CONFIRMED; short_weak **REJECT**.
 - **P0b SELESAI** — 598 alt frac~65%; block_long hold1 REJECT; boost short OFF.
