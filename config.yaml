@@ -1,5 +1,7 @@
 agent:
   ab_shadow: false
+  # false = SL fixed setelah open (no BE/trail/tighten/micro-lock). Pemilik: jangan geser SL.
+  allow_move_sl: false
   autonomous: false
   autonomous_interval_s: 300
   full_auto: false

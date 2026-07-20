@@ -80,6 +80,10 @@ Dokumen induk:
 
 **Posture efektif:** arah = **RULES** (bukan gemini-trader), planner ON, autonomous ON, A/B shadow ON (ReAct catat, tidak memblokir).
 
+**SL fixed (pemilik):** `agent.allow_move_sl: false` — manage/agent **tidak** boleh
+geser SL (no BE / trail / tighten / micro-profit lock). Exit hanya SL/TP/liq asli +
+FLAT/manual. Set `true` di config hanya bila ingin kunci profit via BE lagi.
+
 ### Sengaja belum
 
 - H28 paper daemon — **belum** start (tunggu ≥7 hari proses stabil)

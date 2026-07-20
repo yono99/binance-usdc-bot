@@ -104,6 +104,8 @@ class ForwardTester:
         self.tool_max_iters = int(_ag.get("tool_max_iters", 4))
         self.autonomous = bool(_ag.get("autonomous", False)) or full     # kelola portofolio
         self._autonomous_interval = int(_ag.get("autonomous_interval_s", 300))
+        # Pemilik: SL setelah open FIXED (entry ATR). Jangan trail/BE/tighten.
+        self.allow_move_sl = bool(_ag.get("allow_move_sl", False))
         self._last_portfolio = 0.0
         # Planner tipis: tujuan sesi (stance/bias/kuota) → enforce di gerbang entry.
         self.use_planner = bool(_ag.get("planner", False)) or full
@@ -456,7 +458,13 @@ class ForwardTester:
 
     def _tighten_to_breakeven(self) -> int:
         """REDUCE_RISK: pindahkan SL ke entry (breakeven) untuk posisi yang sedang PROFIT.
-        Hanya mengetatkan (kunci no-loss); tak pernah melonggarkan. Kembalikan jumlah."""
+        Hanya mengetatkan (kunci no-loss); tak pernah melonggarkan. Kembalikan jumlah.
+
+        Disabled bila `agent.allow_move_sl` false (default): pemilik minta SL fixed
+        setelah open — jangan digeser manage/agent/micro-lock.
+        """
+        if not getattr(self, "allow_move_sl", False):
+            return 0
         n = 0
         for sym, pos in self.open.items():
             price = self._last_price(sym)
@@ -538,6 +546,12 @@ class ForwardTester:
             log.info(f"AGENT FLAT — tutup semua posisi: {dec.get('reasoning')}")
             self.notify.send(f"🤖 <b>AGENT FLAT</b> — {dec.get('reasoning')}")
         elif act == "REDUCE_RISK":
+            if not getattr(self, "allow_move_sl", False):
+                log.info(
+                    "AGENT REDUCE_RISK diabaikan (allow_move_sl=false — SL fixed): "
+                    f"{dec.get('reasoning')}"
+                )
+                return
             n = self._tighten_to_breakeven()
             if n:
                 log.info(f"AGENT REDUCE_RISK — {n} stop → breakeven: {dec.get('reasoning')}")
@@ -672,6 +686,9 @@ class ForwardTester:
             log.info(f"Gemini EXIT {sym} @ {price:.6f} — {act.get('reason', '')[:80]}")
             self._close_usd(sym, price, "gemini_exit")
         elif action == "tighten_stop" and not self.live:   # live = exit-only (jaga proteksi)
+            if not getattr(self, "allow_move_sl", False):
+                log.info(f"Gemini tighten_stop diabaikan {sym} (allow_move_sl=false — SL fixed)")
+                return
             if valid_tighten(pos["side"], pos["sl"], act.get("new_sl"), price,
                              entry=pos.get("entry")):
                 old = pos["sl"]
@@ -1007,6 +1024,8 @@ class ForwardTester:
         self.autonomous = posture["autonomous"]
         self.use_planner = posture["use_planner"]
         self.ab_shadow = posture["ab_shadow"]
+        # Hot-reload: SL fixed default (pemilik). True hanya bila config eksplisit.
+        self.allow_move_sl = bool(_ag.get("allow_move_sl", False))
         prev_gemini = bool(getattr(self, "use_gemini_trader", False))
         self.use_gemini_trader = posture["use_gemini_trader"]
         # Jalan A / non-gemini: buang AI decide-cache agar tak mereplay flat Gemini lama
@@ -2090,8 +2109,9 @@ class ForwardTester:
         if prog is not None:
             peak = max(pos.get("peak_tp_prog", prog), prog)
             pos["peak_tp_prog"] = peak
-            # Micro-profit lock: saat peak ≥60% TP, kunci SL ke breakeven
-            if peak >= 0.6:
+            # Micro-profit lock: saat peak ≥60% TP, kunci SL ke breakeven.
+            # Hanya bila allow_move_sl (default OFF — pemilik: SL fixed setelah open).
+            if getattr(self, "allow_move_sl", False) and peak >= 0.6:
                 _be = pos["entry"]
                 _tighter = _be > pos["sl"] if long else _be < pos["sl"]
                 if _tighter:
