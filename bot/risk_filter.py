@@ -20,9 +20,13 @@ import pandas as pd
 
 from .logger import log
 
-SNAP_DIR = Path("data/snap")
+SNAP_CANDIDATES = (
+    Path("data/snap"),
+    Path("data/snap_smallcap1800"),
+    Path("data/snap_smallcap1400"),
+)
 # Cache panel in-process (reload at most every hour — daily bars).
-_panel_cache: dict[str, Any] = {"ts": 0.0, "panel": None, "btc": None}
+_panel_cache: dict[str, Any] = {"ts": 0.0, "panel": None, "btc": None, "src": None}
 _PANEL_TTL_S = 3600.0
 _MAX_ALTS = 80
 _MIN_BARS = 120
@@ -164,8 +168,69 @@ def from_config(cfg: dict) -> dict:
     }
 
 
+def _load_from_dir(
+    root: Path,
+    *,
+    max_alts: int,
+    min_bars: int,
+) -> tuple[pd.DataFrame | None, pd.Series | None]:
+    if not root.is_dir():
+        return None, None
+    series: dict[str, pd.Series] = {}
+    btc: pd.Series | None = None
+    files = sorted(root.glob("*__1d.pkl"), key=lambda p: p.stat().st_size, reverse=True)
+    for p in files:
+        try:
+            df = pd.read_pickle(p)
+            if df is None or "close" not in getattr(df, "columns", []):
+                continue
+            c = df["close"].dropna()
+            if len(c) < min_bars:
+                continue
+            name = p.stem.replace("__1d", "")
+            up = name.upper()
+            if (up.startswith("BTC_") or up.startswith("BTCUSDT")
+                    or "BTC_USDC" in up or up.startswith("BTCDOM")):
+                if btc is None and not up.startswith("BTCDOM"):
+                    btc = c
+                continue
+            if len(series) >= max_alts:
+                continue
+            series[name] = c
+        except Exception:
+            continue
+    if not series:
+        return None, None
+    panel = pd.DataFrame(series).sort_index().ffill()
+    thr = max(10, int(0.5 * len(series)))
+    panel = panel.dropna(thresh=thr)
+    if btc is not None:
+        btc = btc.reindex(panel.index).ffill()
+    return panel, btc
+
+
+def _load_from_npz(path: Path = Path("data/risk_filter_panel.npz")) -> tuple[pd.DataFrame | None, pd.Series | None]:
+    """Portable panel (built on research host) — avoids pickle protocol/pandas skew."""
+    if not path.is_file():
+        return None, None
+    try:
+        z = np.load(path, allow_pickle=True)
+        values = z["values"]
+        columns = list(z["columns"])
+        idx_ns = z["index"]
+        index = pd.to_datetime(idx_ns, unit="ns", utc=True)
+        panel = pd.DataFrame(values, index=index, columns=columns)
+        btc_arr = z["btc"] if "btc" in z.files else np.array([])
+        btc = (pd.Series(btc_arr, index=index, name="BTC")
+               if len(btc_arr) == len(index) else None)
+        return panel, btc
+    except Exception as e:
+        log.warning(f"risk_filter npz load gagal: {e}")
+        return None, None
+
+
 def load_daily_panel(
-    snap_dir: Path | str = SNAP_DIR,
+    snap_dir: Path | str | None = None,
     *,
     max_alts: int = _MAX_ALTS,
     min_bars: int = _MIN_BARS,
@@ -173,6 +238,7 @@ def load_daily_panel(
 ) -> tuple[pd.DataFrame | None, pd.Series | None]:
     """Load daily close panel + BTC series from snap pkls (cached, TTL 1h).
 
+    Order: in-memory cache → snap dirs → portable `data/risk_filter_panel.npz`.
     Returns (panel_without_btc, btc_close). Fail-soft → (None, None).
     """
     now = time.time()
@@ -180,46 +246,31 @@ def load_daily_panel(
             and now - float(_panel_cache["ts"]) < _PANEL_TTL_S):
         return _panel_cache["panel"], _panel_cache["btc"]
 
-    root = Path(snap_dir)
-    if not root.is_dir():
-        return None, None
+    roots: list[Path] = []
+    if snap_dir is not None:
+        roots.append(Path(snap_dir))
+    roots.extend(SNAP_CANDIDATES)
+
     try:
-        series: dict[str, pd.Series] = {}
-        btc: pd.Series | None = None
-        # Prefer longest files first so panel has history
-        files = sorted(root.glob("*__1d.pkl"), key=lambda p: p.stat().st_size, reverse=True)
-        for p in files:
-            try:
-                df = pd.read_pickle(p)
-                if df is None or "close" not in getattr(df, "columns", []):
-                    continue
-                c = df["close"].dropna()
-                if len(c) < min_bars:
-                    continue
-                name = p.stem.replace("__1d", "")
-                # Normalize: BTC* → btc series; others → alts
-                up = name.upper()
-                if up.startswith("BTC_") or up.startswith("BTCUSDT") or "BTC_USDC" in up or up.startswith("BTCDOM"):
-                    if btc is None and not up.startswith("BTCDOM"):
-                        btc = c
-                    continue
-                if len(series) >= max_alts:
-                    continue
-                series[name] = c
-            except Exception:
-                continue
-        if not series:
-            return None, None
-        panel = pd.DataFrame(series).sort_index().ffill()
-        # Drop rows where too few alts present
-        thr = max(10, int(0.5 * len(series)))
-        panel = panel.dropna(thresh=thr)
-        if btc is not None:
-            btc = btc.reindex(panel.index).ffill()
-        _panel_cache["ts"] = now
-        _panel_cache["panel"] = panel
-        _panel_cache["btc"] = btc
-        return panel, btc
+        for root in roots:
+            panel, btc = _load_from_dir(root, max_alts=max_alts, min_bars=min_bars)
+            if panel is not None and not panel.empty:
+                _panel_cache["ts"] = now
+                _panel_cache["panel"] = panel
+                _panel_cache["btc"] = btc
+                _panel_cache["src"] = str(root)
+                log.info(f"risk_filter panel loaded from {root} shape={panel.shape}")
+                return panel, btc
+        # Portable fallback (research host exports; server may lack compatible pkls)
+        panel, btc = _load_from_npz()
+        if panel is not None and not panel.empty:
+            _panel_cache["ts"] = now
+            _panel_cache["panel"] = panel
+            _panel_cache["btc"] = btc
+            _panel_cache["src"] = "data/risk_filter_panel.npz"
+            log.info(f"risk_filter panel loaded from npz shape={panel.shape}")
+            return panel, btc
+        return None, None
     except Exception as e:  # boundary
         log.warning(f"risk_filter load_daily_panel gagal: {e}")
         return None, None

@@ -8,6 +8,8 @@ data/**
 !data/unlock_calendar.example.csv
 !data/unlock_calendar.csv
 !data/sl_calibration.json
+# Portable daily panel for risk_filter on hosts without compatible snap pkls
+!data/risk_filter_panel.npz
 logs/**
 !logs/
 !logs/cyc0*.json
