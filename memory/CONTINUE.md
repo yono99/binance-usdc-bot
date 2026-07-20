@@ -7,12 +7,13 @@
 
 | Item | Nilai |
 |---|---|
+| Git tip | `b8e924f` (risk-filter npz) · prior `c67d34c` (shadow wire) |
 | Edge hunt | ~300 arms A–R10 |
 | **PROMOTE_PAPER** | **0** |
 | **PROMOTE_FILTER_PAPER** | breadth_lo + corr/vol (meta only) |
 | WATCHLIST | LINK residual-z fade vs BTC (p_adj fail) |
 | Posture paper | dry · risk 5/30/5/5 · manager **OFF** · ab_shadow **ON** |
-| Risk filter | **shadow ON** · **block OFF** · `bot/risk_filter.py` wired |
+| Risk filter | **shadow ON** · **block OFF** · panel OK (breadth_lo active now) |
 | Server | `192.168.1.107` · PM2 bot+dashboard · `./restart.sh` |
 
 ## Jangan
