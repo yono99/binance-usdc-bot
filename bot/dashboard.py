@@ -95,11 +95,12 @@ def compute_stats(path: Path | None = None, start_equity: float | None = None,
         for e in closes[-25:][::-1]
     ]
 
-    open_positions = [
-        {"symbol": s, "side": o.get("side"), "entry": o.get("entry"),
-         "sl": o.get("sl"), "tp": o.get("tp")}
-        for s, o in opens.items()
-    ]
+    # Posisi TERBUKA = sumber live (botstate / status), BUKAN reconstruct event
+    # all-time open-without-close. Event reconstruct menghasilkan ghost (open
+    # journal tanpa close padahal botstate sudah flat) → UI menipu.
+    open_positions = _live_open_positions(mode)
+    # Ghost count: event masih bilang open tapi live flat (audit, bukan UI table).
+    ghost_n = max(0, len(opens) - len(open_positions)) if open_positions is not None else len(opens)
 
     return {
         "trades": n,
@@ -113,9 +114,53 @@ def compute_stats(path: Path | None = None, start_equity: float | None = None,
         "equity_curve": equity_curve,
         "liq_points": liq_points,
         "open_positions": open_positions,
+        "event_open_ghosts": ghost_n,
         "per_symbol": per_symbol,
         "recent": recent,
     }
+
+
+def _live_open_positions(mode: str | None = None) -> list[dict]:
+    """Posisi terbuka dari state mesin (botstate / status), bukan journal.
+
+    Urutan sumber: botstate_{mode}.open → status:{mode}.symbols[].position.
+    """
+    m = mode or get_active_mode() or "dry"
+    items: list[dict] = []
+    st = store.get_kv(f"botstate_{m}") or {}
+    open_map = st.get("open") if isinstance(st, dict) else None
+    if isinstance(open_map, dict) and open_map:
+        for s, o in open_map.items():
+            if not isinstance(o, dict):
+                continue
+            items.append({
+                "symbol": s,
+                "side": o.get("side"),
+                "entry": o.get("entry"),
+                "sl": o.get("sl"),
+                "tp": o.get("tp"),
+                "bet": o.get("bet"),
+                "qty": o.get("qty"),
+            })
+        return items
+    # Fallback status (engine menulis tiap siklus)
+    status = store.get_kv(f"status:{m}") or store.get_kv("status") or {}
+    for s2 in (status.get("symbols") or []):
+        if not isinstance(s2, dict):
+            continue
+        p = s2.get("position")
+        if not p:
+            continue
+        items.append({
+            "symbol": s2.get("symbol"),
+            "side": p.get("side"),
+            "entry": p.get("entry"),
+            "sl": p.get("sl"),
+            "tp": p.get("tp"),
+            "bet": p.get("bet"),
+            "qty": p.get("qty"),
+        })
+    return items
 
 
 def _ui_mode() -> str | None:
@@ -995,24 +1040,39 @@ def api_positions() -> JSONResponse:
         except Exception as e:  # boundary
             data = {"positions": [], "error": str(e)[:140], "source": "binance"}
     else:
-        # DRY: ambil dari status kv (ditulis engine tiap siklus — lengkap dgn metadata).
+        # DRY: botstate.open dulu (sumber kebenaran paper), fallback status.symbols.
         m = get_active_mode() or "dry"
-        st = store.get_kv(f"status:{m}") or store.get_kv("status") or {}
-        syms = st.get("symbols") or []
         items = []
-        for s2 in syms:
-            p = s2.get("position")
-            if not p:
-                continue
-            items.append({
-                "symbol": s2["symbol"],
-                "side": p["side"], "entry": p["entry"],
-                "qty": p["qty"], "liq": p["liq"],
-                "leverage": st.get("leverage"),
-                "margin_type": "ISOLATED",   # paper default; engine metadata bisa override
-                "unrealized_pnl": p.get("pnl_usd", 0),
-                "margin": p.get("bet"),
-            })
+        bst = store.get_kv(f"botstate_{m}") or {}
+        open_map = (bst.get("open") if isinstance(bst, dict) else None) or {}
+        if isinstance(open_map, dict) and open_map:
+            for sym, p in open_map.items():
+                if not isinstance(p, dict):
+                    continue
+                items.append({
+                    "symbol": sym,
+                    "side": p.get("side"), "entry": p.get("entry"),
+                    "qty": p.get("qty"), "liq": p.get("liq"),
+                    "leverage": p.get("leverage"),
+                    "margin_type": (p.get("margin_type") or "ISOLATED"),
+                    "unrealized_pnl": 0,
+                    "margin": p.get("bet"),
+                })
+        if not items:
+            st = store.get_kv(f"status:{m}") or store.get_kv("status") or {}
+            for s2 in (st.get("symbols") or []):
+                p = s2.get("position") if isinstance(s2, dict) else None
+                if not p:
+                    continue
+                items.append({
+                    "symbol": s2["symbol"],
+                    "side": p["side"], "entry": p["entry"],
+                    "qty": p["qty"], "liq": p["liq"],
+                    "leverage": st.get("leverage"),
+                    "margin_type": "ISOLATED",
+                    "unrealized_pnl": p.get("pnl_usd", 0),
+                    "margin": p.get("bet"),
+                })
         data = {"positions": items, "source": "engine", "paper": True}
     _positions_cache.update(ts=_t.time(), data=data)
     return JSONResponse(data)

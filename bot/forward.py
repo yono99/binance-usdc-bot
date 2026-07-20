@@ -1149,6 +1149,88 @@ class ForwardTester:
         if self.open:
             log.info(f"State dipulihkan dari SQLite: saldo USDC ${self.balance_usdc:.2f}, "
                      f"USDT ${self.balance_usdt:.2f}, {len(self.open)} posisi terbuka")
+        # Rekonsiliasi: bila journal punya forward_open tanpa close, tapi botstate
+        # kosong (crash antara open & persist / wipe mode-switch) → pulihkan posisi
+        # paper dari event agar UI/margin/SL tak desync. Live: exchange = sumber kebenaran.
+        if not self.live:
+            self._reconcile_open_from_events()
+
+    def _reconcile_open_from_events(self) -> None:
+        """Crash-recovery: pulihkan open paper HANYA bila journal OPEN sangat baru
+        (<2 jam) tanpa close, tapi self.open kosong untuk simbol itu.
+
+        Jangan bangkitkan ghost berhari-hari (SL sudah basi, margin dust).
+        Ghost tua ditutup lewat scripts/reconcile_dry_ghosts.py.
+        Fail-soft: error DB tak ganggu trading.
+        """
+        try:
+            from . import store
+            events = store.all_events()
+        except Exception as e:  # boundary
+            log.warning(f"reconcile open: baca events gagal: {e}")
+            return
+        mode = self.settings.mode
+        opens: dict = {}
+        for e in events:
+            # mode bisa di payload (journal stempel) — default dry untuk data lawas
+            emode = e.get("mode") or "dry"
+            if emode != mode:
+                continue
+            ev = e.get("event")
+            sym = e.get("symbol")
+            if not sym:
+                continue
+            if ev == "forward_open":
+                opens[sym] = e
+            elif ev == "forward_close" and not (
+                e.get("partial") or "partial" in str(e.get("reason") or "").lower()
+            ):
+                opens.pop(sym, None)
+        if not opens:
+            return
+        now = pd.Timestamp.utcnow()
+        max_age_h = 2.0  # hanya jendela crash, bukan zombie
+        added = 0
+        for sym, e in opens.items():
+            if sym in self.open:
+                continue
+            try:
+                ts_raw = e.get("ts") or e.get("opened_ts")
+                if not ts_raw:
+                    continue
+                ts = pd.Timestamp(ts_raw)
+                if ts.tzinfo is None:
+                    ts = ts.tz_localize("UTC")
+                age_h = (now - ts).total_seconds() / 3600.0
+                if age_h > max_age_h:
+                    continue  # ghost tua — biarkan script cleanup, jangan restore
+                entry = float(e.get("entry") or 0)
+                sl = float(e.get("sl") or 0)
+                tp = float(e.get("tp") or 0)
+                bet = float(e.get("bet") or 0)
+                lev = int(e.get("lev") or e.get("leverage") or 5)
+                side = e.get("side") or "long"
+                if entry <= 0 or bet <= 0:
+                    continue
+                qty = (bet * lev) / entry
+                risk0 = abs(entry - sl) * qty if sl else bet
+                self.open[sym] = {
+                    "side": side, "entry": entry, "qty": qty,
+                    "sl": sl, "tp": tp, "liq": float(e.get("liq") or 0),
+                    "bet": bet, "risk0": risk0 or bet,
+                    "opened_ts": e.get("ts") or e.get("opened_ts"),
+                    "margin_type": "ISOLATED", "leverage": lev,
+                    "restored_from_event": True,
+                }
+                added += 1
+            except Exception as ex:  # boundary
+                log.warning(f"reconcile open {sym}: {ex}")
+        if added:
+            log.warning(
+                f"RECONCILE: pulihkan {added} posisi paper dari journal "
+                f"(<={max_age_h:.0f}h, botstate desync; total open={len(self.open)})"
+            )
+            self._persist_state()
 
     def _persist_logs(self, news_veto: bool, note: str) -> None:
         """Simpan histori news veto & screening ke SQLite, hanya saat BERUBAH
@@ -1160,6 +1242,12 @@ class ForwardTester:
             if self._last_news is None or news_veto != self._last_news[0]:
                 store.log_news(news_veto, note)
                 self._last_news = (news_veto, note)
+            # Bila set posisi terbuka berubah, invalidasi dedup screening agar baris
+            # "sudah ada posisi" / margin tak menempel di UI setelah flat.
+            open_fp = frozenset(self.open.keys())
+            if getattr(self, "_last_open_fp", None) != open_fp:
+                self._last_screen.clear()
+                self._last_open_fp = open_fp
             for sym in self.symbols:
                 c = self.sig_cache.get(sym, {})
                 cur = (c.get("side"), c.get("blocked"))
@@ -1196,19 +1284,31 @@ class ForwardTester:
     # ---------- mode switching & eksekusi LIVE (UANG NYATA) ----------
 
     def _switch_mode(self, eff: str) -> None:
-        """Beralih mode berjalan. live = uang nyata (butuh BINANCE_LIVE_KEY/SECRET)."""
+        """Beralih mode berjalan. live = uang nyata (butuh BINANCE_LIVE_KEY/SECRET).
+
+        Paper: JANGAN wipe open di memori dulu lalu harap restore — bucket SQLite
+        mode tujuan di-load utuh (termasuk open). Bila open kosong di state tapi
+        journal punya open tanpa close, _restore_state → _reconcile_open_from_events
+        menutup celah desync.
+        """
         import os
         try:
+            if eff == getattr(self, "_eff_mode", None):
+                return  # no-op: already on this mode
             if eff == "live" and not (os.getenv("BINANCE_LIVE_KEY") and os.getenv("BINANCE_LIVE_SECRET")):
                 log.error("Mode LIVE diminta tapi BINANCE_LIVE_KEY/SECRET kosong — tetap paper.")
                 return
+            # Persist mode LAMA dulu (jangan buang open/saldo paper ke bucket salah).
+            try:
+                self._persist_state()
+            except Exception as e:  # boundary
+                log.warning(f"persist pre-switch gagal: {e}")
+            prev_open_n = len(self.open)
             new = Settings(mode=eff, raw=self.cfg, gemini_keys=self.settings.gemini_keys,
                            gemini_enabled=self.settings.gemini_enabled)
             self.ex = Exchange(new)
             self.settings = new
             self.live = (eff == "live")
-            self.open = {}                      # posisi lama (paper/mode lain) tak valid
-            self.pending = {}                   # pending order lama tak valid
             # Isolasi per-mode HARUS ikut pindah di sini — tanpa ini, _persist_state()
             # & journal terus menulis ke bucket mode LAMA setelah switch runtime,
             # mencampur saldo/riwayat lintas mode (insiden 2026-07-02).
@@ -1216,6 +1316,12 @@ class ForwardTester:
             set_journal_mode(eff)
             decision_log.set_mode(eff)
             self._state_key = f"botstate_{eff}"
+            # Clear in-memory open/pending HANYA setelah state key pindah; paper
+            # segera diisi ulang dari botstate_{eff} (+ reconcile events).
+            self.open = {}
+            self.pending = {}
+            self._last_screen.clear()
+            self._last_open_fp = frozenset()
             if self.live:
                 balances = self.ex.balances(self.balance_usdt + self.balance_usdc)
                 self.balance_usdt = float(balances.get("USDT", 0.0))
@@ -1229,8 +1335,9 @@ class ForwardTester:
                 self._dd_reason = ""
                 self._sync_live_positions()     # ambil posisi nyata yang sudah ada
             else:
-                # paper: mulai dari saldo KONFIGURASI mode tujuan (bukan carry-over
-                # dari mode sebelumnya), lalu pulihkan bucket SQLite milik mode itu.
+                # paper: seed dari saldo KONFIGURASI mode tujuan, lalu pulihkan
+                # botstate mode itu (open + saldo hidup). Jangan biarkan open kosong
+                # bila state/journal masih punya posisi.
                 try:
                     rs_eff = load_settings(eff)
                     self.balance_usdt = float(rs_eff.balance_usdt)
@@ -1241,17 +1348,25 @@ class ForwardTester:
                     log.warning(f"load balance mode {eff} gagal: {e}")
                 self._restore_state()
             self._day = pd.Timestamp.utcnow().date()
-            self._day_pnl_usdt = 0.0
-            self._day_pnl_usdc = 0.0
-            self._day_trades = 0
-            self._day_start_balance_usdt = self.balance_usdt
-            self._day_start_balance_usdc = self.balance_usdc
+            # day counters: hanya reset PnL/trades HARI INI di mode BARU; open
+            # sudah dari restore. day_trades di-restore bila hari sama (di
+            # _restore_state); di sini jangan paksa 0 bila restore sudah isi.
+            if not self.open:
+                # flat mode: aman reset day counters
+                self._day_pnl_usdt = 0.0
+                self._day_pnl_usdc = 0.0
+                self._day_trades = 0
+                self._day_start_balance_usdt = self.balance_usdt
+                self._day_start_balance_usdc = self.balance_usdc
             self._eff_mode = eff
+            self._persist_state()
             if self.live:
                 log.warning(f"=== BERALIH KE LIVE (UANG NYATA) — saldo Binance USDT ${self.balance_usdt:.2f} + USDC ${self.balance_usdc:.2f} ===")
                 self.notify.send(f"⚠️ <b>MODE LIVE AKTIF — UANG NYATA</b>\nSaldo USDT ${self.balance_usdt:.2f} + USDC ${self.balance_usdc:.2f}")
             else:
-                log.warning(f"=== beralih ke {eff.upper()} (paper) ===")
+                log.warning(
+                    f"=== beralih ke {eff.upper()} (paper) — open {prev_open_n}→{len(self.open)} ==="
+                )
         except Exception as e:  # boundary
             log.error(f"gagal beralih mode {eff}: {e}")
 
@@ -1832,6 +1947,9 @@ class ForwardTester:
         journal("forward_open", {"symbol": sym, "side": self.open[sym]["side"], "entry": entry,
                                  "sl": sl, "tp": tp, "liq": liq, "lev": rs.leverage, "bet": bet,
                                  "conviction": gem_conv, "size_mult": size_mult})
+        # Persist SEGERA setelah open — crash/restart antara open & end-of-cycle
+        # dulu bikin journal ada OPEN tapi botstate.open kosong (ghost).
+        self._persist_state()
         log.info(f"OPEN {self.open[sym]['side'].upper()} {sym} x{rs.leverage} bet=${bet:.2f} "
                  f"@ {entry:.4f} SL={sl:.4f} TP={tp:.4f} LIQ={liq:.4f}")
         self.notify.send(

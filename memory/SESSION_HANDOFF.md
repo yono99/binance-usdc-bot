@@ -4,27 +4,27 @@
 > Di-load lewat project rules (`AGENT.md` + `.grok/rules/`).  
 > Update baris “Status terakhir” bila posture server berubah.
 
-**Terakhir diisi:** 2026-07-20
+**Terakhir diisi:** 2026-07-20 ~07:00 UTC
 
-### Status terakhir (2026-07-20 ~04:10 UTC)
+### Status terakhir (2026-07-20 ~07:00 UTC)
 
-- Bot PM2 online; dry `enabled=true`; manager + ab_shadow ON; risk dry **loss 5%**
-  (sempat drift ke 50 — dikunci lagi).
-- **Entry paper HIDUP lagi** (setelah 0 entry sejak `agent_flat` 2026-07-19):
-  OPEN ACE LONG, BCH SHORT, ZEC SHORT — `open_count=3`, `day_trades=3`.
-  Sinyal LONG/SHORT lain ada tapi ditahan **margin USDT habis** (pool ~$5.79) — normal
-  untuk akun mikro, bukan bug gate.
-- Root cause 0 entry (berlapis), semua di-deploy server:
-  1. AI decide-cache mereplay flat Gemini di manager-mode → clear cache bila non-gemini
-  2. `entry_confidence` 0.65 vs skor live p90≈0.37 → preset auto/gemini **0.30**; OF off
-  3. `decide_v4` OF fail-open bila CVD/taker kosong
-  4. `gate_overext` / `gate_runup` off di paper (ukur frekuensi dulu)
-  5. **Crash siklus:** `ReactAgent.decide(...halving_phase=)` TypeError → fix signature
-  6. Seed set `last_closed` → evaluasi tertunda 1 bar; seed **tidak** lagi set last_closed
-- File: `bot/forward.py`, `bot/react_agent.py`, `bot/settings_store.py`,
-  `bot/strategy_lab.py`, `config.yaml`.
-- **Batas jujur:** paper ~$10 **bukan** mesin bayar hutang. Disiplin + bukti OOS, bukan
-  janji $ harian. Jangan longgarkan risk / buka H30-L2 karena ada 3 entry.
+- **Root cause UI vs screening “ada posisi / margin habis”:**
+  1. **Dua proses `forwardtest`** (PM2 + zombie manual pid lama tanpa `--mode dry`)
+     saling timpa `botstate_dry` → open hilang tanpa `forward_close` (ghost journal).
+  2. Panel **Posisi Terbuka** dulu dari reconstruct event all-time (ghost), bukan live.
+  3. **Log Screening on-change** menempel alasan lama (“sudah ada posisi”) setelah flat.
+- **Perbaikan deployed server:**
+  - `ecosystem.config.cjs`: bot args `--mode dry` (pin_mode) + single PM2 bot
+  - `forwardtest.py`: **file lock** `logs/forwardtest.lock` (tepat 1 instance)
+  - `bot/forward.py`: persist state segera setelah OPEN; screen dedup reset saat open set
+    berubah; mode-switch persist dulu; crash-recovery open journal <2h
+  - `bot/dashboard.py`: `open_positions` dari `botstate`/`status` (bukan event ghost)
+  - `scripts/reconcile_dry_ghosts.py`: tutup 15+2 ghost paper (reason=`reconcile_state_flat`)
+- **State sekarang:** 1 bot PM2 (`--poll 30 --use-store --mode dry`), open=0, ghosts=0,
+  screen terakhir ghost = `reconcile: flat`, bal paper ~USDT $5.79 / USDC $3.76,
+  `enabled=true`, Jalan A (manager + ab_shadow) tetap.
+- **Jangan** jalankan `python forwardtest.py` manual di server saat PM2 bot online.
+- **Batas jujur:** paper mikro; KPI proses/risk, bukan profit harian.
 
 ---
 

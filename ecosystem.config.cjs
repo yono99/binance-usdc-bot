@@ -22,7 +22,9 @@ module.exports = {
       name: "bot",
       script: "forwardtest.py",
       interpreter: PY,
-      args: "--poll 30 --use-store",
+      // --mode dry → pin_mode=True: bot tak ikut switch UI ke test/live di proses paper
+      // (switch mode mengosongkan self.open di memori; pin mencegah desync paper).
+      args: "--poll 30 --use-store --mode dry",
       cwd: __dirname,
       autorestart: true,
       restart_delay: 5000,

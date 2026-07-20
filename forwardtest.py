@@ -7,15 +7,74 @@
 
 Parameter TETAP selama jalan (tidak re-optimize). Hasil di logs/forward_trades.jsonl.
 Jalankan berhari-hari; bila expectancy R tetap > 0 di sampel besar, baru ada bukti edge.
+
+PENTING: tepat SATU proses bot per host. Dua forwardtest menulis botstate/events
+yang sama → open hilang tanpa CLOSE (insiden 2026-07-20). Single-instance lock
+mencegah zombie manual + PM2 jalan bersamaan.
 """
 from __future__ import annotations
 
 import argparse
+import atexit
+import os
+import sys
+from pathlib import Path
 
 from bot.config import load_settings
 from bot.forward import ForwardTester, default_params
 from bot.logger import log
 from bot.settings_store import reset_all_enabled
+
+ROOT = Path(__file__).resolve().parent
+_LOCK_FD = None
+
+
+def _acquire_single_instance_lock() -> None:
+    """Gagal start bila sudah ada forwardtest lain (PM2 atau manual)."""
+    global _LOCK_FD
+    lock_path = ROOT / "logs" / "forwardtest.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o644)
+    except OSError as e:
+        log.error(f"Tidak bisa buka lock file {lock_path}: {e}")
+        sys.exit(1)
+    try:
+        if os.name == "nt":
+            import msvcrt
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (OSError, BlockingIOError):
+        os.close(fd)
+        log.error(
+            "FORWARDTEST SUDAH JALAN (lock logs/forwardtest.lock). "
+            "Tepat 1 bot — bunuh proses zombie dulu: "
+            "ps aux | grep forwardtest; pm2 list"
+        )
+        sys.exit(2)
+    os.ftruncate(fd, 0)
+    os.write(fd, f"{os.getpid()}\n".encode())
+    _LOCK_FD = fd
+
+    def _release() -> None:
+        global _LOCK_FD
+        if _LOCK_FD is None:
+            return
+        try:
+            if os.name == "nt":
+                import msvcrt
+                msvcrt.locking(_LOCK_FD, msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(_LOCK_FD, fcntl.LOCK_UN)
+            os.close(_LOCK_FD)
+        except Exception:
+            pass
+        _LOCK_FD = None
+
+    atexit.register(_release)
 
 
 def parse_args():
@@ -42,8 +101,10 @@ def parse_args():
 
 def main() -> None:
     args = parse_args()
+    # Single-instance: cegah 2 bot menulis botstate yang sama (ghost open / wipe).
+    if not args.once:
+        _acquire_single_instance_lock()
     # Skip reset_all_enabled in production (PM2) - use SKIP_ENABLED_RESET=1 env var
-    import os
     if not os.getenv("SKIP_ENABLED_RESET"):
         reset_all_enabled()
         log.info("Startup: SEMUA mode di-reset ke OFF — nyalakan dari dashboard.")
@@ -51,7 +112,6 @@ def main() -> None:
         log.info("Startup: SKIP enabled reset (SKIP_ENABLED_RESET=1)")
     settings = load_settings()
     if args.mode:
-        import os
         from dataclasses import replace
         if args.mode == "live" and not (os.getenv("BINANCE_LIVE_KEY") and os.getenv("BINANCE_LIVE_SECRET")):
             log.error("--mode live butuh BINANCE_LIVE_KEY/SECRET di .env — berhenti.")
