@@ -4,28 +4,35 @@
 > Di-load lewat project rules (`AGENT.md` + `.grok/rules/`).  
 > Update baris “Status terakhir” bila posture server berubah.
 
-**Terakhir diisi:** 2026-07-20 ~07:00 UTC
+**Terakhir diisi:** 2026-07-20 ~08:30 UTC
 
-### Status terakhir (2026-07-20 ~07:00 UTC)
+### Status terakhir (2026-07-20 ~08:30 UTC)
 
 - **Root cause UI vs screening “ada posisi / margin habis”:**
   1. **Dua proses `forwardtest`** (PM2 + zombie manual pid lama tanpa `--mode dry`)
      saling timpa `botstate_dry` → open hilang tanpa `forward_close` (ghost journal).
   2. Panel **Posisi Terbuka** dulu dari reconstruct event all-time (ghost), bukan live.
   3. **Log Screening on-change** menempel alasan lama (“sudah ada posisi”) setelah flat.
-- **Perbaikan deployed server:**
+  4. Status file bisa **lag mid-cycle** (OPEN di botstate, `status:dry` belum rewrite)
+     → UI `open_count` 0 palsu sampai bar close berikutnya.
+- **Perbaikan di master (commit `91d12ef` + `e343ba9` + docs/restart):**
   - `ecosystem.config.cjs`: bot args `--mode dry` (pin_mode) + single PM2 bot
   - `forwardtest.py`: **file lock** `logs/forwardtest.lock` (tepat 1 instance)
-  - `bot/forward.py`: persist state segera setelah OPEN; screen dedup reset saat open set
-    berubah; mode-switch persist dulu; crash-recovery open journal <2h
+  - `bot/forward.py`: persist state segera setelah OPEN; **status mid-cycle** setelah OPEN;
+    screen dedup reset saat open set berubah; mode-switch persist dulu
   - `bot/dashboard.py`: `open_positions` dari `botstate`/`status` (bukan event ghost)
-  - `scripts/reconcile_dry_ghosts.py`: tutup 15+2 ghost paper (reason=`reconcile_state_flat`)
-- **State sekarang (07:00 UTC):** 1 bot PM2 (`--poll 30 --use-store --mode dry` + lock),
-  paper open **APT short + BCH short** (day_trades=2), bal free ~USDT $5.79 / USDC $3.76,
-  ghost journal lama di-close `reconcile_state_flat`, `enabled=true`, Jalan A tetap.
+  - `scripts/reconcile_dry_ghosts.py`: tutup ghost paper (`reconcile_state_flat`)
+  - **`restart.sh`**: `git pull` lalu stop PM2 → kill orphan → clear lock → `pm2 start`
+    ecosystem → verifikasi **tepat 1** `forwardtest`. **Pakai ini**, bukan `pm2 restart` saja
+    bila ada risiko zombie.
+- **Deploy server setelah pull:**
+  ```bash
+  cd /root/binance-usdc-bot && git pull && chmod +x restart.sh && ./restart.sh
+  ```
 - **Jangan** jalankan `python forwardtest.py` manual di server saat PM2 bot online
-  (lock akan exit 2; zombie lama sempat timpa state).
+  (lock exit 2; zombie lama menimpa state).
 - **Batas jujur:** paper mikro; KPI proses/risk, bukan profit harian.
+  Open paper berubah tiap siklus — cek UI/API, jangan hardcode jumlah di handoff.
 
 ---
 
@@ -92,8 +99,9 @@ FLAT/manual. Set `true` di config hanya bila ingin kunci profit via BE lagi.
 
 ### Incident yang sudah diperbaiki (jangan diulang)
 
-- 2× `forwardtest` → orphan di-kill; hanya PM2
+- 2× `forwardtest` → orphan di-kill; hanya PM2 (+ file lock + `restart.sh`)
 - Dashboard zombie `/tmp/run_dash.py` di :8000 → diganti PM2
+- UI open vs screening desync (ghost event / status lag) → botstate live + status-on-open
 - Duplikat trade history tanpa side/entry → fix `build_trades` + dashboard bersih
 - AI decide-cache menembus manager-mode (Jalan A) → 0 entry / flat Gemini palsu
   (fix 2026-07-20: gate `use_gemini_trader` + clear cache)

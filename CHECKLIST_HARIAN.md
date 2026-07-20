@@ -39,7 +39,9 @@ UI: `http://192.168.1.107:8000` · Agent: `/agent`
 ```bash
 # di server (opsional)
 pm2 list
-ps aux | grep forwardtest | grep -v grep
+ps aux | grep forwardtest | grep -v grep   # harus tepat 1
+# setelah git pull / restart penuh:
+# cd /root/binance-usdc-bot && git pull && ./restart.sh
 ```
 
 ### B. Risk lock masih utuh
@@ -77,8 +79,9 @@ ps aux | grep forwardtest | grep -v grep
 
 | Gejala | Tindakan |
 |---|---|
-| 2 proses `forwardtest` | Kill orphan; sisakan **hanya** PM2 `bot` |
-| Dashboard mati / port 8000 aneh | `pm2 restart dashboard`; cek tidak ada zombie non-PM2 |
+| 2 proses `forwardtest` | `./restart.sh` (kill orphan + 1 PM2 bot) — **jangan** biarkan manual + PM2 |
+| UI open 0 tapi screening “ada posisi” | Cek `ps` 1 bot; refresh; bila status lag, tunggu 1 siklus / cek botstate |
+| Dashboard mati / port 8000 aneh | `./restart.sh` atau `pm2 restart dashboard`; cek zombie non-PM2 |
 | Manager/A-B tiba-tiba OFF | Nyalakan lagi; catat di log §5 “siapa/apa yang matikan” |
 | Risk longgar dari UI | Kembalikan ke §0; catat “hampir melanggar” |
 | Bot crash loop | `pm2 logs bot --lines 50`; **jangan** longgarkan risk sebagai “fix” |

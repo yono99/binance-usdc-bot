@@ -116,12 +116,28 @@ pm2 startup                         # cetak perintah; jalankan utk auto-start sa
 ```bash
 pm2 status                          # ringkasan service
 pm2 logs bot                        # log realtime
-pm2 restart bot dashboard           # terapkan update setelah git pull
+pm2 restart bot dashboard           # restart cepat (bila yakin 0 orphan)
 pm2 delete all                      # stop + cabut
 ```
 
+**Update aman setelah `git pull` (disarankan di Proxmox paper):**
+
+```bash
+cd /root/binance-usdc-bot
+git pull
+chmod +x restart.sh
+./restart.sh
+```
+
+`restart.sh` melakukan: stop PM2 → kill orphan `forwardtest` / fuser :8000 → hapus
+`logs/forwardtest.lock` basi → `pm2 start ecosystem.config.cjs` → cek **tepat 1**
+proses + lock + `/api/status`. Ini mencegah insiden 2026-07-20 (zombie manual + PM2
+saling timpa `botstate_dry`).
+
 - `interpreter: ./venv/bin/python` (Linux). Pastikan venv sudah dibuat (langkah 1).
 - Jalankan **tepat satu** proses bot (sama spt systemd) — dua bot = state DB bentrok.
+- **Jangan** `python forwardtest.py` manual di samping PM2 (file lock exit 2; zombie
+  menimpa paper open tanpa CLOSE).
 - Reboot: `pm2 save` + `pm2 startup` membuat kedua service hidup lagi otomatis.
 
 ### 3. Auto-start saat boot (systemd)
