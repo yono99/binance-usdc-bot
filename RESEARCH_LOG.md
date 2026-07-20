@@ -489,3 +489,76 @@ MFE-sebelum-SL → refleksi Gemini bisa mendiagnosis "SL kepencet" dgn angka.
 | **block_long** | EW long alts on BTC≤-2% days. Train hold1 **+0.74%**; OOS hold1 **+0.09%** → bounce dominates short horizon. OOS hold7 long **-1.92%** (regime-dependent). Verdict: **REJECTED_AS_FILTER** for universal hold1 block. |
 | **dump_flag** | Used for Gemini short conviction ×1.5 + prompt only; not hard block_long. tc_gate (0.5% 1-bar) already counters trend on rules path. Recommend **disable short boost** (edge unproven). |
 | **Artefacts** | logs/cyc01b_universe_blocklong.json, CRYPTO_CYCLE_KNOWLEDGE §4 P0b |
+
+## Edge Hunt open loop — 2026-07-21 (H-EH rounds A-F + deep + crash + volspike + R2)
+
+Open-ended search **outside** dead H24-H32 / pure H-CYC retreads. Judge = chronological OOS,
+cost RT 0.18%, Bonferroni p_adj, promote only with lockbox + day-EW + costx2 (+ excess BTC).
+Harness: `edge_hunt.py` family. Full table: [memory/EDGE_HUNT.md](memory/EDGE_HUNT.md).
+
+| Round | Script / log | Best OOS lean | Promote? |
+|---|---|---|---|
+| A calendar/ToM/DoW | edge_hunt.json | ToM first3 +0.16% n=34 p_adj=1 | NO — NOT_PROVEN |
+| B XS ST reverse | edge_hunt.json | XS rev +0.24% n=161 p_adj=1 | NO |
+| C long after dump | edge_hunt.json | all holds negative | REJECTED |
+| D compress breakout | edge_hunt.json | all negative | REJECTED |
+| E session 1h | edge_hunt.json | US gross ~0; net -cost | REJECTED |
+| F dispersion | edge_hunt.json | hi_disp rev +0.42% n=116 p_adj~0.19 | NO — top of A-F |
+| Deep | edge_hunt_deep.json | crash_bounce dd8/dd12 h3 raw CANDIDATE | needs strict |
+| Crash strict | edge_hunt_validate_crash.json | **PROMOTED NONE**; dd15_h3 WATCHLIST (train mean -0.72%) | NO |
+| Volspike fade | edge_hunt_volspike.json | OOS +1..+4% but **train <=0** | NOT_PROVEN |
+| R2 H-EH-24..31 | edge_hunt_round2.json | highvol_short_h10 +3.7% n=33; winner3d_short +2.1% n=341 | 0 CANDIDATE |
+
+### Crash-bounce lesson (important)
+Trade-level means on multi-coin dump days are **cluster-biased**. Day equal-weight OOS
+often flips negative. dd15_h3 looks strong OOS/lock raw but **train negative** and lock
+day-EW negative -> **WATCHLIST only**, not paper.
+
+### Round2 directional note (not edge)
+Winner-fade and high-vol short lean positive OOS; 3d loser long is **negative** (anti-bounce).
+Still fail p_adj / n / train consistency for promotion.
+
+### Global verdict so far
+**No PROMOTE_PAPER edge.** Documented zeros are the product. Next: non-OHLCV-regime
+angles (DVOL timing, euphoria fade, corr-breakdown) without cloning H28/H24.
+
+---
+
+## Edge Hunt R3 (DVOL/regime) + R4 (neutral/RV) — 2026-07-21
+
+### R3 `edge_hunt_round3.py` / logs/edge_hunt_round3.json
+Non-OHLCV gate via Deribit DVOL + corr/euphoria. **CANDIDATES = 0.**
+Best OOS leans (dvol_hi short alts, ivrv short alts, hicorr short) all have **train mean negative**
+-> classic markdown-regime fit, not edge. Euphoria n too small. dump+dvol short REJECTED.
+
+### R4 `edge_hunt_round4.py` / logs/edge_hunt_round4.json
+Dollar-neutral / classic factors. **CANDIDATES = 0.**
+- mom12-1 LS, resid5 rev LS, ratio-z rev: OOS+/lock+ but train-
+- long residual loser 20d: **train+ OOS strongly-** (IS trap)
+- weekend EW, range fade: no promote
+
+Lesson locked: directional short-alts and many "OOS only" arms are regime, not alpha.
+Next R5: BTC lead-lag, liquidity/activity, downside beta, streak sequences.
+
+Full tables: memory/EDGE_HUNT.md
+
+---
+
+## Edge Hunt R5 + R6 + strict validates — 2026-07-21
+
+### R5 lead-lag / liq / down-beta / streak (`edge_hunt_round5.py`)
+CANDIDATES=0. Only train+&OOS+ lean: low_idiovol_ls_h10 (+0.41% / +0.94% n=33) NOT_PROVEN.
+Strict validate_idiovol (50/30/20): PROMOTED NONE — h10 lock fails costx2; p_adj/n insufficient.
+
+### R6 breadth / dom-pressure / unlock-filter (`edge_hunt_round6.py`)
+CANDIDATES=0. Three train+&OOS+ leans under 70/30.
+Strict validate_r6: PROMOTED NONE.
+- breadth_lo_rev h3: train+ but OOS 50% **negative** (split artifact)
+- dom_pressure short: train- / lock-
+- nounlock ST rev h3: OOS n=6 INCONCLUSIVE
+
+### Global
+~200+ arms across A-F, deep, crash, volspike, R2-R6. **Zero PROMOTE_PAPER.**
+Documented in memory/EDGE_HUNT.md. Continuing non-retread search.
+
+---

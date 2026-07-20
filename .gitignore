@@ -11,6 +11,7 @@ data/**
 logs/**
 !logs/
 !logs/cyc0*.json
+!logs/edge_hunt*.json
 *.log
 # database SQLite (jangan commit data) — pengaman bila aturan logs/ diubah
 *.db
