@@ -8,7 +8,16 @@
 
 **Mulai:** 2026-07-21  
 **Panel default:** `data/snap` daily, ~1153×66 (volume lookback, max_alts≈200, min_bars 400)  
-**Harness:** `edge_hunt.py` + skrip putaran
+**Harness:** `edge_hunt.py` + skrip putaran  
+**Git:** `bec33c1` (R7–R10) · `3e535d4` (A–R6) · tip master
+
+### Bootstrap sesi baru (konteks penuh / TUI restart)
+
+1. Baca **scoreboard global** + **Antrian berikutnya** di file ini (bawah).
+2. **PROMOTE_PAPER = 0.** Jangan klaim edge. WATCHLIST: LINK residual-z saja.
+3. Larangan: H24–H32 retread, crash-bounce pure, short-alts train−, re-tune thr WATCHLIST.
+4. Lanjut prioritas: (1) risk-filter A/B paper dry, (2) alt-data hist bila ada, (3) shadow LINK log-only.
+5. Tiap putaran baru: append seksi di sini + tail `RESEARCH_LOG.md` + `logs/edge_hunt_*.json` + commit.
 
 ---
 

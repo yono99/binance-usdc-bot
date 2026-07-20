@@ -4,7 +4,29 @@
 > Di-load lewat project rules (`AGENT.md` + `.grok/rules/`).  
 > Update baris “Status terakhir” bila posture server berubah.
 
-**Terakhir diisi:** 2026-07-21 (edge hunt loop A–R10, zero PROMOTE_PAPER)
+**Terakhir diisi:** 2026-07-21 (edge hunt A–R10 done; handoff anti-context-full)
+
+### Lanjut sesi baru (baca 60 detik — anti konteks penuh)
+
+Bila chat/TUI penuh atau sesi baru: **jangan** andalkan transcript. Baca urutan ini:
+
+| # | File | Untuk apa |
+|---|---|---|
+| 1 | **[EDGE_HUNT.md](EDGE_HUNT.md)** | scoreboard + antrian + WATCHLIST |
+| 2 | file ini § Status terakhir | posture server + larangan |
+| 3 | [PLAN_OPERASIONAL.md](../PLAN_OPERASIONAL.md) | survival + Jalan A |
+| 4 | [RESEARCH_LOG.md](../RESEARCH_LOG.md) (tail Edge Hunt) | detail angka putaran |
+
+**Git tip:** `bec33c1` (R7–R10) · `3e535d4` (A–R6). `git pull` dulu.
+
+**Perintah lanjut yang disarankan (pilih satu jalur, jangan OHLCV retread):**
+```text
+# A) Risk-filter A/B (Jalan A) — ukur drawdown/std, bukan exp_R entry
+# B) Shadow LINK residual (WATCHLIST only) — log only, no sizing
+# C) Scaffold funding/OI panel hist bila cache ada — konstruk ≠ H15/H24/H25
+```
+
+**Sudah ditolak / jangan ulang tanpa novelty:** H24–H32, H-CYC short unlock, crash-bounce pure, short-alts markdown-only, 1h majors net cost, re-tune thr LINK.
 
 ### Status terakhir (2026-07-21)
 
