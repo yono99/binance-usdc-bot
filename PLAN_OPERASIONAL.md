@@ -64,7 +64,7 @@ Live/test tidak diubah.
 
 | Flag | Nilai |
 |---|---|
-| `agent_manager_mode` | **true** |
+| `agent_manager_mode` | **false** (OFF 2026-07-20: agent_flat −EV vs chart) |
 | `agent_ab_shadow` | **true** |
 | `agent_full_auto` | false |
 | `agent_tool_loop` | false |
