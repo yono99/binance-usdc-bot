@@ -4,9 +4,13 @@
 > Di-load lewat project rules (`AGENT.md` + `.grok/rules/`).  
 > Update baris “Status terakhir” bila posture server berubah.
 
-**Terakhir diisi:** 2026-07-20 ~09:00 UTC
+**Terakhir diisi:** 2026-07-20 ~09:15 UTC
 
-### Status terakhir (2026-07-20 ~09:00 UTC)
+### Status terakhir (2026-07-20 ~09:15 UTC)
+
+- **`agent_manager_mode` = OFF** (pemilik setuju setelah audit `agent_flat` vs chart).
+  Autonomous/FLAT massal tidak lagi di-force. `agent_ab_shadow` tetap ON.
+  Hot-reload via `POST /api/agent-settings` — bot pakai siklus berikutnya (tanpa restart wajib).
 
 - **Root cause UI vs screening “ada posisi / margin habis”:**
   1. **Dua proses `forwardtest`** (PM2 + zombie manual pid lama tanpa `--mode dry`)
@@ -105,15 +109,22 @@ Dokumen induk:
 | `bet_usd` | 4 |
 | `max_drawdown_pct` | 20 |
 
-### Agent Jalan A
+### Agent (postur 2026-07-20, setelah audit agent_flat)
 
 | Flag | Nilai |
 |---|---|
-| `agent_manager_mode` | **ON** |
+| `agent_manager_mode` | **OFF** (dimatikan 2026-07-20) |
 | `agent_ab_shadow` | **ON** |
-| `agent_full_auto` / tool_loop | **OFF** |
+| `agent_autonomous` / planner / full_auto / tool_loop | **OFF** |
 
-**Posture efektif:** arah = **RULES** (bukan gemini-trader), planner ON, autonomous ON, A/B shadow ON (ReAct catat, tidak memblokir).
+**Kenapa manager OFF:** audit 8× `agent_flat` → sum R **−2.91**, mean **−0.36**; chart
+menunjukkan ~3/8 premature cut (WLD/ZEC recovery). Manager memaksa `autonomous=True`
+→ FLAT massal; REDUCE_RISK mati (`allow_move_sl=false`). Survival = biarkan SL/TP,
+bukan exit LLM massal.
+
+**Posture efektif sekarang:** A/B shadow ON (ReAct catat, tidak tutup posisi);
+**tidak** ada force autonomous/FLAT dari manager. Entry mengikuti technique/settings
+(bukan override Jalan A manager).
 
 **SL fixed (pemilik):** `agent.allow_move_sl: false` — manage/agent **tidak** boleh
 geser SL (no BE / trail / tighten / micro-profit lock). Exit hanya SL/TP/liq asli +

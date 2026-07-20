@@ -19,9 +19,9 @@ file ini di repo = **template** (boleh di-fork ke notes lokal agar git tetap ber
 | `daily_max_trades` | **30** |
 | `max_open_positions` | **5** |
 | `leverage` | **5** |
-| `agent_manager_mode` | **ON** |
+| `agent_manager_mode` | **OFF** (sejak 2026-07-20; cegah agent_flat massal) |
 | `agent_ab_shadow` | **ON** |
-| `agent_full_auto` / tool-loop | **OFF** |
+| `agent_full_auto` / tool-loop / autonomous | **OFF** |
 | H30 / L2 “cari edge” | **jangan hidupkan** |
 
 UI: `http://192.168.1.107:8000` · Agent: `/agent`
@@ -51,11 +51,11 @@ ps aux | grep forwardtest | grep -v grep   # harus tepat 1
 - [ ] Max posisi **5**, leverage **5**
 - [ ] Bila circuit harian kena: **stop entry dihormati** (tidak “paksa trade”)
 
-### C. Jalan A masih ON
+### C. Agent posture
 
-- [ ] Manager-mode **ON**
+- [ ] Manager-mode **OFF** (jangan nyalakan ulang tanpa baca audit agent_flat)
 - [ ] A/B shadow **ON**
-- [ ] Full-auto / tool-loop **OFF**
+- [ ] Full-auto / tool-loop / autonomous **OFF**
 - [ ] (Opsional) Ada jejak keputusan di log / halaman Agent
 
 ### D. Health trading (jujur, tanpa panik)
@@ -69,7 +69,7 @@ ps aux | grep forwardtest | grep -v grep   # harus tepat 1
 
 - [ ] **Tidak** ubah strategy / indikator karena 1 hari merah/hijau
 - [ ] **Tidak** longgarkan risk “sementara”
-- [ ] **Tidak** matikan manager/A-B tanpa alasan tertulis
+- [ ] **Tidak** nyalakan manager-mode / autonomous tanpa alasan tertulis (audit flat)
 - [ ] **Tidak** start H28 / L2 collector untuk “cari cuan”
 - [ ] **Tidak** hidupkan live
 
