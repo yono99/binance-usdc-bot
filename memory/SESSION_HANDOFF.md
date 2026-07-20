@@ -4,7 +4,7 @@
 > Di-load lewat project rules (`AGENT.md` + `.grok/rules/`).  
 > Update baris “Status terakhir” bila posture server berubah.
 
-**Terakhir diisi:** 2026-07-21 (edge hunt A–R10 done; handoff anti-context-full)
+**Terakhir diisi:** 2026-07-21 (risk-filter shadow wired; PROMOTE_PAPER still 0)
 
 ### Lanjut sesi baru (baca 60 detik — anti konteks penuh)
 
@@ -21,12 +21,16 @@ Bila chat/TUI penuh atau sesi baru: **jangan** andalkan transcript. Baca urutan 
 
 **Perintah lanjut yang disarankan (pilih satu jalur, jangan OHLCV retread):**
 ```text
-# A) Risk-filter A/B (Jalan A) — ukur drawdown/std, bukan exp_R entry
+# A) Kumpulkan risk_filter SHADOW di dry (sudah wire) — A/B risk maxDD/std/worst
 # B) Shadow LINK residual (WATCHLIST only) — log only, no sizing
 # C) Scaffold funding/OI panel hist bila cache ada — konstruk ≠ H15/H24/H25
 ```
 
 **Sudah ditolak / jangan ulang tanpa novelty:** H24–H32, H-CYC short unlock, crash-bounce pure, short-alts markdown-only, 1h majors net cost, re-tune thr LINK.
+
+**Risk filter (2026-07-21):** `bot/risk_filter.py` + forward gate.  
+`risk_filter_shadow: true` · **`risk_filter_block: false`**.  
+PROMOTE_FILTER_PAPER: breadth_lo + corr/vol — **bukan** entry. Jangan hard-block tanpa paper risk A/B.
 
 ### Status terakhir (2026-07-21)
 

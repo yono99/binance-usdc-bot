@@ -31,6 +31,7 @@ from .news import NewsVeto
 from . import vrp
 from . import mtf
 from . import flat_shadow
+from . import risk_filter as risk_filter_mod
 from .planner import SessionPlanner, default_plan
 from .react_agent import ReactAgent
 from .signals import Signal
@@ -93,6 +94,11 @@ class ForwardTester:
         self._news_base = self.news.enabled     # kemampuan dasar (Gemini+config); UI bisa mematikan
         self.vrp = vrp.VRPBrake(self.ex, self.cfg)   # rem-VRP (shadow: catat, tak blokir)
         self.mtf = mtf.MTFAgree(self.cfg)            # kesepakatan multi-TF (shadow: catat, tak blokir)
+        # Risk overlay (Jalan A): breadth_lo / corr_hi / btc_vol_hi — default OFF; shadow log only.
+        _rf = risk_filter_mod.from_config(self.cfg)
+        self.risk_filter_shadow = bool(_rf["shadow"])
+        self.risk_filter_block = bool(_rf["block"])
+        self._risk_filter_verdict = None            # diisi tiap siklus bila shadow|block
         # ReAct agent: gerbang entry AKTIF utk teknik non-gemini (Gemini mati → fallback ikut sinyal).
         self.react = ReactAgent(self.settings, self.cfg)
         self.lessons = LessonsEngine(self.settings, self.cfg)
@@ -443,6 +449,33 @@ class ForwardTester:
                 return "accumulation"  # menuju halving berikutnya
         except Exception:
             return "unknown"
+
+    def _refresh_risk_filter(self) -> None:
+        """Evaluate risk overlay once per cycle. Shadow: log only. Block: only if flag on.
+        Fail-open: any error → allow=True (never block trading on filter failure)."""
+        self._risk_filter_verdict = None
+        # Hot-reload flags from cfg (YAML) each cycle — UI does not yet expose these.
+        try:
+            _rf = risk_filter_mod.from_config(self.cfg)
+            self.risk_filter_shadow = bool(_rf["shadow"])
+            self.risk_filter_block = bool(_rf["block"])
+        except Exception:
+            pass
+        if not (getattr(self, "risk_filter_shadow", False)
+                or getattr(self, "risk_filter_block", False)):
+            return
+        try:
+            self._risk_filter_verdict = risk_filter_mod.check(self.cfg)
+            if (self.risk_filter_shadow and self._risk_filter_verdict is not None
+                    and not self._risk_filter_verdict.allow):
+                log.info(
+                    f"risk_filter SHADOW would-skip reasons="
+                    f"{self._risk_filter_verdict.reasons} "
+                    f"metrics={self._risk_filter_verdict.metrics}")
+        except Exception as e:  # boundary — filter gagal ≠ blokir trade
+            log.warning(f"risk_filter check gagal (fail-open): {e}")
+            self._risk_filter_verdict = risk_filter_mod.FilterVerdict(
+                True, [], {"note": "error", "err": str(e)[:120]})
 
     def _react_gate(self, sym: str, side: int, atr: float, df_closed, price: float):
         """Konsultasi ReactAgent sbg gerbang entry (teknik NON-gemini). OBSERVE pakai
@@ -875,6 +908,7 @@ class ForwardTester:
         pos = self.bt._open(sym, sig, {"open": price}, pd.Timestamp.utcnow(), 0)
         pos.update(self.vrp.stamp())            # stempel regime VRP saat open (A/B shadow)
         pos.update(self._regime_stamp(df_closed, self.cfg))  # stempel regime → laporan EV
+        pos.update(risk_filter_mod.stamp(getattr(self, "_risk_filter_verdict", None)))
         self.open[sym] = pos
         journal("forward_open", {"symbol": sym, "side": sig.side, "entry": pos["entry"],
                                  "sl": pos["sl"], "tp": pos["tp"]})
@@ -1961,7 +1995,8 @@ class ForwardTester:
                     "entry_fee_rate": entry_fee_rate, "leverage": rs.leverage,
                     **self.vrp.stamp(), **self._regime_stamp(self.buffers.get(sym), self.cfg),
                     **(mtf_stamp := (self.mtf.stamp(self.buffers.get(sym), self.tf, side)
-                                     if self.buffers.get(sym) is not None else {}))}
+                                     if self.buffers.get(sym) is not None else {})),
+                    **risk_filter_mod.stamp(getattr(self, "_risk_filter_verdict", None))}
                 if gem:
                     self.pending[sym].update(conviction=gem_conv)
                     try:
@@ -1996,7 +2031,8 @@ class ForwardTester:
                           "leverage": rs.leverage,
                           **self.vrp.stamp(),   # stempel regime VRP saat open (A/B shadow)
                           **self._regime_stamp(buf_full, self.cfg),  # regime → laporan EV
-                          **mtf_stamp}
+                          **mtf_stamp,
+                          **risk_filter_mod.stamp(getattr(self, "_risk_filter_verdict", None))}
         if gem:                                     # catat keputusan Gemini → settle saat tutup
             self.open[sym]["conviction"] = gem_conv   # untuk skor Brier saat close
             try:
@@ -2518,6 +2554,14 @@ class ForwardTester:
         vrp_block = self.vrp.mode == "enforce" and vrp_on   # shadow: TIDAK blokir
         if vrp_block:
             log.info("VRP brake ENFORCE aktif — tidak buka posisi baru siklus ini")
+        # Risk filter overlay (breadth/corr/vol) — evaluasi 1× per siklus; shadow default.
+        self._refresh_risk_filter()
+        rf_block = bool(self.risk_filter_block and self._risk_filter_verdict
+                        and not self._risk_filter_verdict.allow)
+        if rf_block:
+            log.info(
+                f"Risk filter ENFORCE aktif ({self._risk_filter_verdict.reasons}) "
+                "— tidak buka posisi baru siklus ini")
         ddlock = self._update_drawdown(rs)     # kill-switch drawdown TOTAL (tahan restart)
         self._apply_funding_sim()              # P3: akru funding posisi menginap (paper)
         self._refresh_plan(rs)                 # tujuan sesi (planner) → enforce di gerbang entry
@@ -2594,6 +2638,9 @@ class ForwardTester:
                     pre = (None if rs.enabled else "bot OFF")
                     pre = pre or ("news veto" if news_veto else None)
                     pre = pre or ("vrp brake" if vrp_block else None)
+                    pre = pre or (("risk_filter "
+                                   + ",".join(self._risk_filter_verdict.reasons or ["deny"]))
+                                  if rf_block else None)
                     pre = pre or ("drawdown lock" if ddlock else None)
                     pre = pre or (cb or None)
                     pre = pre or ("sudah ada posisi" if sym in self.open else None)
@@ -2664,6 +2711,10 @@ class ForwardTester:
                         #                          catatan detail ada di panel Riwayat News Veto
                     elif vrp_block:
                         blocked = "vrp brake"
+                    elif rf_block:
+                        # Hard block only when risk_filter_block=true (default OFF).
+                        blocked = ("risk_filter "
+                                   + ",".join(self._risk_filter_verdict.reasons or ["deny"]))
                     elif ddlock:
                         blocked = "drawdown lock"   # detail alasan di status.drawdown
                     elif cb:
@@ -2689,6 +2740,21 @@ class ForwardTester:
                         if not permitted:
                             blocked = f"agent {action}"
                             c["rationale"] = reasoning
+                    # Risk-filter SHADOW: log would-deny without blocking (Jalan A metrik risk).
+                    if (blocked is None and self.risk_filter_shadow and not self.risk_filter_block
+                            and self._risk_filter_verdict is not None
+                            and not self._risk_filter_verdict.allow):
+                        try:
+                            decision_log.append({
+                                "ts": pd.Timestamp.utcnow().isoformat(),
+                                "symbol": sym,
+                                "action": "RISK_FILTER_SHADOW",
+                                "side": "long" if side == 1 else "short",
+                                "outcome": None,
+                                **risk_filter_mod.stamp(self._risk_filter_verdict),
+                            })
+                        except Exception as e:  # boundary — shadow log tak boleh ganggu
+                            log.warning(f"risk_filter shadow log {sym} gagal: {e}")
                     c["blocked"] = blocked
                     if blocked is None:
                         self._open_usd(sym, side, atr, rs)

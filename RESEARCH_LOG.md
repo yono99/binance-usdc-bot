@@ -616,3 +616,34 @@ Status: **WATCHLIST only** — do not paper-trade as edge; may shadow later.
 ~300 arms. Zero PROMOTE_PAPER. Documented memory/EDGE_HUNT.md.
 
 ---
+
+## Risk-filter overlay (meta, not entry) — 2026-07-21
+
+### Hypothesis
+Skip new entries in *risk-off microstructure* regimes (low market breadth / high cross-corr or high BTC vol) reduces **max drawdown** on otherwise-flat streams, without claiming entry alpha.
+
+### Harness
+- Discovery: `edge_hunt_risk_filter.py` → `logs/edge_hunt_risk_filter.json`
+- Strict 50/30/20 + lockbox: `edge_hunt_validate_risk_filter.py` → `logs/edge_hunt_validate_risk_filter.json`
+- Rule: train↓DD + oos↓DD+worst + lock↓DD; n_kept≥30 denied≥10 → **PROMOTE_FILTER_PAPER** (not PROMOTE_PAPER)
+
+### Results (synthetic streams on daily panel ~1153×66)
+
+| arm | promotion | note |
+|---|---|---|
+| long_ew + skip_breadth_lo | **PROMOTE_FILTER_PAPER** | OOS maxDD 1.69→1.08; lock 1.11→0.69 |
+| st_rev_ls + skip_corr_or_volhi | **PROMOTE_FILTER_PAPER** | OOS maxDD 0.24→0.19; worst improves |
+| other family×stream combos | fail strict | train or lock DD not reduced |
+
+**Honest:** mean still ~0/− on long_ew; this is a **risk overlay**, not a profit edge.
+
+### Runtime wire (shadow only)
+- `bot/risk_filter.py` — evaluate + load daily snap panel (cached 1h)
+- `bot/forward.py` — once/cycle; stamp opens; `decision_log` action `RISK_FILTER_SHADOW` on would-deny
+- `config.yaml` — `risk_filter_shadow: true`, **`risk_filter_block: false`**
+- Fail-open on error; block path exists but must stay off until paper A/B risk metrics prove value
+
+### Next
+Collect paper dry would-deny vs realized R (Jalan A: maxDD/std/worst). Do not enable hard block without that evidence. Entry PROMOTE_PAPER still **0**.
+
+---

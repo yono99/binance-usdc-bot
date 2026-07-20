@@ -9,6 +9,13 @@ agent:
   planner: false
   tool_loop: false
   tool_max_iters: 4
+  # Risk overlay (edge hunt 2026-07-21 PROMOTE_FILTER_PAPER). NOT entry alpha.
+  # shadow=true → log would-deny + stamp opens; block=true → hard skip (default OFF).
+  # Paper dry: shadow ON to collect would-deny vs realized R (Jalan A). Never auto-block.
+  risk_filter_shadow: true
+  risk_filter_block: false
+  risk_filter_breadth: true      # skip when breadth (frac > SMA50) in bottom 30% of 100d
+  risk_filter_corr_vol: true     # skip when avg corr high OR BTC vol20 high (top quartile)
 btc:
   block_counter: true
   dump_pct: 0.5

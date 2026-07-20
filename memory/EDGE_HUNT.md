@@ -271,12 +271,39 @@ Jangan wire paper entry; boleh pantau paper shadow nanti bila n bertambah.
 
 ---
 
+## Risk-filter overlay (Jalan A) — 2026-07-21
+
+**Bukan entry edge.** Meta filter di atas stream baseline; hakim = ↓maxDD train+oos+lock, worst OOS lebih baik, n_kept≥30 denied≥10.
+
+### Discovery `edge_hunt_risk_filter.py` → strict `edge_hunt_validate_risk_filter.py`
+
+| id | promotion | OOS maxDD base→filt | lock maxDD base→filt |
+|---|---|---:|---:|
+| `long_ew__skip_breadth_lo` | **PROMOTE_FILTER_PAPER** | 1.69→1.08 | 1.11→0.69 |
+| `st_rev_ls__skip_corr_or_volhi` | **PROMOTE_FILTER_PAPER** | 0.24→0.19 | 0.18→0.12 |
+
+**Bukan** PROMOTE_PAPER (entry). Mean stream tetap ~0/−; nilai = pengurangan drawdown.
+
+### Wire (shadow-only)
+
+| item | nilai |
+|---|---|
+| Modul | `bot/risk_filter.py` |
+| Gate | `ForwardTester._refresh_risk_filter` + stamp open / `RISK_FILTER_SHADOW` di decision_log |
+| Config | `agent.risk_filter_shadow: true` (log only) · `risk_filter_block: false` (**HARD OFF**) |
+| Families | breadth_lo (bottom 30% 100d) + corr_hi OR btc_vol_hi (top quartile) |
+| Tes | `tests/test_risk_filter.py` · `tests/test_forward_risk_filter.py` |
+
+**Jangan** nyalakan `risk_filter_block` tanpa paper evidence (would-deny trades worse risk than kept).
+
+---
+
 ## Antrian berikutnya
 
 1. ~~R3–R10~~ done, 0 PROMOTE_PAPER (~300 arms)
 2. **WATCHLIST only:** LINK residual z fade — butuh n lebih besar / OOS lebih panjang, bukan re-tune thr
-3. Sector lead-lag (H13) re-check only if construction novel vs prior reject
-4. Paper dry A/B: agent risk filter (Jalan A) — ukur **risk** bukan exp_R
+3. ~~Paper dry risk-filter shadow wire~~ done — **kumpulkan** would-deny vs R; jangan block dulu
+4. Sector lead-lag (H13) re-check only if construction novel vs prior reject
 5. Kumpulkan alt-data forward (OI/L2/funding panel) — hist OOS butuh waktu
 6. Jangan retread H24–H32 / crash-bounce / pure OHLCV tanpa novelty
 
