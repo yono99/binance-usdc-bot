@@ -4,7 +4,20 @@
 > Di-load lewat project rules (`AGENT.md` + `.grok/rules/`).  
 > Update baris “Status terakhir” bila posture server berubah.
 
-**Terakhir diisi:** 2026-07-19
+**Terakhir diisi:** 2026-07-20
+
+### Status terakhir (2026-07-20)
+
+- Bot PM2 online; dry `enabled=true`; manager + ab_shadow ON.
+- Risk dry dikunci ulang: `daily_max_loss_pct=5` (sempat drift ke 50).
+- **Bug fix deploy:** AI decide-cache sekarang **hanya** aktif jika `use_gemini_trader`;
+  di manager-mode cache dikosongkan agar tidak mereplay flat Gemini / melewati RULES.
+  File: `bot/forward.py` (server sudah di-scp + `pm2 restart bot`).
+- 0 entry sejak `agent_flat` 2026-07-19 ~06:11 UTC — bukan bot mati; campuran
+  (cache bug + rules flat + sepi sinyal). Setelah patch, tunggu bar 15m baru untuk
+  evaluasi RULES (sinyal `-` sebentar pasca-restart = normal sampai bar close).
+- **Batas jujur ke pemilik:** paper ~$10 **bukan** mesin bayar hutang/makan.
+  Maksimalisasi = disiplin + perbaikan bug + bukti OOS, **bukan** janji $ harian.
 
 ---
 
@@ -15,6 +28,8 @@
 - **H30 / L2 maker ritel = TUTUP** (sudah REJECTED langkah 3).
 - Jangan buka ulang H24–H32 / v5–v7 “sedikit diubah”.
 - Live dilarang tanpa CANDIDATE + paper.
+- Tekanan hutang/psikologi **nyata** — tapi bot paper **tidak** diganti jadi “mesin
+  cuan darurat”. Jangan scale live / longgarkan risk karena lapar profit.
 
 Dokumen induk:
 
@@ -68,6 +83,9 @@ Dokumen induk:
 - 2× `forwardtest` → orphan di-kill; hanya PM2
 - Dashboard zombie `/tmp/run_dash.py` di :8000 → diganti PM2
 - Duplikat trade history tanpa side/entry → fix `build_trades` + dashboard bersih
+- AI decide-cache menembus manager-mode (Jalan A) → 0 entry / flat Gemini palsu
+  (fix 2026-07-20: gate `use_gemini_trader` + clear cache)
+- `daily_max_loss_pct` drift 50 → dikembalikan 5
 
 ---
 

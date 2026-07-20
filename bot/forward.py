@@ -1005,7 +1005,21 @@ class ForwardTester:
         self.autonomous = posture["autonomous"]
         self.use_planner = posture["use_planner"]
         self.ab_shadow = posture["ab_shadow"]
+        prev_gemini = bool(getattr(self, "use_gemini_trader", False))
         self.use_gemini_trader = posture["use_gemini_trader"]
+        # Jalan A / non-gemini: buang AI decide-cache agar tak mereplay flat Gemini lama
+        # dan tak melewati evaluasi RULES di siklus berikutnya.
+        if not self.use_gemini_trader and (
+            prev_gemini or self._decide_cache or self._decide_price_cache
+        ):
+            n_ai = len(self._decide_cache)
+            self._decide_cache.clear()
+            self._decide_price_cache.clear()
+            if prev_gemini or n_ai:
+                log.info(
+                    f"Posture non-gemini (manager/rules) — AI decide-cache dikosongkan "
+                    f"(entries={n_ai}, manager={bool(rs.agent_manager_mode)})"
+                )
         self.news.enabled = self._news_base and bool(rs.news_veto)   # toggle news-veto dari UI
         if self.use_gemini_trader and self.gtrader is None:
             from .gemini_trader import GeminiTrader
@@ -2313,7 +2327,11 @@ class ForwardTester:
             free_gemini = (self.use_gemini_trader and self.gtrader is not None
                            and rs.enabled and sym not in self.open and not throttled)
             # ── AI DECIDE CACHE (lolos throttle: reuse Gemini tanpa evaluasi full) ──
-            if (getattr(self, '_sideways_sniper', False) and sym not in self.open
+            # HANYA saat jalur Gemini trader aktif. Di manager-mode (Jalan A) use_gemini_trader
+            # = False → cache WAJIB dimatikan, kalau tidak `continue` di sini melewati RULES
+            # dan mereplay keputusan Gemini lama (no_trade/flat) → 0 entry palsu.
+            if (self.use_gemini_trader and getattr(self, '_sideways_sniper', False)
+                    and sym not in self.open
                     and sym not in self.pending and c.get("price")):
                 _cached = self._decide_cache.get(sym)
                 if _cached:
