@@ -433,8 +433,11 @@ def api_setup_status() -> JSONResponse:
     Dynamic based on config.yaml (adx_range, sideways_sniper, etc)."""
     from bot.config import load_settings
     cfg = load_settings()
-    strat = cfg.get("strategy", {})
-    gem = cfg.get("gemini", {})
+    raw = getattr(cfg, "raw", cfg) if not isinstance(cfg, dict) else cfg
+    strat = (raw.get("strategy") or {}) if isinstance(raw, dict) else {}
+    gem = (raw.get("gemini") or {}) if isinstance(raw, dict) else {}
+    btc_cfg = (raw.get("btc") or {}) if isinstance(raw, dict) else {}
+    dump_short_boost = bool(btc_cfg.get("dump_short_boost", False))
     adx_range = strat.get("adx_range", 25)
     sideways_sniper = gem.get("sideways_sniper", {}).get("enabled", False)
 
@@ -471,8 +474,15 @@ def api_setup_status() -> JSONResponse:
             "engine": engine_name,
         },
         "btc_dominance_short": {
-            "status": "ACTIVE" if not is_v8 else "DISABLED",
-            "reason": "BTC dump ≥2% → SHORT alt (structural edge, beta>1)" if not is_v8 else "Not active in v8",
+            "status": "ACTIVE" if dump_short_boost else "DISABLED",
+            "reason": (
+                "SHORT conviction ×1.5 saat dump_flag (btc.dump_short_boost)"
+                if dump_short_boost
+                else (
+                    "OFF: dump_short_boost=false (H-CYC-01/01b — short-after-dump not OOS edge; "
+                    "beta>1 descriptive only)"
+                )
+            ),
             "engine": engine_name,
         },
     }
@@ -493,8 +503,11 @@ def api_setup_stats(mode: str = None) -> JSONResponse:
     m = mode if mode in ("dry", "test", "live") else (get_active_mode() or _env_mode())
 
     cfg = load_settings()
-    strat = cfg.get("strategy", {})
-    gem = cfg.get("gemini", {})
+    raw = getattr(cfg, "raw", cfg) if not isinstance(cfg, dict) else cfg
+    strat = (raw.get("strategy") or {}) if isinstance(raw, dict) else {}
+    gem = (raw.get("gemini") or {}) if isinstance(raw, dict) else {}
+    btc_cfg = (raw.get("btc") or {}) if isinstance(raw, dict) else {}
+    dump_short_boost = bool(btc_cfg.get("dump_short_boost", False))
     adx_range = strat.get("adx_range", 25)
     sideways_sniper = gem.get("sideways_sniper", {}).get("enabled", False)
     is_v8 = adx_range >= 999
@@ -505,7 +518,7 @@ def api_setup_stats(mode: str = None) -> JSONResponse:
         "range_fade": "enable" if not is_v8 else "disable",
         "scalp_range": "enable" if (not is_v8 and sideways_sniper) else "disable",
         "breakout_continuation": "disable",
-        "btc_dominance_short": "enable" if not is_v8 else "disable",
+        "btc_dominance_short": "enable" if dump_short_boost else "disable",
     }
 
     reasons = {
@@ -514,7 +527,11 @@ def api_setup_stats(mode: str = None) -> JSONResponse:
         "range_fade": "Fade S/R in range (requires valid level ±0.5×ATR)" if not is_v8 else "Range trading dimatikan (adx_range=999)",
         "scalp_range": "Scalping tight range (ATR<0.3%, 1×ATR SL)" if (not is_v8 and sideways_sniper) else ("Range scalping dimatikan" if is_v8 else "Sideways sniper disabled"),
         "breakout_continuation": "Overlap dgn trend_continuation, false breakout tinggi",
-        "btc_dominance_short": "BTC dump ≥2% → SHORT alt (structural edge)" if not is_v8 else "Belum diaktifkan — masih dalam evaluasi",
+        "btc_dominance_short": (
+            "SHORT ×1.5 saat dump_flag (opt-in dump_short_boost)"
+            if dump_short_boost
+            else "OFF — H-CYC-01/01b short-after-dump bukan edge OOS"
+        ),
     }
 
     setups = list(engine_status.keys())

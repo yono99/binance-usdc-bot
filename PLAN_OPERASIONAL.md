@@ -141,7 +141,10 @@ Checklist siap pakai (centang + log 1 baris): **[CHECKLIST_HARIAN.md](CHECKLIST_
 
 1. **Jaga AB 7 hari** — kumpulkan A/B + survival metrics.  
 2. **H28 paper** — `h28_forward.py`, parameter **beku**, evaluasi pertama hanya setelah n siklus cukup (lihat pra-registrasi di `RESEARCH_HYPOTHESES_PHASE4.md`).  
-3. **Hipotesis baru** — spek dulu (klaim, rasional, falsifier, grid ≤6), data dulu bila perlu.  
+3. **Hipotesis baru (kandidat struktural)** — ilmu siklus BTC/alt pemilik:
+   [memory/CRYPTO_CYCLE_KNOWLEDGE.md](memory/CRYPTO_CYCLE_KNOWLEDGE.md)
+   (beta dump, relative weakness, unlock, alt-season, 4 fase). **P0 ukur OOS dulu**;
+   bukan OHLCV indikator baru / H24–H32 revival.  
 4. **Live** — hanya setelah bukti, size micro.
 
 ---
@@ -153,6 +156,8 @@ Checklist siap pakai (centang + log 1 baris): **[CHECKLIST_HARIAN.md](CHECKLIST_
 | [TUJUAN.md](TUJUAN.md) | Tujuan proyek & peran LLM |
 | [METHODOLOGY.md](METHODOLOGY.md) | Cara uji, temuan OOS |
 | [AGENT.md](AGENT.md) | ReAct, Jalan A, A/B, planner |
+| [memory/CRYPTO_CYCLE_KNOWLEDGE.md](memory/CRYPTO_CYCLE_KNOWLEDGE.md) | Ilmu siklus BTC/alt + backlog P0–P3 |
+| [memory/SESSION_HANDOFF.md](memory/SESSION_HANDOFF.md) | Status server + §7 backlog |
 | [RESEARCH_LOG.md](RESEARCH_LOG.md) | Log hipotesis & verdict |
 | [RESEARCH_HYPOTHESES_PHASE4.md](RESEARCH_HYPOTHESES_PHASE4.md) | H24–H32, H28/H30 pra-reg |
 | [DEPLOY.md](DEPLOY.md) | PM2 / server |
@@ -163,4 +168,6 @@ Checklist siap pakai (centang + log 1 baris): **[CHECKLIST_HARIAN.md](CHECKLIST_
 
 | Tanggal | Perubahan |
 |---|---|
+| 2026-07-20 | Kandidat hipotesis struktural: CRYPTO_CYCLE_KNOWLEDGE (backlog; P0 dulu) |
+| 2026-07-20 | agent_manager_mode OFF (audit agent_flat); ab_shadow tetap ON |
 | 2026-07-19 | Dokumen dibuat; kontrak pemilik; risk dry + Jalan A diterapkan di server paper |

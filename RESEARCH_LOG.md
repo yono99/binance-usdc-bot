@@ -459,3 +459,33 @@ Bukti: `data/sl_calibration.json` + kv `sl_calibration` (SQLite).
 **Pelengkap (Fix B):** MFE/MAE + exit_reason kini mengalir ke jurnal, decision
 log, dan tabel keputusan Gemini; `setup_stats` menghitung sl_hit_rate & avg
 MFE-sebelum-SL → refleksi Gemini bisa mendiagnosis "SL kepencet" dgn angka.
+
+---
+
+## H-CYC-01 — BTC dump + alt relative weakness short (P0, 2026-07-20)
+
+| field | value |
+|---|---|
+| **Hypothesis** | On days BTC drops ≥2%, short the weakest alts (most negative ret_alt−ret_btc) outperforms short-all / random / strong. |
+| **Economic rationale** | Alt beta>1 + relative weakness continues into multi-day hold. |
+| **Implementation** | cyc01_dump_weakness.py — panel daily data/snap_smallcap1800 (78 sym, 2021-07→2026-07). Arms: short_weak, short_all, short_strong, short_random, short_btc, short_preweak. Cost RT 0.18%. Train/OOS 70/30. |
+| **Descriptive** | n_dump=304; mean BTC −3.88%; mean alt −4.98%; frac alt deeper **64.5%** → beta>1 **CONFIRMED**. |
+| **OOS short_weak** | hold1 −0.31% (n=84); hold7 +2.17% p≈0.019 but perm vs short_all **p≈0.42** (not better than equal-weight short). Train all holds **negative**. |
+| **Sensitivity** | dump 3% + gap3 → **REJECTED**. gap5 dump2% → NOT_PROVEN (perm fail). |
+| **Verdict trade** | **NOT_PROVEN / REJECT as entry edge** |
+| **Verdict structure** | beta>1 **CONFIRMED** — use only as optional future **block-long** risk filter, not auto-short. |
+| **Artefacts** | logs/cyc01_dump_weakness.json, memory/CRYPTO_CYCLE_KNOWLEDGE.md §4 |
+
+---
+
+## H-CYC-01b — Universe scale + block_long + dump_flag audit (2026-07-20)
+
+| field | value |
+|---|---|
+| **Question** | Does n>78 raise frac(alt deeper than BTC on dump) well above ~64%? Does block_long help? |
+| **Data** | data/snap 1d, 598 alts (min_bars≥200), BTC 2000 bars 2021-01→2026-07 |
+| **Script** | cyc01b_universe_and_blocklong.py |
+| **Universe scale** | 50→64.4%, 78→63.9%, 598→**64.9%** (Δ +1pp). Pair-days 61.4%. **Stable — not an n=78 artifact.** |
+| **block_long** | EW long alts on BTC≤-2% days. Train hold1 **+0.74%**; OOS hold1 **+0.09%** → bounce dominates short horizon. OOS hold7 long **-1.92%** (regime-dependent). Verdict: **REJECTED_AS_FILTER** for universal hold1 block. |
+| **dump_flag** | Used for Gemini short conviction ×1.5 + prompt only; not hard block_long. tc_gate (0.5% 1-bar) already counters trend on rules path. Recommend **disable short boost** (edge unproven). |
+| **Artefacts** | logs/cyc01b_universe_blocklong.json, CRYPTO_CYCLE_KNOWLEDGE §4 P0b |

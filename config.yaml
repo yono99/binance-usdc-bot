@@ -12,6 +12,9 @@ agent:
 btc:
   block_counter: true
   dump_pct: 0.5
+  # SHORT conviction ×1.5 saat dump_flag — OFF: H-CYC-01/01b (2026-07-20) short-after-dump
+  # bukan edge OOS. dump_flag tetap di context (prompt/audit); btc_gate counter-trend tetap ON.
+  dump_short_boost: false
   enabled: true
   size_floor: 0.4
   symbol: BTC/USDC:USDC

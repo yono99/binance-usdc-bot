@@ -180,7 +180,7 @@ class GeminiTrader:
             "alt": alt or {},                       # funding_z, oi_delta, cvd_imb, basis_z (skalar)
             "btc_lead": btc_lead or {},             # MOTHERCOIN: gerak BTC 1bar/3bar % + arah.
             #   Alt ber-beta lebih tinggi → BTC turun 1-4%+ sering diperbesar/diperpanjang di alt.
-            #   dump_flag=True saat BTC turun >=2% 3-bar → SHORT alt = edge struktural (beta>1).
+            #   dump_flag=True saat BTC turun >=2% 3-bar (konteks regime; short boost default OFF).
             #   dominance_dir=+1 = risk-off (BTC.D naik), -1 = risk-on (alt outperform).
             "halving_phase": halving_phase or "unknown",  # fase siklus 4-tahun: macro regime.
             #   'accumulation' / 'pre-halving' / 'post-halving' / 'bull' / 'blow-off' / 'bear'

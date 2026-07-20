@@ -25,7 +25,7 @@ SETUPS = {
     "breakout_continuation": "Lanjutan: harga tembus level penting dengan dorongan & volume.",
     "range_fade": "Sideways: fade tepi range (jual resisten, beli support) saat ADX rendah.",
     "scalp_range": "Sideways scalping: entry kecil-kecil di dalam range sempit (ATR<0.3%), SL ketat (1×ATR), TP kecil (1.2×ATR). Ambil profit cepat dari osilasi harga, jangan hold.",
-    "btc_dominance_short": "Risk-off asymmetry: BTC dump >=2% 3-bar (dump_flag=True) → alt beta>1 turun LEBIH DALAM. SHORT alt prioritas (edge struktural).",
+    "btc_dominance_short": "Regime note only: BTC dump >=2% 3-bar (dump_flag) → alt often beta>1 (descriptive). SHORT conviction boost OFF by default (H-CYC-01/01b — not OOS entry edge).",
     "exhaustion_reversal": "Pembalikan: kapitulasi/ekstrem dengan tanda kehabisan tenaga + konfirmasi.",
     "no_trade": "Tak ada setup berkualitas → FLAT. Keputusan sah & paling sering benar.",
 }

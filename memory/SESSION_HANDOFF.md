@@ -4,9 +4,21 @@
 > Di-load lewat project rules (`AGENT.md` + `.grok/rules/`).  
 > Update baris “Status terakhir” bila posture server berubah.
 
-**Terakhir diisi:** 2026-07-20 ~09:15 UTC
+**Terakhir diisi:** 2026-07-20 (P0 H-CYC-01 selesai)
 
-### Status terakhir (2026-07-20 ~09:15 UTC)
+### Status terakhir (2026-07-20)
+
+- **P0 H-CYC-01 SELESAI** — `cyc01_dump_weakness.py` (78 sym panel).
+  - beta>1 CONFIRMED; short_weak entry **REJECT/NOT_PROVEN**.
+- **P0b SELESAI** — `cyc01b_universe_and_blocklong.py` (**598 alt** @ `data/snap` 1d).
+  - Universe besar: frac deeper **64.9%** vs 78→**63.9%** (Δ hanya **+1pp**) — **bukan** >>64%.
+  - `block_long` hold1: train/OOS long **+** (bounce) → **REJECTED_AS_FILTER**.
+  - OOS hold7 long −1.9% (regime-dependent only).
+  - **dump_flag audit** → **PATCH APPLIED:** `btc.dump_short_boost: false` (default).
+    Kedua titik boost di `forward.py` di-gate; `dump_flag` tetap di context.
+    `btc_gate` counter-trend tetap ON. UI setup `btc_dominance_short` = DISABLED.
+  - Detail: [CRYPTO_CYCLE_KNOWLEDGE.md](CRYPTO_CYCLE_KNOWLEDGE.md) §4 P0b.
+  - Artefak: `logs/cyc01b_universe_blocklong.json`
 
 - **`agent_manager_mode` = OFF** (pemilik setuju setelah audit `agent_flat` vs chart).
   Autonomous/FLAT massal tidak lagi di-force. `agent_ab_shadow` tetap ON.
@@ -157,14 +169,42 @@ FLAT/manual. Set `true` di config hanya bila ingin kunci profit via BE lagi.
 ```
 [0] Kontrak     ✅
 [1] Survival    ✅ dry lock
-[2] Jalan A     ✅ manager + ab_shadow
+[2] Jalan A     ✅ ab_shadow ON; manager OFF (2026-07-20)
 [3] H28         ⏸ setelah 7 hari checklist
-[4] Hipotesis   ⏸ spek ketat saja
+[4] Hipotesis   ⏸ spek ketat — kandidat: siklus BTC/alt (lihat §7)
 [5] Live        🚫
 ```
 
 **Tugas user harian:** isi [CHECKLIST_HARIAN.md](../CHECKLIST_HARIAN.md) (~10 menit).  
-**Tugas agent sesi baru:** baca file ini + plan; **jangan** usulkan OHLCV/L2 edge hunt.
+**Tugas agent sesi baru:** baca file ini + plan + [CRYPTO_CYCLE_KNOWLEDGE.md](CRYPTO_CYCLE_KNOWLEDGE.md);
+**jangan** usulkan OHLCV/L2 edge hunt; **jangan** implement §7 tanpa minta eksplisit + spek OOS.
+
+---
+
+## 7. Backlog — ilmu siklus BTC/alt (pemilik, 2026-07-20)
+
+**Dokumen penuh:** [CRYPTO_CYCLE_KNOWLEDGE.md](CRYPTO_CYCLE_KNOWLEDGE.md)
+
+Ilmu (ringkas): BTC dump ≳2% → alt sering lebih dalam (short alt **setelah** cek
+relative weakness vs BTC); unlock supply tanpa kabar bagus → short swing hari–minggu;
+halving / BTC.D → sedikit alt ikut; alt-season ≈ BTC sideways + breadth alt hijau;
+4 fase (akumulasi → uptrend → distribusi/FOMO short ritel → bear); pendorong:
+halving, ETF/institusi, makro.
+
+**Validasi agent:** bagus sebagai **regime + filter + event** (bukan entry AI bebas).
+Sebagian sudah stub di kode (`dump_flag`, `dominance_dir`, `_halving_phase`) — masih kasar.
+
+| Prioritas | Kerja | Status |
+|---|---|---|
+| **P0** | H-CYC-01 short_weak OOS | ✅ REJECT entry; beta OK |
+| **P0b** | Universe 598 + block_flag + block_long | ✅ frac~65% stabil; block_long hold1 REJECT; boost short unproven |
+| **P1** | Disable `BTC_DUMP_BOOST` ×1.5 short | ✅ `btc.dump_short_boost: false` + gate di forward |
+| **P1** | ~~`alt_beta_short` / hard block_long~~ | ❌ ditolak data |
+| **P1** | `dominance_dir` / alt-season breadth | ⏸ backlog |
+| **P2** | Token unlock calendar | ⏸ backlog |
+| **P2** | Fase siklus terukur | ⏸ backlog |
+
+**Larangan:** manager ON, H30/L2, claim short-after-dump / block_long universal, merge boost short.
 
 ---
 
@@ -212,7 +252,9 @@ Cek: `/memory` · sesi lama: `/resume`.
 ## 6. Prompt pembuka sesi baru (copy-paste)
 
 ```
-Baca memory/SESSION_HANDOFF.md + PLAN_OPERASIONAL.md + CHECKLIST_HARIAN.md.
-Lanjutkan operasional Jalan A (jangan usul edge OHLCV/L2).
-Status: kita di fase awasi 7 hari; bantu [isi checklist / audit server / H28 hanya jika gerbang lolos].
+Baca memory/SESSION_HANDOFF.md + PLAN_OPERASIONAL.md + CHECKLIST_HARIAN.md
++ memory/CRYPTO_CYCLE_KNOWLEDGE.md (backlog siklus; jangan implement tanpa minta).
+Lanjutkan operasional Jalan A (manager OFF, ab_shadow ON; jangan usul edge OHLCV/L2).
+Status: awasi 7 hari; bantu [checklist / audit server / H28 bila gerbang lolos /
+        P0 riset siklus HANYA jika diminta eksplisit].
 ```

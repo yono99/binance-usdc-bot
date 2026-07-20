@@ -263,12 +263,10 @@ class ForwardTester:
         """Gerak BTC (pemimpin pasar) pada bar TERTUTUP: 1bar & 3bar % + arah.
         Alt ber-beta lebih tinggi → gerak turun BTC sering diperbesar/diperpanjang di alt.
 
-        Arsitektur profit konsisten: tambah `dump_flag` & `dominance_dir` utk short-priority.
-        - `dump_flag`: True saat BTC turun >= dump_threshold (default 2%) 3-bar → alt beta>1
-          akan turun LEBIH DALAM → SHORT alt = edge struktural (asymmetry logika user).
-        - `dominance_dir`: +1 = BTC menguat vs alt (risk-off, alt lemah), -1 = alt outperform
-          (risk-on, altseason). Pendekatan: bandingkan return BTC vs rata-rata top alt.
-        - `halving_phase`: fase siklus 4-tahun (accumulation/pre-halving/bull/blow-off/bear).
+        Context BTC untuk prompt/audit (bukan auto-edge):
+        - `dump_flag`: True saat BTC turun >= ~2% (4× dump_pct) pada 3 bar TF buffer.
+          Deskriptif beta>1 CONFIRMED; short boost terpisah (lihat dump_short_boost).
+        - `dominance_dir`: +1 risk-off proxy, -1 risk-on proxy (kasar).
         """
         buf = self.buffers.get("BTC/USDC:USDC")
         if buf is None or len(buf) < 5:
@@ -297,6 +295,11 @@ class ForwardTester:
             "dump_flag": dump_flag,
             "dominance_dir": dominance_dir,
         }
+
+    def _dump_short_boost_enabled(self) -> bool:
+        """SHORT conviction ×1.5 saat dump_flag. Default OFF (H-CYC-01/01b)."""
+        btc = (getattr(self, "cfg", None) or {}).get("btc") or {}
+        return bool(btc.get("dump_short_boost", False))
 
     def _pair_cleanliness_check(self, symbol: str, df: pd.DataFrame) -> dict:
         """C3: Pair Cleanliness Filter for fade family setups.
@@ -1707,10 +1710,10 @@ class ForwardTester:
             c["blocked"] = "gemini-live dimatikan (config)"
             return
         gem_conv = float(gem["dec"].get("conviction", 0.0) or 0.0) if gem else None
-        # ── ASYMMETRIC SHORT SIZING (arsitektur profit konsisten):
-        # Saat BTC dump ≥2% (dump_flag=True) → alt beta>1 turun LEBIH DALAM → SHORT edge.
-        # Boost conviction 1.5× utk SHORT saat dump_flag (cap 1.0).
-        if gem and side == -1:  # SHORT
+        # ── ASYMMETRIC SHORT SIZING (opsional; default OFF):
+        # Historis: dump_flag → SHORT conviction ×1.5. H-CYC-01/01b (2026-07-20): short-after-dump
+        # bukan edge OOS → btc.dump_short_boost default false. dump_flag tetap di context.
+        if gem and side == -1 and self._dump_short_boost_enabled():
             btc_lead = gem.get("ctx", {}).get("btc_lead", {})
             if btc_lead.get("dump_flag", False):
                 gem_conv = min(gem_conv * 1.5, 1.0)
@@ -2718,13 +2721,12 @@ class ForwardTester:
                 decisions.update(fresh)
             _fresh_set = {sym for sym, _ in _cache_miss}
 
-            # ── CONVICTION BOOST (arsitektur profit konsisten) ─────────────────────────
-            # 1. BTC Dominance Short-Priority: btc_lead.dump_flag=True & SHORT → ×1.5
-            #    Logika: BTC dump ≥2% 3-bar → BTC.D naik → alt beta>1 turun LEBIH DALAM
+            # ── CONVICTION BOOST ───────────────────────────────────────────────────────
+            # 1. BTC dump SHORT ×1.5 — HANYA bila btc.dump_short_boost (default false;
+            #    H-CYC-01/01b: short-after-dump bukan edge OOS). dump_flag tetap di context.
             # 2. Halving Cycle: bull/bear phase → trend-following direction ×1.3
-            #    bull→LONG boost, bear→SHORT boost (macro awareness tanpa override mikro)
-            # HARD GATE: boost HANYA untuk setup dengan exp_R historis ≥ 0 (atau ≥ -0.02 toleransi)
-            # Setup gagal (scalp_range, range_fade, trend_pullback) TIDAK BOLEH dapat boost
+            # HARD GATE (halving): boost HANYA setup exp_R historis ≥ -0.02
+            _dump_boost = self._dump_short_boost_enabled()
             for sym, dec in decisions.items():
                 if dec["side"] not in ("long", "short"):
                     continue
@@ -2745,8 +2747,8 @@ class ForwardTester:
                     except Exception as e:
                         log.debug(f"exp_R check failed for {setup_id}: {e}")
                 
-                # 1. BTC dump asymmetry (always allowed - structural edge)
-                if btc.get("dump_flag") and dec["side"] == "short":
+                # 1. BTC dump short boost (opt-in; default OFF)
+                if _dump_boost and btc.get("dump_flag") and dec["side"] == "short":
                     old = dec["conviction"]
                     dec["conviction"] = round(min(old * 1.5, 1.0), 3)
                     dec["rationale"] = (dec.get("rationale", "") +
