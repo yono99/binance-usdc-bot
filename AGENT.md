@@ -173,6 +173,17 @@ Agent Health (rasio LLM vs fallback) · Keputusan terakhir · Pelajaran aktif + 
 Riwayat evolusi. Endpoint JSON: `/api/decisions`, `/api/lessons`, `/api/agent-health`,
 `/api/evolution`.
 
+## Trade review — post-mortem SQLite (di bawah pondasi)
+
+Saat posisi tutup → baris di `trade_reviews` (`logs/bot.db`): fakta + `error_class` +
+`IF…THEN…BECAUSE` proses. **Bukan** auto-edge.
+
+- Hierarki: HARD → **pondasi CE/ilmu pemilik** → review → inject soft → edge terpisah.
+- Hanya `status=injectable` **dan** `conflicts_foundation=0` masuk prompt ReAct
+  (`merge_lessons_for_prompt`).
+- Conflict (short-after-dump, longgarkan risk, klaim edge, …) disimpan audit, **tidak** di-inject.
+- Spek: [memory/TRADE_REVIEW.md](memory/TRADE_REVIEW.md) · `bot/trade_review.py` · store API.
+
 ## Candidate edge — ilmu pemilik = pondasi (bukan PROMOTE_PAPER)
 
 **Pondasi** = pengalaman siklus pemilik. **Dry ⇄ live 1:1** aturan CE.  

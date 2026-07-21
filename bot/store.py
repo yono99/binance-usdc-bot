@@ -155,6 +155,37 @@ CREATE TABLE IF NOT EXISTS entry_confluence_shadow (
     outcome_r        REAL               -- diisi belakangan saat trade settle
 );
 CREATE INDEX IF NOT EXISTS idx_ec_shadow_ts ON entry_confluence_shadow(ts);
+
+-- ===== Trade post-mortem (di BAWAH pondasi CE / survival) =====
+-- Bukan auto-edge. Lihat memory/TRADE_REVIEW.md + bot/trade_review.py.
+CREATE TABLE IF NOT EXISTS trade_reviews (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts                    TEXT NOT NULL,
+    mode                  TEXT NOT NULL,          -- dry | test | live
+    symbol                TEXT NOT NULL,
+    side                  TEXT,                   -- long | short
+    outcome_r             REAL,
+    exit_reason           TEXT,                   -- sl | tp | liq | manual | ...
+    error_class           TEXT,                   -- enum proses (bukan klaim edge)
+    dump_flag             INTEGER DEFAULT 0,
+    phase                 TEXT,
+    unlock_in_window      INTEGER DEFAULT 0,
+    conviction            REAL,
+    setup                 TEXT,
+    size_mult             REAL,
+    cycle_candidate_reasons TEXT,                 -- JSON list
+    entry_reasoning       TEXT,
+    lesson_text           TEXT,                   -- IF…THEN…BECAUSE (proses)
+    conflicts_foundation  INTEGER DEFAULT 0,      -- 1 = bertentangan CE/H-CYC/risk
+    foundation_notes      TEXT,                   -- kenapa conflict / ok
+    status                TEXT DEFAULT 'hypothesis',  -- hypothesis|injectable|retired
+    decision_id           TEXT,                   -- decision_log id bila ada
+    source                TEXT DEFAULT 'deterministic',
+    meta                  TEXT                    -- JSON ekstra (mae/mfe/…)
+);
+CREATE INDEX IF NOT EXISTS idx_trev_mode_ts ON trade_reviews(mode, ts);
+CREATE INDEX IF NOT EXISTS idx_trev_status ON trade_reviews(status);
+CREATE INDEX IF NOT EXISTS idx_trev_symbol ON trade_reviews(symbol);
 """
 
 
@@ -209,6 +240,24 @@ def _migrate() -> None:
                 c.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {cols}")
             except Exception:  # index sudah ada
                 pass
+        # trade_reviews: created via _SCHEMA on fresh DB; ensure table on old DBs
+        try:
+            c.execute(
+                "CREATE TABLE IF NOT EXISTS trade_reviews ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, mode TEXT NOT NULL, "
+                "symbol TEXT NOT NULL, side TEXT, outcome_r REAL, exit_reason TEXT, "
+                "error_class TEXT, dump_flag INTEGER DEFAULT 0, phase TEXT, "
+                "unlock_in_window INTEGER DEFAULT 0, conviction REAL, setup TEXT, "
+                "size_mult REAL, cycle_candidate_reasons TEXT, entry_reasoning TEXT, "
+                "lesson_text TEXT, conflicts_foundation INTEGER DEFAULT 0, "
+                "foundation_notes TEXT, status TEXT DEFAULT 'hypothesis', "
+                "decision_id TEXT, source TEXT DEFAULT 'deterministic', meta TEXT)"
+            )
+            c.execute("CREATE INDEX IF NOT EXISTS idx_trev_mode_ts ON trade_reviews(mode, ts)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_trev_status ON trade_reviews(status)")
+            c.execute("CREATE INDEX IF NOT EXISTS idx_trev_symbol ON trade_reviews(symbol)")
+        except Exception:
+            pass
 
 
 def insert_event(event: str, payload: dict, ts: str | None = None) -> int:
@@ -902,3 +951,118 @@ def migrate_jsonl(path: Path) -> int:
                        json.dumps(rec, default=str)))
             n += 1
     return n
+
+
+# ---------- Trade post-mortem reviews (below foundation CE) ----------
+
+def insert_trade_review(row: dict) -> int | None:
+    """Insert one trade_reviews row. Fail-soft: returns None on error."""
+    try:
+        init_db()
+        _migrate()
+        reasons = row.get("cycle_candidate_reasons")
+        if isinstance(reasons, (list, tuple)):
+            reasons = json.dumps(list(reasons), default=str)
+        meta = row.get("meta")
+        if meta is not None and not isinstance(meta, str):
+            meta = json.dumps(meta, default=str)
+        with _conn() as c:
+            cur = c.execute(
+                "INSERT INTO trade_reviews ("
+                "ts, mode, symbol, side, outcome_r, exit_reason, error_class, "
+                "dump_flag, phase, unlock_in_window, conviction, setup, size_mult, "
+                "cycle_candidate_reasons, entry_reasoning, lesson_text, "
+                "conflicts_foundation, foundation_notes, status, decision_id, source, meta"
+                ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    row.get("ts") or datetime.now(timezone.utc).isoformat(),
+                    str(row.get("mode") or "dry"),
+                    str(row.get("symbol") or ""),
+                    row.get("side"),
+                    row.get("outcome_r"),
+                    row.get("exit_reason"),
+                    row.get("error_class"),
+                    1 if row.get("dump_flag") else 0,
+                    row.get("phase"),
+                    1 if row.get("unlock_in_window") else 0,
+                    row.get("conviction"),
+                    row.get("setup"),
+                    row.get("size_mult"),
+                    reasons,
+                    (str(row.get("entry_reasoning") or ""))[:2000] or None,
+                    (str(row.get("lesson_text") or ""))[:500] or None,
+                    1 if row.get("conflicts_foundation") else 0,
+                    (str(row.get("foundation_notes") or ""))[:500] or None,
+                    str(row.get("status") or "hypothesis"),
+                    row.get("decision_id"),
+                    str(row.get("source") or "deterministic"),
+                    meta,
+                ),
+            )
+            return int(cur.lastrowid)
+    except Exception as e:
+        from .logger import log
+        log.warning(f"insert_trade_review: {e}")
+        return None
+
+
+def recent_trade_reviews(mode: str | None = None, limit: int = 50,
+                         status: str | None = None,
+                         injectable_only: bool = False) -> list[dict]:
+    """Recent post-mortems. injectable_only → status=injectable AND not conflicts."""
+    try:
+        init_db()
+        _migrate()
+        where = []
+        args: list = []
+        if mode:
+            where.append("mode=?")
+            args.append(mode)
+        if injectable_only:
+            where.append("status='injectable'")
+            where.append("conflicts_foundation=0")
+        elif status:
+            where.append("status=?")
+            args.append(status)
+        wsql = (" WHERE " + " AND ".join(where)) if where else ""
+        args.append(int(max(1, min(500, limit))))
+        with _conn() as c:
+            rows = c.execute(
+                f"SELECT * FROM trade_reviews{wsql} ORDER BY id DESC LIMIT ?",
+                args,
+            ).fetchall()
+            return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def trade_review_stats(mode: str | None = None) -> dict:
+    """Counts by status / error_class for dashboard."""
+    try:
+        init_db()
+        _migrate()
+        where = " WHERE mode=?" if mode else ""
+        args = (mode,) if mode else ()
+        with _conn() as c:
+            total = c.execute(f"SELECT COUNT(*) n FROM trade_reviews{where}", args).fetchone()["n"]
+            by_status = c.execute(
+                f"SELECT status, COUNT(*) n FROM trade_reviews{where} GROUP BY status", args
+            ).fetchall()
+            by_err = c.execute(
+                f"SELECT error_class, COUNT(*) n FROM trade_reviews{where} GROUP BY error_class",
+                args,
+            ).fetchall()
+            conflicts = c.execute(
+                f"SELECT COUNT(*) n FROM trade_reviews{where}"
+                + (" AND " if where else " WHERE ")
+                + "conflicts_foundation=1",
+                args,
+            ).fetchone()["n"]
+        return {
+            "n": total,
+            "conflicts": conflicts,
+            "by_status": {r["status"]: r["n"] for r in by_status},
+            "by_error_class": {r["error_class"]: r["n"] for r in by_err},
+        }
+    except Exception:
+        return {"n": 0, "conflicts": 0, "by_status": {}, "by_error_class": {}}

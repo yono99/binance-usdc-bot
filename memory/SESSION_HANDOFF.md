@@ -4,7 +4,7 @@
 > Di-load lewat project rules (`AGENT.md` + `.grok/rules/`).  
 > Update baris “Status terakhir” bila posture server berubah.
 
-**Terakhir diisi:** 2026-07-21 (dual-track CE: dry+live 1:1, risk_ack, ce_report)
+**Terakhir diisi:** 2026-07-21 (trade_reviews SQLite + CE dual-track + handoff full)
 
 ### Scoreboard edge (jawab “sudah dapat berapa edge?”)
 
@@ -60,15 +60,21 @@ short-alts markdown-only, 1h majors net cost, re-tune thr LINK, `risk_filter_blo
 
 ### Status terakhir (2026-07-21)
 
+- **Trade review SQLite (belajar di bawah pondasi) — AKTIF:**
+  - Spek: [TRADE_REVIEW.md](TRADE_REVIEW.md) · `bot/trade_review.py` · tabel `trade_reviews`
+  - Tiap close → post-mortem: error_class, lesson IF/THEN, `conflicts_foundation`
+  - Inject ke ReAct **hanya** injectable & !conflict (soft); **bukan** auto-edge
+  - Hierarki: HARD → **ilmu/CE pondasi** → review → prompt → edge terpisah (CE path)
+  - Wire: `ForwardTester._post_mortem_close` + `merge_lessons_for_prompt`
+  - Tes: `tests/test_trade_review.py`
+
 - **Candidate edge CE-STANCE — dual-track AKTIF (pemilik setuju 2026-07-21):**
   - Spek: [CANDIDATE_EDGE.md](CANDIDATE_EDGE.md) · checklist: [LIVE_MICRO_CHECKLIST.md](LIVE_MICRO_CHECKLIST.md)
   - **Pondasi** = ilmu pemilik; **bukan** PROMOTE_PAPER
   - Config: `mode: size` · `allow_live: true` · `risk_ack: true` · `stop_loss_r_live: -5`
-  - **1:1 aturan** dry & live; live risk lock **lebih ketat** (bet/loss/pos) di UI mode=live
-  - Stop: `logs/ce_live_state.json` cum R CE-touched ≤ −5 → enforce OFF (notify)
-  - Hakim: `python ce_report.py` / `bot/ce_report.py` — **non-mutating**
-  - Wire: stamp open/journal · track close live · `bot/cycle_candidate.py`
-  - **Bukan** auto-short; **bukan** auto-promote / auto-scale
+  - **1:1 aturan** dry & live; live risk lock **lebih ketat** di UI mode=live
+  - Stop: `logs/ce_live_state.json` · Hakim: `python ce_report.py`
+  - **Bukan** auto-short; **bukan** auto-promote
   - Tes: `tests/test_cycle_candidate.py`
 
 - **Edge hunt open loop SELESAI tahap 1 — ENTRY EDGE = 0:**

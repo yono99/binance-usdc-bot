@@ -500,9 +500,18 @@ class ForwardTester:
         one_r = (self.balance_usdt + self.balance_usdc) * self.risk_frac
         day_pnl_total = self._day_pnl_usdt + self._day_pnl_usdc
         daily_pnl_r = day_pnl_total / one_r if one_r else 0.0
+        # Lessons = classic + injectable trade_reviews (foundation-filtered). Soft only.
+        try:
+            from . import trade_review as _trev
+            _les = _trev.merge_lessons_for_prompt(
+                self.lessons.recent(10),
+                mode=getattr(self.settings, "mode", None) or None,
+            )
+        except Exception:
+            _les = self.lessons.recent(10)
         kw = dict(regime=regime, alt=alt, n_positions=len(self.open),
                   max_positions=self.max_open, daily_pnl_r=daily_pnl_r,
-                  lessons=self.lessons.recent(10), shadow=self.ab_shadow,
+                  lessons=_les, shadow=self.ab_shadow,
                   memory=self.agent_memory,     # ingat observasi/keputusan lintas-tick
                   btc_lead=self._btc_lead(),                # dominansi BTC (alt ber-beta lebih tinggi)
                   halving_phase=self._halving_phase(),      # fase kalender (legacy boost path)
@@ -559,6 +568,40 @@ class ForwardTester:
         except Exception as e:  # boundary
             log.warning(f"ce live track {sym}: {e}")
 
+    def _post_mortem_close(self, sym: str, pos: dict, outcome_r: float,
+                           reason: str, *, decision_row: dict | None = None) -> None:
+        """SQLite trade_reviews under foundation hierarchy. Fail-soft."""
+        try:
+            from . import trade_review as trev
+            from . import decision_log as dlog
+            row = decision_row
+            if row is None:
+                # best-effort: last ENTER for symbol with outcome just written
+                try:
+                    for r in reversed(dlog.read_all()):
+                        if r.get("symbol") == sym and str(r.get("action", "")).startswith("ENTER"):
+                            row = r
+                            break
+                except Exception:
+                    row = None
+            # enrich pos with live dump if missing
+            if "dump_flag" not in pos and not (pos.get("cycle_candidate_tags") or {}).get("dump_flag"):
+                try:
+                    pos = {**pos, "dump_flag": bool(self._btc_lead().get("dump_flag", False))}
+                except Exception:
+                    pass
+            trev.record_close_review(
+                mode=getattr(self.settings, "mode", None) or ("live" if self.live else "dry"),
+                symbol=sym,
+                side=pos.get("side"),
+                outcome_r=outcome_r,
+                exit_reason=reason,
+                pos=pos,
+                decision_row=row,
+            )
+        except Exception as e:  # boundary — never block close
+            log.warning(f"post_mortem {sym}: {e}")
+
     def _react_settle(self, sym: str, pos: dict, pnl: float, reason: str) -> None:
         """Paper: R dari jarak SL (akuntansi identik backtest)."""
         risk0 = pos.get("risk0") or abs(pos["entry"] - pos["sl"]) * pos["qty"]  # 1R beku saat open
@@ -568,6 +611,7 @@ class ForwardTester:
                          extras={"mae_pct": round(pos.get("mae_pct", 0.0), 3),
                                  "mfe_pct": round(pos.get("mfe_pct", 0.0), 3)})
         self._ce_live_track_close(sym, pos, outcome_r)
+        self._post_mortem_close(sym, pos, outcome_r, reason)
 
     def _last_price(self, sym: str) -> float | None:
         buf = self.buffers.get(sym)
@@ -1756,12 +1800,14 @@ class ForwardTester:
             outcome_r = ((self.balance_usdt + self.balance_usdc) - prev_balance) / pos["bet"] if pos.get("bet") else 0.0
             self._react_link(sym, "LIVE_CLOSE", outcome_r)
             self._ce_live_track_close(sym, pos, outcome_r)
+            self._post_mortem_close(sym, pos, outcome_r, "live_exit")
         # CE stop tracking for single gemini live close too (same unambiguous PnL rule)
         if len(closed) == 1 and len(gem_closed) == 1:
             sym, pos = gem_closed[0]
             try:
                 outcome_r = ((self.balance_usdt + self.balance_usdc) - prev_balance) / pos["bet"] if pos.get("bet") else 0.0
                 self._ce_live_track_close(sym, pos, outcome_r)
+                self._post_mortem_close(sym, pos, outcome_r, "live_exit")
             except Exception as e:  # boundary
                 log.debug(f"ce live track gem {sym}: {e}")
 
@@ -2249,6 +2295,8 @@ class ForwardTester:
                     self._check_calib_drift()                   # Phase 6: alarm drift (tak blokir)
             except Exception as e:  # boundary
                 log.warning(f"settle/reflect gemini {sym} gagal: {e}")
+            # Post-mortem SQLite for gemini path too (ReAct path does it inside _react_settle)
+            self._post_mortem_close(sym, pos, r, reason)
         else:
             self._react_settle(sym, pos, pnl, reason)   # umpan balik ReAct (teknik non-gemini)
         journal("forward_close", {"symbol": sym, "side": pos.get("side"), "entry": round(pos["entry"], 6),
