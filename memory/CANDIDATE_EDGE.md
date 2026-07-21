@@ -1,233 +1,269 @@
-# CANDIDATE EDGE — ilmu pemilik → dry kelayakan → live mikro (risiko sadar)
+# CANDIDATE EDGE — ilmu pemilik = pondasi · dry ⇄ live 1:1 · risiko sadar
 
-> **Status:** jalur didukung (2026-07-21).  
-> **Bukan** PROMOTE_PAPER. **Bukan** klaim “edge sudah lolos.”  
-> **Adalah** cara jujur memakai ilmu/pengalaman pemilik sebagai **kandidat**,  
-> diuji di **dry**, dan (opsional) di **live mikro** hanya dengan **risiko disadari**.
+> **Status:** jalur didukung + direvisi (2026-07-21).  
+> **Pondasi:** ilmu & pengalaman pemilik (`CRYPTO_CYCLE_KNOWLEDGE.md`) — **bukan**
+> hasil edge-hunt OHLCV (PROMOTE_PAPER = 0).  
+> **Bukan** klaim “edge sudah lolos.”  
+> **Adalah:** aturan yang sama di **dry paper** dan **live mikro**, diukur terpisah,
+> digabung sebagai hakim — live untuk **realisme endpoint**, dry untuk **volume
+> tanpa modal**.
 
 Baca dulu: [CRYPTO_CYCLE_KNOWLEDGE.md](CRYPTO_CYCLE_KNOWLEDGE.md) ·  
-[SESSION_HANDOFF.md](SESSION_HANDOFF.md) scoreboard · [METHODOLOGY.md](../METHODOLOGY.md).
+[SESSION_HANDOFF.md](SESSION_HANDOFF.md) · [METHODOLOGY.md](../METHODOLOGY.md) ·  
+[TUJUAN.md](../TUJUAN.md) §2.1.
 
 ---
 
-## 0. Kontrak mental (wajib dibaca sebelum live)
+## 0. Kontrak mental
 
 | | |
 |---|---|
-| Hist OOS | Cukup untuk **tolak** auto-short dump/unlock sebagai entry alpha |
-| Dry | **Penguji kelayakan** kandidat (forward, mesin nyata) |
-| Live | **Bukan** hadiah karena “ilmu benar” — hanya **eksposur mikro** jika pemilik **mengerti** kandidat bisa rugi |
-| Klaim edge penuh | Hanya setelah bar **PROMOTE_PAPER** (atau PROMOTE_FILTER untuk meta risk) + dry konsisten |
+| **Pondasi** | Ilmu siklus / beta / unlock / fase pemilik → diukur jadi CE-STANCE (stance/filter) |
+| **Hist OOS** | Cukup **tolak** auto-short dump/unlock sebagai *entry alpha* — tidak membatalkan stance |
+| **Dry paper** | Volume, counterfactual, proses — **murah**, gap fill vs exchange |
+| **Live mikro** | Realisme fill/fee/funding/reject — **mahal**, wajib `risk_ack` |
+| **1:1** | **Aturan & mode sama** di dry dan live; yang beda = modal & risk lock |
+| **Klaim edge penuh** | Hanya setelah dry **dan** live mikro **searah** + (bila entry) bar PROMOTE_* |
 
-**Kalimat risiko (copy untuk diri sendiri sebelum `allow_live`):**
+**Kalimat risiko (wajib sebelum `allow_live` + `risk_ack`):**
 
-> Saya mengerti: ilmu siklus saya adalah **kandidat**, belum edge terbukti.  
-> Live mikro bisa rugi; dry adalah hakim kelayakan; saya tidak scale karena  
-> beberapa TP beruntun atau keyakinan pribadi saja.
-
----
-
-## 1. Mengapa jalur ini (dukungan metodologi)
-
-Ilmu pemilik **bernilai** sebagai regime/filter/stance, tapi arm **entry short**
-(H-CYC-01 trade, H-CYC-02 unlock short) **gagal** bar OOS. Jadi jalur yang didukung:
-
-```
-JANGAN:  ilmu → auto-short dump/unlock → live
-YA:      ilmu → kandidat STANCE/FILTER → shadow dry → size dry → (opsional) live mikro
-         → kumpulkan n → baru ajukan PROMOTE_* atau matikan
-```
-
-Ini memenuhi syarat “jadi edge” **secara bertahap**, tanpa membohongi scoreboard
-(PROMOTE_PAPER tetap 0 sampai bukti ada).
+> Saya mengerti: ilmu saya adalah **pondasi kandidat**, belum edge terbukti.  
+> Dry dan live memakai **aturan yang sama (1:1)**; live lebih realistis ke Binance  
+> tapi **bisa rugi uang nyata**. Saya tidak scale karena win streak paper atau  
+> keyakinan pribadi saja. Stop rule live: −X R kumulatif → matikan `allow_live`.
 
 ---
 
-## 2. Tiga kandidat (prioritas)
+## 0.1 Telaah jujur: “live lebih bagus deteksi edge karena gap paper”
 
-Hanya **satu jalur aktif** dulu (default: **CE-STANCE**). Jangan campur entry short.
+### Klaim pemilik (diringkas)
 
-### CE-STANCE (default — paling jujur vs data)
+> Test dry vs live: live lebih bagus / realistis karena gap paper → endpoint
+> Binance bikin kesalahan kecil tidak akurat; jadi live juga perlu sebagai
+> deteksi otomatis edge.
 
-**Klaim:** di regime dump / markdown / unlock window, **kurangi size long**  
-(dan opsional soft-skip long baru) → **turunkan risk**, bukan naikkan exp_R.
+### Putusan telaah (bukan setuju buta, bukan tolak total)
 
-| Trigger (terukur) | Aksi kandidat |
+| Bagian klaim | Verdict | Alasan di repo ini |
+|---|---|---|
+| Paper ≠ fill exchange | **BENAR** | Dry: fill disimulasi (fee+slippage model, `Backtester` / paper path). Live: order limit/resting, precision, reject, partial, latency, funding, balance dompet nyata (`_live_open`, pending). |
+| Gap bisa bikin “salah kecil” di paper | **BENAR** | Edge **eksekusi/likuiditas** (maker, antrian, slip) **hanya** terbukti di live. Paper bisa over/under-state fill. |
+| Live **lebih baik** untuk *semua* jenis edge | **SEBAGIAN** | Untuk **CE-STANCE** (size long saat dump/phase/unlock): input utama = OHLCV + label siklus — **candle sama** di dry & live. Gap fill **lebih kecil** pengaruhnya dibanding edge scalping. Live tetap penting untuk *realized R path*. |
+| Live = deteksi edge **otomatis** | **SALAH bila dibaca “auto-promote”** | Live **mengukur** path real; **tidak** otomatis label PROMOTE / naik size. n kecil + variance → bisa hijau/merah palsu. Putusan fase = manusia + metrik. |
+| Dry tidak berguna | **SALAH** | Dry = n besar gratis, counterfactual shadow, uji crash/log, A/B risk tanpa modal. Live tanpa dry = mahal & underpowered. |
+| Dry dulu selalu, live belakangan | **TERLALU KAKU** (revisi) | Untuk **pondasi ilmu pemilik + stance**, jalur **ganda 1:1** lebih jujur: dry (volume) **paralel** live mikro (realisme) dengan aturan identik — asalkan risk live sadar & ketat. |
+
+### Implikasi operasional (yang kita anut)
+
+```
+ILMU PEMILIK (pondasi)
+        │
+        ▼
+  CE-STANCE rules (1 set config)
+        │
+   ┌────┴────┐
+   ▼         ▼
+ DRY        LIVE MIKRO
+ (volume,   (fill nyata,
+  free,      fee/funding,
+  gap fill)  risk_ack)
+   │         │
+   └────┬────┘
+        ▼
+  Hakim gabungan (risk + realism)
+        │
+   sejalan → lanjut fase / scale hati-hati
+   bertentangan → KEEP / RETIRE / perbaiki model fill
+   live jelek dry bagus → curiga gap paper (bukan “ilmu salah total”)
+   dry jelek live bagus → curiga n kecil / selection — jangan scale
+```
+
+**Satu kalimat telaah:**  
+Live **wajib** sebagai **hakim realisme endpoint** (bukan pengganti dry, bukan auto-edge).  
+Dry **wajib** sebagai **hakim volume & proses**. Keduanya 1:1 pada **aturan**; beda pada **modal**.
+
+---
+
+## 1. Pondasi = ilmu pemilik (bukan scoreboard hunt)
+
+Edge-hunt OHLCV (~300 arms) → **PROMOTE_PAPER = 0**. Itu **tidak** membatalkan
+pengalaman pemilik; itu membatalkan **klaim entry short** yang sudah diuji OOS.
+
+| Ilmu pemilik (CRYPTO_CYCLE_KNOWLEDGE) | Status di mesin | Peran pondasi |
+|---|---|---|
+| BTC dump → alt beta > 1 | OOS: beta **CONFIRMED**; short entry **REJECT** | → **size-down long** / hindari long agresif (bukan auto-short) |
+| Unlock / supply shock | OOS short **NOT_PROVEN** | → size-down long di window; calendar context |
+| Fase markdown / bear | CONTEXT_ONLY + CE size | → stance defensif long |
+| Dominance / alt season | context | → bias, bukan entry 15m |
+| Halving calendar | context | → label, bukan trigger scalp |
+
+```
+JANGAN:  ilmu → auto-short dump/unlock → full live
+YA:      ilmu → CE-STANCE (1 config) → dry + live mikro 1:1 → ukur → scale / retire
+```
+
+---
+
+## 2. Kandidat aktif: CE-STANCE
+
+**Klaim:** di dump / markdown / unlock, **kurangi size long** (opsional soft-skip long baru)  
+→ **turunkan risk**, bukan janji naik exp_R.
+
+| Trigger | Aksi |
 |---|---|
-| `dump_flag` (BTC ~≤−2% 3-bar) | size long × `long_size_on_dump` (default 0.5) |
-| phase `markdown` / `bear` calendar | size long × `long_size_on_markdown` (default 0.7) |
-| `unlock.in_window` untuk symbol | size long × `long_size_on_unlock` (default 0.5) |
-| (opsional soft_block) dump **dan** long baru | **skip** open long (bukan flat posisi lama) |
+| `dump_flag` | size long × `long_size_on_dump` (0.5) |
+| phase `markdown` / cal `bear` | × `long_size_on_markdown` (0.7) |
+| `unlock.in_window` | × `long_size_on_unlock` (0.5) |
+| soft_block + dump | skip **new** long |
 
-**Hakim kelayakan (dry):** maxDD / std R / worst R / day_pnl path vs baseline  
-(rules/gemini tanpa CE) — mirip Jalan A risk, **bukan** winrate harian.
+**Dilarang:** auto-short dump, `dump_short_boost`, hard FLAT dari phase label.
 
-**Dilarang di CE-STANCE:** auto-short dump, boost short, hard FLAT dari phase.
-
-### CE-RELWEAK (fase 2 — setelah shadow n cukup)
-
-**Klaim:** long alt diizinkan penuh hanya jika **tidak** relative-weak vs BTC  
-(`ret_alt − ret_btc` di atas thr kausal). Weak → size down atau skip long.
-
-Butuh: hitung per-symbol di buffer (bukan `dominance_dir` kasar).  
-OOS hist terpisah sebelum `mode=size`.
-
-### CE-FILTER-BREADTH (sudah ada sebagian)
-
-Risk-filter `breadth_lo` / corr-vol = **PROMOTE_FILTER_PAPER** shadow.  
-Tetap **block OFF** sampai paper risk A/B. Boleh **digabung** CE-STANCE shadow  
-(log terpisah), jangan double-count sebagai “2 edge entry”.
+**Fase 2 (nanti):** CE-RELWEAK · CE-FILTER-BREADTH (sudah shadow terpisah).
 
 ---
 
-## 3. Mode runtime (`agent.cycle_candidate`)
+## 3. Mode runtime — **satu config, dua arena**
 
 | mode | Dry | Live |
 |---|---|---|
 | `off` | mati | mati |
-| `shadow` | log only (`CANDIDATE_EDGE_SHADOW`) | log only (aman) |
-| `size` | **size_mult** dikali faktor | hanya jika `allow_live` **dan** `risk_ack` |
-| `soft_block` | skip **new long** saat trigger ketat | hanya jika `allow_live` **dan** `risk_ack` |
-
-Config (`config.yaml`):
+| `shadow` | log only | log only (aman; **1:1 logging**) |
+| `size` | enforce size-down | enforce **hanya** jika `allow_live` **dan** `risk_ack` |
+| `soft_block` | skip new long | sama + ack |
 
 ```yaml
 agent:
   cycle_candidate:
-    mode: shadow          # off|shadow|size|soft_block
-    allow_live: false     # LIVE enforce (size/soft_block) — default OFF
-    risk_ack: false       # harus true sadar: kandidat unproven
+    mode: shadow          # off|shadow|size|soft_block — SAMA untuk dry & live
+    allow_live: false     # kunci LIVE enforce
+    risk_ack: false       # sadar: unproven + uang nyata
     long_size_on_dump: 0.5
     long_size_on_markdown: 0.7
     long_size_on_unlock: 0.5
-    # soft_block: skip long baru jika dump_flag (default false di size-only path)
     soft_block_long_on_dump: true
 ```
 
-Modul: `bot/cycle_candidate.py` · wire: `ForwardTester._open_usd` (size) + pre-open long gate.
+**1:1 artinya:**
 
----
-
-## 4. Jalan implementasi (checklist)
-
-### Fase D0 — Kontrak (1×)
-
-- [x] Dokumen ini  
-- [x] Pemilik setuju jalur: dry = hakim kelayakan; live mikro hanya + risiko sadar; PROMOTE_PAPER masih 0  
-- [x] Tidak nyalakan manager-mode / dump_short_boost / risk_filter_block demi “ilmu”  
-- [x] Wire kode + config default `mode: shadow` + tes unit
-
-### Fase D1 — Dry shadow (minimal 7 hari proses / n≥30 keputusan long)
-
-1. [x] `mode: shadow` di dry (default setelah wire).  
-2. Bot jalan normal (gemini/rules + risk lock 5/30/5/5).  
-3. Tiap kandidat long: tulis log  
-   `action=CANDIDATE_EDGE_SHADOW`, factors, `size_would`, `skip_would`, cycle tags.  
-4. Report mingguan:  
-   - long yang **would-downsize** vs outcome R  
-   - long yang **would-skip** vs outcome R (counterfactual kasar: apakah TP tetap? / SL?)  
-5. **Lolos D1** jika: log stabil, tidak crash, n cukup, arah risk tidak kacau  
-   (bukan “harus profit”).
-
-### Fase D2 — Dry size (kelayakan stance)
-
-1. Hanya setelah D1 OK.  
-2. `mode: size` **hanya dry** (`allow_live: false`).  
-3. Bandingkan 7–14 hari:  
-   - maxDD / worst R / sum R long-only vs window shadow sebelumnya  
-4. **Lolos D2 (kandidat layak lanjut)** jika risk membaik **atau** net R tidak memburuk material  
-   dengan n≥20 long closes.  
-5. **Gagal D2** → kembali shadow atau `off`; jangan live.
-
-### Fase D3 — Dry soft_block (opsional, lebih agresif)
-
-1. Hanya jika D2 size netral/positif risk.  
-2. `mode: soft_block` di dry: skip **new long** saat dump (bukan tutup open).  
-3. Catat opportunity cost (missed TP) vs avoided SL.  
-4. OOS hist block_long hold1 **pernah REJECT** — soft_block bisa gagal; hormati data.
-
-### Fase L0 — Live mikro (hanya risiko sadar)
-
-**Syarat ALL true:**
-
-| # | Syarat |
+| Sama (wajib) | Boleh beda |
 |---|---|
-| 1 | D2 (atau D3) dry **lolos** checklist di atas |
-| 2 | `risk_ack: true` di config (eksplisit) |
-| 3 | `allow_live: true` |
-| 4 | Risk live **lebih ketat** dari dry: loss% kecil, bet mikro, max pos rendah |
-| 5 | `mode` hanya `size` dulu (bukan soft_block) di live awal |
-| 6 | Pemilik tidak scale karena 1 minggu hijau |
-| 7 | Stop rule tertulis: mis. −X R kumulatif live → `allow_live: false` otomatis/manual |
+| `mode`, multiplier, soft_block flag | `bet_usd` / loss% / max_pos (live **lebih ketat**) |
+| Trigger (dump/phase/unlock) | Modal total |
+| Schema log (`CANDIDATE_EDGE_SHADOW`, stamp) | Path log file per mode (`decision_log_dry` vs live) |
+| Fail-open (error ≠ block trade) | |
 
-**Bukan syarat L0:** PROMOTE_PAPER (itu L1).  
-**L0 = eksperimen berbayar sadar**, bukan “edge certified.”
-
-### Fase L1 — Baru boleh bilang “menuju edge”
-
-- Dry + live mikro **searah** dengan hist (untuk CE-STANCE: risk↓)  
-- n live memadai  
-- Baru ajukan spek **PROMOTE_FILTER** / stance policy — atau entry terpisah jika ada konstruk baru  
-- Scale bertahap; bukan all-in
+Modul: `bot/cycle_candidate.py` · wire: `ForwardTester._open_usd`.
 
 ---
 
-## 5. Yang tidak akan diimplementasi di jalur ini
+## 4. Jalan implementasi (dual-track)
 
-| Dilarang | Alasan |
-|---|---|
-| Auto-short dump / unlock sebagai default | OOS entry **REJECT / NOT_PROVEN** |
-| `dump_short_boost: true` | Hygiene H-CYC-01 |
-| `risk_filter_block: true` tanpa paper A/B | Shadow dulu |
-| Manager-mode ON “supaya disiplin ilmu” | agent_flat −EV |
-| Klaim PROMOTE_PAPER dari CE-STANCE | Jenisnya risk/stance, bukan entry alpha |
-| Live full size karena “ilmu saya benar” | Melanggar kontrak §0 |
+### F0 — Kontrak + pondasi
+
+- [x] Spek + wire + tes + dry `mode=shadow` deploy  
+- [x] Telaah paper↔live (bagian 0.1)  
+- [ ] Pemilik setuju kalimat risiko §0 sebelum L0  
+- [ ] Tidak nyalakan dump_short_boost / manager demi “ilmu”
+
+### F1 — Shadow 1:1 (logging, tanpa size)
+
+1. Dry: `mode: shadow` (**sudah**).  
+2. Live (opsional paralel): `mode: shadow` saja — **tidak** butuh `allow_live`  
+   (shadow tidak apply size; hanya log). Berguna membandingkan *kapan* trigger  
+   sama di kedua arena.  
+3. Kumpulkan n trigger + (setelah close) outcome R.  
+4. **Lolos F1:** log stabil, n dry ≥30 *atau* n live ≥15 shadow events.
+
+### F2 — Size 1:1 (enforce stance)
+
+1. Dry: `mode: size`, `allow_live: false`.  
+2. Live: **hanya** jika pemilik sadar:  
+   `mode: size` + `allow_live: true` + `risk_ack: true`  
+   + risk live **lebih ketat** (bet mikro, loss% kecil, max pos rendah).  
+3. **Aturan CE identik**; modal tidak.  
+4. **Lolos F2 (kandidat layak):**  
+   - risk metric (maxDD / worst R / std) di **dry** tidak memburuk material, **dan**  
+   - path **live** tidak meledak / tidak kontradiksi parah (live jauh lebih jelek tanpa alasan eksekusi).  
+5. **Gagal:** `mode: shadow` atau `off`; matikan `allow_live`.
+
+### F3 — soft_block (opsional, dry dulu disarankan)
+
+OOS hist block_long pernah REJECT — hati-hati. Live soft_block hanya setelah dry F2 OK.
+
+### L1 — Menuju “edge policy” (bukan all-in)
+
+Dry + live mikro **searah** (risk↓ atau netral) + n memadai → spek PROMOTE_FILTER /  
+stance policy. Scale bertahap. **Bukan** PROMOTE_PAPER entry alpha kecuali konstruk baru lolos OOS.
 
 ---
 
-## 6. Metrik laporan (dry)
+## 5. Deteksi “kebenaran” — semi-otomatis, dual hakim
 
-Tiap minggu (atau `python` report kecil nanti):
+| Lapisan | Otomatis? | Isi |
+|---|---|---|
+| Trigger + log shadow | **Ya** | `CANDIDATE_EDGE_SHADOW`, `size_would`, `skip_would`, stamp open |
+| Outcome R per trade | **Ya** (baris ENTER) | `record_outcome` — join manual/skrip ke stamp CE |
+| Verdict `PROMOTE_*` / `RETIRE` | **Tidak** (sengaja) | Manusia + report; **tidak** auto-ubah config / scale |
+| Live “deteksi edge” | **Ukur otomatis, putuskan tidak** | Realized R + fill quality; stop rule manual/config |
+
+### Metrik (dry **dan** live, terpisah lalu banding)
 
 ```
 n_long_closed
 n_shadow_downsize / n_shadow_skip
-mean_R kept vs would-skip bucket (jika counterfactual ada)
-maxDD period
-worst R
-notes: regime phase, dump days
+mean_R / worst_R / maxDD  — bucket would-size vs full
+fill notes (live only): reject, pending timeout, fee real vs model
+gap note: |paper_R_proxy − live_R| bila trade sejenis
 ```
-
-Verdict kandidat:
 
 | Verdict | Arti |
 |---|---|
-| `KEEP_SHADOW` | Data kurang / netral |
-| `PROMOTE_DRY_SIZE` | Lanjut D2 |
-| `PROMOTE_LIVE_MICRO` | Lolos D2 + risk_ack — L0 only |
-| `RETIRE` | Memperburuk risk atau n cukup + tidak ada manfaat |
-| `NOT_EDGE_ENTRY` | Selalu benar untuk CE-STANCE sampai spek entry baru lolos OOS |
+| `KEEP_SHADOW` | n kurang / netral |
+| `PROMOTE_DRY_SIZE` | Dry risk OK → F2 dry |
+| `PROMOTE_LIVE_MICRO` | Siap L0: ack + size 1:1 mikro |
+| `DUAL_OK` | Dry & live sejalan (risk) — kandidat layak scale hati-hati |
+| `GAP_SUSPECT` | Dry bagus, live jelek → perbaiki model fill / ekspektasi paper, jangan buang ilmu dulu |
+| `RETIRE` | Kedua arena memperburuk risk atau n cukup + nol manfaat |
+| `NOT_EDGE_ENTRY` | Selalu untuk CE-STANCE sampai spek entry baru lolos OOS |
+
+**Live tidak “otomatis bilang edge.”** Live **otomatis mengumpulkan bukti realisme**;  
+**manusia** (atau skrip report non-mutating) mengeluarkan verdict.
 
 ---
 
-## 7. Mapping ke mimpi “ilmu saya jadi edge sepenuhnya”
+## 6. Yang dilarang
 
-| Syarat edge penuh | CE-STANCE path |
+| Dilarang | Alasan |
 |---|---|
-| Aturan terukur | dump / phase / unlock → size/skip |
-| OOS hist | Entry short **sudah gagal**; stance **belum** bar penuh → candidacy jujur |
-| Dry forward | **D1–D3** = inti kelayakan |
-| Live | **L0** mikro + ack risiko |
-| PROMOTE | Hanya setelah bukti — tidak di-skip |
+| Auto-short dump/unlock default | OOS entry REJECT / NOT_PROVEN |
+| `dump_short_boost: true` | Hygiene H-CYC |
+| Live full size “karena ilmu saya benar” | Melanggar §0 |
+| Live tanpa `risk_ack` | Kode: `applied=False` di live |
+| Samakan live hijau = PROMOTE_PAPER | Variance + n kecil |
+| Matikan dry “karena live lebih real” | Kehilangan volume & counterfactual |
+| Auto-scale dari report | Self-promotion diam-diam |
+
+---
+
+## 7. Mapping mimpi “ilmu jadi edge”
+
+| Syarat | Jalur ini |
+|---|---|
+| Pondasi pengalaman | **Ya** — CRYPTO_CYCLE → CE-STANCE |
+| Aturan terukur 1:1 dry/live | **Ya** — satu config |
+| Realisme Binance | **Live mikro** + risk_ack |
+| Volume / proses | **Dry** |
+| Deteksi otomatis penuh | **Tidak** — ukur auto, promote manual |
+| PROMOTE entry | Hanya konstruk baru + bar OOS; stance = filter/policy |
 
 ---
 
 ## 8. Satu kalimat
 
-> Ilmu pemilik dijalankan sebagai **kandidat stance/filter di dry** untuk menguji  
-> kelayakan risk; **live mikro hanya dengan `risk_ack`**, tanpa menyamakan itu  
-> dengan edge entry yang sudah lolos PROMOTE_PAPER.
+> Ilmu pemilik adalah **pondasi**; dry dan live memakai **aturan CE yang sama (1:1)**;  
+> dry menguji volume, live menguji **realisme endpoint dengan risiko diketahui**;  
+> keduanya mengukur, **tidak** auto-mempromosikan edge.
 
 ---
 
-*Dibuat: 2026-07-21. Wire kode: `bot/cycle_candidate.py` + config `agent.cycle_candidate`.*
+*Revisi: 2026-07-21 (dual-track + telaah paper/live). Wire: `bot/cycle_candidate.py`.*

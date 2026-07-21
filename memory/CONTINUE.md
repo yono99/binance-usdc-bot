@@ -10,7 +10,7 @@
 | **Edge entry (PROMOTE_PAPER)** | **0** |
 | **Risk filter (PROMOTE_FILTER_PAPER)** | **2** — shadow only, **bukan** edge cuan |
 | **WATCHLIST** | **1** — LINK residual-z (p_adj fail) |
-| **Candidate (ilmu pemilik)** | **CE-STANCE shadow di dry** — bukan PROMOTE; lihat [CANDIDATE_EDGE.md](CANDIDATE_EDGE.md) |
+| **Candidate (ilmu pemilik)** | **CE-STANCE** pondasi · dry⇄live **1:1** · bukan PROMOTE — [CANDIDATE_EDGE.md](CANDIDATE_EDGE.md) |
 
 Jangan bilang “sudah ada edge” bila yang dimaksud entry/profit. Filter/candidate = risk/stance.
 
@@ -18,44 +18,44 @@ Jangan bilang “sudah ada edge” bila yang dimaksud entry/profit. Filter/candi
 
 | Item | Nilai |
 |---|---|
-| Git tip | `9e37df6` · filter wire `c67d34c` · npz `b8e924f` |
-| Edge hunt | ~300 arms A–R10 |
-| **PROMOTE_PAPER** | **0** |
-| **PROMOTE_FILTER_PAPER** | `skip_breadth_lo` + `skip_corr_or_volhi` |
+| Git tip | `c4ab001` CE-STANCE · filter `c67d34c` · npz `b8e924f` |
+| Edge hunt | ~300 arms A–R10 · **PROMOTE_PAPER = 0** |
+| **PROMOTE_FILTER_PAPER** | `skip_breadth_lo` + `skip_corr_or_volhi` (shadow) |
 | WATCHLIST | LINK residual-z fade vs BTC (p_adj fail) |
-| Posture paper | dry · risk 5/30/5/5 · manager **OFF** · ab_shadow **ON** |
-| Risk filter | **shadow ON** · **block OFF** · panel live (breadth_lo seen) |
+| Pondasi | Ilmu pemilik → CE-STANCE (size long dump/markdown/unlock) |
+| Dual-track | Aturan **1:1** dry & live; live = realisme endpoint + `risk_ack` |
+| Posture paper | dry · risk 5/30/5/5 · manager **OFF** · ab_shadow **ON** · CE `mode=shadow` |
+| Risk filter | **shadow ON** · **block OFF** |
 | Server | `192.168.1.107` · PM2 bot+dashboard · `./restart.sh` |
-| Modul | `bot/risk_filter.py` · panel `data/risk_filter_panel.npz` |
 
 ## Jangan
 
-- Wire entry baru / live / longgarkan risk
-- `risk_filter_block: true` tanpa bukti paper (would-deny worse risk)
-- Retread H24–H32, H-CYC short unlock, crash-bounce pure, short-alts markdown-only
-- Re-tune threshold LINK supaya “lolos p” (overfit)
-- Klaim edge dari train+ atau OOS+ tanpa full promotion rule
+- Wire entry short / full live size / longgarkan risk karena “ilmu benar”
+- `allow_live` tanpa `risk_ack` + stop rule tertulis
+- `risk_filter_block: true` tanpa bukti paper
+- Retread H24–H32, H-CYC short unlock, crash-bounce pure
+- Klaim live hijau = PROMOTE_PAPER / auto-edge
+- Matikan dry “karena live lebih real” (kehilangan volume)
 - Samakan PROMOTE_FILTER dengan PROMOTE_PAPER
 
 ## Lanjut (pilih 1)
 
-1. **Candidate edge dry (default):** `cycle_candidate.mode=shadow` → log `CANDIDATE_EDGE_SHADOW`; setelah n≥30 → pertimbangkan `size` di dry saja. Live: `allow_live`+`risk_ack` wajib. Spek: [CANDIDATE_EDGE.md](CANDIDATE_EDGE.md).
-2. **Kumpulkan** `RISK_FILTER_SHADOW` → A/B **risk** (maxDD/std/worst).
-3. **Alt-data / LINK residual** — log only; jangan re-tune thr.
+1. **Default:** CE shadow dry (jalan) + baca telaah paper/live di [CANDIDATE_EDGE.md](CANDIDATE_EDGE.md) §0.1.
+2. **Dual 1:1:** setelah setuju kalimat risiko — live **shadow** dulu (log only) atau `size`+`allow_live`+`risk_ack` **mikro**.
+3. **Kumpulkan** `RISK_FILTER_SHADOW` → A/B risk.
+4. **Jangan** re-tune LINK thr.
 
 ## Perintah cepat
 
 ```bash
 git pull
-# baca: memory/CONTINUE.md → SESSION_HANDOFF.md → EDGE_HUNT.md
+# baca: memory/CONTINUE.md → SESSION_HANDOFF.md → CANDIDATE_EDGE.md
 ./restart.sh   # di server dry
 python ab_report.py   # ReAct A/B; filter via decision_log RISK_FILTER_SHADOW
 ```
 
 ## Promotion rule (ingat)
 
-**Entry:** oos CANDIDATE + train mean>0 + lockbox>0 + day-EW oos>0 + cost×2 oos>0  
-(+ excess vs BTC bila relevan) + n≥30 + p_adj<0.05 → **PROMOTE_PAPER**.
-
-**Filter only:** train+oos+lock ↓maxDD, oos worst better, n_kept≥30 → **PROMOTE_FILTER_PAPER**  
-→ shadow dulu; block hanya setelah paper risk A/B.
+PROMOTE_PAPER = entry alpha bar penuh.  
+PROMOTE_FILTER = meta risk only.  
+CE-STANCE = kandidat stance; live mikro ≠ certified edge.

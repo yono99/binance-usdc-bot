@@ -60,14 +60,15 @@ short-alts markdown-only, 1h majors net cost, re-tune thr LINK, `risk_filter_blo
 
 ### Status terakhir (2026-07-21)
 
-- **Candidate edge CE-STANCE WIRED (dry shadow default):**
-  - Spek: [CANDIDATE_EDGE.md](CANDIDATE_EDGE.md) · modul `bot/cycle_candidate.py`
-  - Config: `agent.cycle_candidate.mode: shadow`, `allow_live: false`, `risk_ack: false`
-  - Wire: `ForwardTester._open_usd` — log `CANDIDATE_EDGE_SHADOW` + stamp open/pending
-  - Aksi: size-down long pada dump / markdown / unlock; soft_block long on dump (mode terpisah)
-  - **Live enforce hanya** jika `allow_live` **dan** `risk_ack` (pemilik sadar risiko unproven)
-  - **Bukan** PROMOTE_PAPER; **bukan** auto-short (H-CYC-01/02 OOS gagal sebagai entry)
-  - Jalur: D1 shadow dry → D2 size dry → (opsional) D3 soft_block dry → L0 live mikro + ack
+- **Candidate edge CE-STANCE — pondasi ilmu + dual-track 1:1:**
+  - Spek (revisi): [CANDIDATE_EDGE.md](CANDIDATE_EDGE.md) §0.1 telaah paper↔live · `bot/cycle_candidate.py`
+  - **Pondasi** = ilmu pemilik (bukan PROMOTE_PAPER=0 dari OHLCV hunt)
+  - Config: `mode: shadow`, `allow_live: false`, `risk_ack: false` (dry deploy `c4ab001`)
+  - **1:1:** aturan CE sama dry & live; beda = modal/risk lock (live lebih ketat)
+  - Live = **hakim realisme** fill/fee (gap paper endpoint) — ukur auto, **bukan** auto-promote
+  - Dry = volume + counterfactual; jangan matikan dry “karena live lebih real”
+  - Enforce live hanya `allow_live` **dan** `risk_ack` + stop rule
+  - **Bukan** auto-short (H-CYC entry OOS gagal); stance = size-down long
   - Tes: `tests/test_cycle_candidate.py` (9)
 
 - **Edge hunt open loop SELESAI tahap 1 — ENTRY EDGE = 0:**

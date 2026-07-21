@@ -173,15 +173,17 @@ Agent Health (rasio LLM vs fallback) · Keputusan terakhir · Pelajaran aktif + 
 Riwayat evolusi. Endpoint JSON: `/api/decisions`, `/api/lessons`, `/api/agent-health`,
 `/api/evolution`.
 
-## Candidate edge — ilmu siklus pemilik (bukan PROMOTE_PAPER)
+## Candidate edge — ilmu pemilik = pondasi (bukan PROMOTE_PAPER)
 
-Jalur didukung: **dry menguji kelayakan**, live mikro hanya dengan **risiko disadari**.  
-Spek: [memory/CANDIDATE_EDGE.md](memory/CANDIDATE_EDGE.md) · modul `bot/cycle_candidate.py`.
+**Pondasi** = pengalaman siklus pemilik, bukan scoreboard OHLCV hunt.  
+**Dry ⇄ live 1:1** pada aturan CE; live = realisme endpoint Binance (gap paper fill),  
+bukan auto-promote edge. Spek + telaah: [memory/CANDIDATE_EDGE.md](memory/CANDIDATE_EDGE.md)  
+· modul `bot/cycle_candidate.py`.
 
-- Default `agent.cycle_candidate.mode: shadow` → log `CANDIDATE_EDGE_SHADOW` (size/skip *would*).
-- `size` / `soft_block` di **dry**: kurangi size long (dump/markdown/unlock) atau skip long baru.
-- **Live** enforce hanya jika `allow_live: true` **dan** `risk_ack: true`.
-- **Dilarang:** auto-short dump/unlock, samakan dengan PROMOTE_PAPER, scale tanpa dry lolos.
+- Default `mode: shadow` → log `CANDIDATE_EDGE_SHADOW` (size/skip *would*) di dry (dan live log-only).
+- `size` / `soft_block`: enforce di dry; di **live** hanya `allow_live` **dan** `risk_ack`.
+- Hakim: dry = volume/proses; live = fill/fee/funding nyata — **ukur auto, putusan fase manual**.
+- **Dilarang:** auto-short dump/unlock, full live tanpa ack, klaim live hijau = PROMOTE_PAPER.
 
 ## Risk filter overlay (Jalan A meta — bukan entry alpha)
 

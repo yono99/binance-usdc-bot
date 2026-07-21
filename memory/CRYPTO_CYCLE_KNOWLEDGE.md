@@ -1,12 +1,14 @@
 # Ilmu siklus BTC / alt — pengetahuan pemilik (serap + validasi + backlog)
 
 > **Sumber:** pemilik (filosofi + pengalaman pasar crypto), 2026-07-20.  
-> **Status:** **BACKLOG** — diserap untuk desain fitur; **belum** diimplement / di-claim edge.  
-> **Kontrak:** semua klaim di bawah harus diuji **data OOS** sebelum jadi sinyal live.  
-> **Bukan:** nyalakan manager-mode, H30/L2, atau longgarkan risk karena “ilmu baru”.
+> **Status:** **PONDASI KANDIDAT** — dijalankan sebagai CE-STANCE (stance/filter),  
+> **bukan** edge entry terbukti. Lihat [CANDIDATE_EDGE.md](CANDIDATE_EDGE.md).  
+> **Kontrak:** entry short dump/unlock **sudah** diuji OOS (gagal); stance size-down long  
+> diuji dry ⇄ live **1:1** dengan risiko sadar.  
+> **Bukan:** manager-mode, H30/L2, full live, atau longgarkan risk karena “ilmu benar”.
 
-Dokumen ini adalah **bahan baku hipotesis struktural** (Fase 4 di PLAN),
-bukan override survival + Jalan A.
+Dokumen ini = **pondasi** jalur kandidat (bukan override survival).  
+Implementasi runtime: `bot/cycle_candidate.py` + dual-track dry/live di CANDIDATE_EDGE.
 
 ---
 
