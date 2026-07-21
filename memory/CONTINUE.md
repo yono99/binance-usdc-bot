@@ -9,9 +9,10 @@
 |---|---|
 | **Edge entry (PROMOTE_PAPER)** | **0** |
 | **Risk filter (PROMOTE_FILTER_PAPER)** | **2** — shadow only, **bukan** edge cuan |
-| **WATCHLIST** | **1** — LINK residual-z (p_adj gagal) |
+| **WATCHLIST** | **1** — LINK residual-z (p_adj fail) |
+| **Candidate (ilmu pemilik)** | **CE-STANCE shadow di dry** — bukan PROMOTE; lihat [CANDIDATE_EDGE.md](CANDIDATE_EDGE.md) |
 
-Jangan bilang “sudah ada edge” bila yang dimaksud entry/profit. Filter = meta ↓DD.
+Jangan bilang “sudah ada edge” bila yang dimaksud entry/profit. Filter/candidate = risk/stance.
 
 ## Fakta terkunci (2026-07-21)
 
@@ -38,9 +39,9 @@ Jangan bilang “sudah ada edge” bila yang dimaksud entry/profit. Filter = met
 
 ## Lanjut (pilih 1)
 
-1. **Kumpulkan** paper dry: `RISK_FILTER_SHADOW` di decision_log + stamp open → A/B **risk** (maxDD/std/worst).
-2. **Alt-data:** funding/OI/L2 panel hist **hanya** jika coverage OOS cukup; konstruk ≠ H15/24/25.
-3. **Shadow LINK residual** — log decision only, no size; kumpulkan n.
+1. **Candidate edge dry (default):** `cycle_candidate.mode=shadow` → log `CANDIDATE_EDGE_SHADOW`; setelah n≥30 → pertimbangkan `size` di dry saja. Live: `allow_live`+`risk_ack` wajib. Spek: [CANDIDATE_EDGE.md](CANDIDATE_EDGE.md).
+2. **Kumpulkan** `RISK_FILTER_SHADOW` → A/B **risk** (maxDD/std/worst).
+3. **Alt-data / LINK residual** — log only; jangan re-tune thr.
 
 ## Perintah cepat
 

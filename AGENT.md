@@ -173,6 +173,16 @@ Agent Health (rasio LLM vs fallback) · Keputusan terakhir · Pelajaran aktif + 
 Riwayat evolusi. Endpoint JSON: `/api/decisions`, `/api/lessons`, `/api/agent-health`,
 `/api/evolution`.
 
+## Candidate edge — ilmu siklus pemilik (bukan PROMOTE_PAPER)
+
+Jalur didukung: **dry menguji kelayakan**, live mikro hanya dengan **risiko disadari**.  
+Spek: [memory/CANDIDATE_EDGE.md](memory/CANDIDATE_EDGE.md) · modul `bot/cycle_candidate.py`.
+
+- Default `agent.cycle_candidate.mode: shadow` → log `CANDIDATE_EDGE_SHADOW` (size/skip *would*).
+- `size` / `soft_block` di **dry**: kurangi size long (dump/markdown/unlock) atau skip long baru.
+- **Live** enforce hanya jika `allow_live: true` **dan** `risk_ack: true`.
+- **Dilarang:** auto-short dump/unlock, samakan dengan PROMOTE_PAPER, scale tanpa dry lolos.
+
 ## Risk filter overlay (Jalan A meta — bukan entry alpha)
 
 `bot/risk_filter.py` — skip kandidat saat breadth rendah / corr tinggi / BTC vol tinggi

@@ -16,6 +16,16 @@ agent:
   risk_filter_block: false
   risk_filter_breadth: true      # skip when breadth (frac > SMA50) in bottom 30% of 100d
   risk_filter_corr_vol: true     # skip when avg corr high OR BTC vol20 high (top quartile)
+  # Candidate edge from owner cycle knowledge (NOT PROMOTE_PAPER). See memory/CANDIDATE_EDGE.md
+  # Dry: shadow = log only. size/soft_block = enforce on dry. Live needs allow_live+risk_ack.
+  cycle_candidate:
+    mode: shadow                 # off|shadow|size|soft_block
+    allow_live: false            # LIVE enforce — default OFF
+    risk_ack: false              # must be true knowingly: unproven candidate risk
+    long_size_on_dump: 0.5
+    long_size_on_markdown: 0.7
+    long_size_on_unlock: 0.5
+    soft_block_long_on_dump: true
 btc:
   block_counter: true
   dump_pct: 0.5

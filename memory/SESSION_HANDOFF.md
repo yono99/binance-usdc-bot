@@ -4,7 +4,7 @@
 > Di-load lewat project rules (`AGENT.md` + `.grok/rules/`).  
 > Update baris “Status terakhir” bila posture server berubah.
 
-**Terakhir diisi:** 2026-07-21 (handoff: scoreboard edge jujur + risk-filter dry live)
+**Terakhir diisi:** 2026-07-21 (candidate edge CE-STANCE dry shadow + risk-filter)
 
 ### Scoreboard edge (jawab “sudah dapat berapa edge?”)
 
@@ -13,6 +13,7 @@
 | **PROMOTE_PAPER** (edge entry, boleh paper-size) | **0** | Belum ada. Jangan klaim profit edge. |
 | **PROMOTE_FILTER_PAPER** (meta risk overlay) | **2** | Bukan entry alpha — hanya kandidat ↓DD |
 | **WATCHLIST** (arah OOS+ tapi gagal bar penuh) | **1** | LINK residual-z fade vs BTC (p_adj gagal) |
+| **CANDIDATE (ilmu pemilik)** | **CE-STANCE** | Stance/size long di dump/markdown/unlock — **bukan** PROMOTE |
 | Arms OOS diuji (A–R10 + risk harness) | ~300+ | “Tidak ketemu entry” = hasil valid |
 
 **Dua filter (bukan edge entry):**
@@ -47,15 +48,27 @@ sebelumnya R7–R10 di tree yang sama. `git pull` dulu di server.
 
 **Perintah lanjut yang disarankan (pilih satu jalur, jangan OHLCV retread):**
 ```text
-# A) Kumpulkan risk_filter SHADOW di dry — A/B risk maxDD/std/worst (bukan exp_R entry)
-# B) Shadow LINK residual (WATCHLIST only) — log only, no sizing
-# C) Scaffold funding/OI panel hist bila cache ada — konstruk ≠ H15/H24/H25
+# A) Candidate CE-STANCE: mode=shadow di dry → log CANDIDATE_EDGE_SHADOW (n≥30) → baru size dry
+# B) Kumpulkan risk_filter SHADOW di dry — A/B risk maxDD/std/worst (bukan exp_R entry)
+# C) Shadow LINK residual (WATCHLIST only) — log only, no sizing
+# D) Scaffold funding/OI panel hist bila cache ada — konstruk ≠ H15/H24/H25
 ```
 
 **Sudah ditolak / jangan ulang tanpa novelty:** H24–H32, H-CYC short unlock, crash-bounce pure,
 short-alts markdown-only, 1h majors net cost, re-tune thr LINK, `risk_filter_block` tanpa bukti paper.
+**Jangan** auto-short dump/unlock; **jangan** `allow_live`+`risk_ack` sebelum D2 dry lolos.
 
 ### Status terakhir (2026-07-21)
+
+- **Candidate edge CE-STANCE WIRED (dry shadow default):**
+  - Spek: [CANDIDATE_EDGE.md](CANDIDATE_EDGE.md) · modul `bot/cycle_candidate.py`
+  - Config: `agent.cycle_candidate.mode: shadow`, `allow_live: false`, `risk_ack: false`
+  - Wire: `ForwardTester._open_usd` — log `CANDIDATE_EDGE_SHADOW` + stamp open/pending
+  - Aksi: size-down long pada dump / markdown / unlock; soft_block long on dump (mode terpisah)
+  - **Live enforce hanya** jika `allow_live` **dan** `risk_ack` (pemilik sadar risiko unproven)
+  - **Bukan** PROMOTE_PAPER; **bukan** auto-short (H-CYC-01/02 OOS gagal sebagai entry)
+  - Jalur: D1 shadow dry → D2 size dry → (opsional) D3 soft_block dry → L0 live mikro + ack
+  - Tes: `tests/test_cycle_candidate.py` (9)
 
 - **Edge hunt open loop SELESAI tahap 1 — ENTRY EDGE = 0:**
   - ~300 arms OOS (A–F, deep, crash, volspike, R2–R10 pairs)
@@ -84,7 +97,8 @@ short-alts markdown-only, 1h majors net cost, re-tune thr LINK, `risk_filter_blo
 
 - **Proxmox paper dry (postur terkunci — cek tiap deploy):**
   risk loss **5** / trades 30 / max_open 5 / lev 5 / bet 4; manager **OFF**, ab_shadow **ON**;
-  dump_short_boost false; risk_filter_shadow ON / block OFF.
+  dump_short_boost false; risk_filter_shadow ON / block OFF;
+  **cycle_candidate mode=shadow** (allow_live/risk_ack OFF).
   **Cek risk tiap deploy** (sering drift loss %).
 
 - **P0 H-CYC-01 SELESAI** — beta>1 CONFIRMED; short_weak **REJECT**.

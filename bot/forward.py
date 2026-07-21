@@ -32,6 +32,7 @@ from . import vrp
 from . import mtf
 from . import flat_shadow
 from . import risk_filter as risk_filter_mod
+from . import cycle_candidate as cycle_cand
 from .planner import SessionPlanner, default_plan
 from .react_agent import ReactAgent
 from .signals import Signal
@@ -1825,6 +1826,53 @@ class ForwardTester:
                                      "setup": (gem["dec"].get("setup") if gem else None)})
             log.info(f"SKIP {sym}: confidence {gem_conv:.2f} < {rs.conf_min:.2f} (abstain)")
             return
+        # ── CANDIDATE EDGE (ilmu siklus pemilik) — shadow/size/soft_block; NOT PROMOTE_PAPER.
+        # Live enforce only if allow_live AND risk_ack (owner understands unproven risk).
+        # Default: long size-down / soft-skip; never auto-short dump/unlock.
+        ce_verdict = None
+        try:
+            _dump = bool(self._btc_lead().get("dump_flag", False))
+            _cctx = self._cycle_context(sym)
+            ce_verdict = cycle_cand.evaluate(
+                side=side, cfg=self.cfg, live=bool(self.live),
+                dump_flag=_dump, cycle_context=_cctx)
+            if cycle_cand.should_log(ce_verdict):
+                # size_would / skip_would = counterfactual even in shadow.
+                # size_mult_after = what actually ships (only if applied).
+                _would_mult = max(0.05, float(size_mult) * float(ce_verdict.size_mult or 1.0))
+                _cc_flags = cycle_cand.cfg_from(self.cfg)
+                _skip_would = bool(ce_verdict.skip) or (
+                    side == 1 and bool(_cc_flags.get("soft_block_long_on_dump"))
+                    and bool(_dump))
+                decision_log.append({
+                    "ts": pd.Timestamp.utcnow().isoformat(),
+                    "symbol": sym,
+                    "action": "CANDIDATE_EDGE_SHADOW",
+                    "side": "long" if side == 1 else "short" if side == -1 else "flat",
+                    "outcome": None,
+                    "size_mult_before": size_mult,
+                    "size_would": round(_would_mult, 4),
+                    "skip_would": _skip_would,
+                    "size_mult_after": (cycle_cand.apply_size(size_mult, ce_verdict)
+                                       if ce_verdict.applied else size_mult),
+                    **cycle_cand.stamp(ce_verdict),
+                })
+            if ce_verdict.applied and ce_verdict.skip:
+                c = self.sig_cache.setdefault(sym, {})
+                c["blocked"] = ("cycle_candidate soft_block "
+                                + ",".join(ce_verdict.reasons or ["skip"]))
+                journal("forward_skip", {"symbol": sym, "reason": "cycle_candidate",
+                                         "reasons": ce_verdict.reasons,
+                                         "side": "long" if side == 1 else "short"})
+                log.info(f"SKIP {sym}: cycle_candidate {ce_verdict.reasons}")
+                return
+            if ce_verdict.applied and ce_verdict.size_mult < 0.999:
+                size_mult = cycle_cand.apply_size(size_mult, ce_verdict)
+                log.info(f"cycle_candidate size {sym}: mult→{size_mult:.3f} "
+                         f"reasons={ce_verdict.reasons}")
+        except Exception as e:  # boundary — candidate must never block on error
+            log.warning(f"cycle_candidate {sym} fail-open: {e}")
+            ce_verdict = None
         quote = "USDC" if sym.endswith(":USDC") else "USDT"
         pool = self._quote_pool(quote)            # margin per-quote (dompet terpisah di live)
         # Tahap 1 (plan-sess): notional locked per-WALLET (book per-quote) — bukan agregat.
@@ -1996,7 +2044,8 @@ class ForwardTester:
                     **self.vrp.stamp(), **self._regime_stamp(self.buffers.get(sym), self.cfg),
                     **(mtf_stamp := (self.mtf.stamp(self.buffers.get(sym), self.tf, side)
                                      if self.buffers.get(sym) is not None else {})),
-                    **risk_filter_mod.stamp(getattr(self, "_risk_filter_verdict", None))}
+                    **risk_filter_mod.stamp(getattr(self, "_risk_filter_verdict", None)),
+                    **cycle_cand.stamp(ce_verdict)}
                 if gem:
                     self.pending[sym].update(conviction=gem_conv)
                     try:
@@ -2032,7 +2081,8 @@ class ForwardTester:
                           **self.vrp.stamp(),   # stempel regime VRP saat open (A/B shadow)
                           **self._regime_stamp(buf_full, self.cfg),  # regime → laporan EV
                           **mtf_stamp,
-                          **risk_filter_mod.stamp(getattr(self, "_risk_filter_verdict", None))}
+                          **risk_filter_mod.stamp(getattr(self, "_risk_filter_verdict", None)),
+                          **cycle_cand.stamp(ce_verdict)}
         if gem:                                     # catat keputusan Gemini → settle saat tutup
             self.open[sym]["conviction"] = gem_conv   # untuk skor Brier saat close
             try:
