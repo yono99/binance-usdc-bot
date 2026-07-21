@@ -941,6 +941,19 @@ class ForwardTester(ForwardGatesMixin, ForwardOpenMixin, ForwardCloseMixin, Forw
                             price=c.get("price", 0.0),
                             reason=_ec_result["reason"])
                         ec_gate.log_shadow(_ec_shadow_rec)
+                        # Surface ke UI (status.symbols[].ec_shadow) — shadow TIDAK
+                        # memblokir entry; user harus lihat would-skip + alasan.
+                        c["ec_shadow"] = {
+                            "would_enter": bool(_ec_result["decision"] == "enter"),
+                            "decision": _ec_result["decision"],
+                            "btc_tier": _ec_result["btc_tier"],
+                            "structure_pass": bool(_ec_result["structure_pass"]),
+                            "location_quality": _ec_result.get("location_quality"),
+                            "reason": _ec_result.get("reason") or "",
+                            "setup": _setup_id,
+                            "side": dec["side"],
+                            "conviction": float(dec.get("conviction", 0) or 0),
+                        }
                         log.info(f"ENTRY CONFLUENCE SHADOW {sym} {_setup_id} "
                                  f"btc={_ec_result['btc_tier']} struct={_ec_result['structure_pass']} "
                                  f"loc={_ec_result['location_quality']} "

@@ -63,6 +63,17 @@ export interface Position {
   opened_ts?: string | null;   // ISO — utk marker panah entry di chart
 }
 
+/** Entry Confluence Gate — shadow only (tidak memblokir entry aktual). */
+export interface EcShadowView {
+  would_enter: boolean;
+  decision: string; // enter | skip
+  btc_tier?: string | null;
+  structure_pass?: boolean;
+  location_quality?: string | null;
+  reason?: string;
+  setup?: string | null;
+}
+
 export interface PairStatus {
   symbol: string;
   price: number | null;
@@ -71,6 +82,10 @@ export interface PairStatus {
   in_position: boolean;
   blocked: string | null;
   position: Position | null;
+  rationale?: string | null;
+  setup?: string | null;
+  /** Last EC shadow verdict for this pair (null = belum dievaluasi). */
+  ec_shadow?: EcShadowView | null;
 }
 
 export interface OpenOrder {

@@ -1662,6 +1662,18 @@ async function loadStatus(){
      {t:'Posisi (PnL)',f:r=>r.in_position?`${r.position.side.toUpperCase()} ${(r.position.pnl_usd>=0?'+':'')+f(r.position.pnl_usd,2)}`:'—',
       cls:r=>r.in_position?(r.position.pnl_usd>=0?'pos':'neg'):''},
      {t:'Keterangan',f:r=>r.blocked||'—'},
+     // EC shadow: would-skip + reason (TIDAK memblokir). Hover = detail btc/struct/loc.
+     {t:'EC shadow',f:r=>{
+        const ec=r.ec_shadow; if(!ec) return '—';
+        const gate=ec.would_enter?'ENTER':'SKIP';
+        const tip=['gate='+gate,ec.btc_tier?('btc='+ec.btc_tier):null,
+          'struct='+(ec.structure_pass?'Y':'N'),
+          ec.location_quality?('loc='+ec.location_quality):'loc=—',
+          ec.reason||null,'(shadow — tidak memblokir)'].filter(Boolean).join(' · ');
+        const shortR=!ec.would_enter&&ec.reason?(ec.reason.length>40?ec.reason.slice(0,40)+'…':ec.reason):'';
+        const warn=(!ec.would_enter&&r.in_position)?' <span class="neg">⚠open</span>':'';
+        return `<span title="${tip.replace(/"/g,'&quot;')}" class="${ec.would_enter?'pos':'neg'}">${gate}${shortR?' <span class="sub">'+shortR+'</span>':''}${warn}</span>`;
+      }},
      {t:'Aksi',f:r=>r.in_position?`<button class="btnsm" onclick="closePos('${r.symbol}')">Close</button>`:'—'}],
     s.symbols||[]);
 

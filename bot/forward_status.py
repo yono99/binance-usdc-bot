@@ -509,10 +509,27 @@ class ForwardStatusMixin:
                             "liq": round(pos["liq"], 6), "pnl_usd": pnl_usd, "roi_pct": roi,
                             "qty": pos["qty"], "bet": pos.get("bet"), "mark": round(price, 6),
                             "opened_ts": pos.get("opened_ts")}   # utk marker panah entry di chart
+            # EC shadow (bila ada): would-skip + reason — BUKAN hard block.
+            # UI tampilkan terpisah dari `blocked` agar user paham "gate bilang
+            # skip tapi bot tetap boleh open (mode shadow)".
+            _ec = c.get("ec_shadow")
+            if isinstance(_ec, dict):
+                _ec_view = {
+                    "would_enter": bool(_ec.get("would_enter")),
+                    "decision": _ec.get("decision") or ("enter" if _ec.get("would_enter") else "skip"),
+                    "btc_tier": _ec.get("btc_tier"),
+                    "structure_pass": bool(_ec.get("structure_pass")),
+                    "location_quality": _ec.get("location_quality"),
+                    "reason": _ec.get("reason") or "",
+                    "setup": _ec.get("setup"),
+                }
+            else:
+                _ec_view = None
             syms.append({"symbol": sym, "price": price, "atr_pct": c.get("atr_pct"),
                          "signal": c.get("side", "-"), "in_position": bool(pos),
                          "blocked": c.get("blocked"), "position": pos_view,
-                         "rationale": c.get("rationale"), "setup": c.get("setup")})
+                         "rationale": c.get("rationale"), "setup": c.get("setup"),
+                         "ec_shadow": _ec_view})
         status = {
             "ts": pd.Timestamp.utcnow().isoformat(),
             "mode": self.settings.mode,

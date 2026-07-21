@@ -71,6 +71,45 @@ export function BotStatus({ status, onAction }: { status: Status | null; onActio
     },
     { t: "Alasan tak-entry", render: (r) => r.blocked || "—" },
     {
+      t: "EC shadow",
+      render: (r) => {
+        const ec = r.ec_shadow;
+        if (!ec) return <span className="muted">—</span>;
+        const gate = ec.would_enter ? "ENTER" : "SKIP";
+        const tip = [
+          `gate=${gate}`,
+          ec.btc_tier ? `btc=${ec.btc_tier}` : null,
+          ec.structure_pass != null ? `struct=${ec.structure_pass ? "Y" : "N"}` : null,
+          ec.location_quality ? `loc=${ec.location_quality}` : "loc=—",
+          ec.reason || null,
+          "(shadow — tidak memblokir entry)",
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        // Highlight: would-skip but bot opened / about to open (user must see).
+        const skipButOpen = !ec.would_enter && r.in_position;
+        return (
+          <span
+            title={tip}
+            className={ec.would_enter ? "pos" : skipButOpen ? "neg" : "neg"}
+            style={{ cursor: "help", fontSize: 12 }}
+          >
+            {gate}
+            {!ec.would_enter && ec.reason ? (
+              <span className="muted" style={{ marginLeft: 4, fontWeight: 400 }}>
+                {ec.reason.length > 42 ? ec.reason.slice(0, 42) + "…" : ec.reason}
+              </span>
+            ) : null}
+            {skipButOpen ? (
+              <span className="neg" style={{ marginLeft: 4 }} title="Gate bilang SKIP tapi posisi tetap dibuka (shadow)">
+                ⚠open
+              </span>
+            ) : null}
+          </span>
+        );
+      },
+    },
+    {
       t: "",
       render: (r) =>
         r.in_position ? (
@@ -145,6 +184,8 @@ export function BotStatus({ status, onAction }: { status: Status | null; onActio
         <div className="sub" style={{ marginBottom: 8 }}>
           Daftar <b>pantau (screening)</b> — bukan posisi terbuka. Sinyal &amp; ATR terisi saat bar baru
           tertutup, tiap siklus screening (~{Math.round((status.poll_seconds ?? 900) / 60)} mnt).
+          {" "}Kolom <b>EC shadow</b> = verdict Entry Confluence (SKIP/ENTER + alasan) —{" "}
+          <b>tidak memblokir</b> entry; hover untuk detail btc/struct/loc.
           {status.gemini_decide_budget != null && (
             <>
               {" "}Budget Gemini: <b>{status.gemini_decide_budget}</b>/siklus

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api";
 import type { Account, Settings, Status } from "../types";
 import { PairPicker } from "./PairPicker";
@@ -85,20 +85,21 @@ export function ControlPanel({
   const [models, setModels] = useState<string[]>([]);
   const [adjusted, setAdjusted] = useState<string[]>([]);
   const [lastManual, setLastManual] = useState(5);
-  const balRefUsdt = useRef<HTMLInputElement>(null);
-  const balRefUsdc = useRef<HTMLInputElement>(null);
-  const pendingBalUsdt = useRef<number | null>(null);
-  const pendingBalUsdc = useRef<number | null>(null);
 
-  const toForm = (d: Settings): Form => ({
+  // Seed form balances dari ledger hidup (status paper / account live),
+  // BUKAN dari runtime settings (nilai frozen seed — bisa basi vs PnL).
+  const liveUsdt = isLive ? account?.balance_usdt : status?.balance_usdt;
+  const liveUsdc = isLive ? account?.balance_usdc : status?.balance_usdc;
+
+  const toForm = (d: Settings, bal?: { usdt?: number; usdc?: number }): Form => ({
     enabled: d.enabled,
     technique: d.technique,
     symbols: d.symbols || [],
     leverage: d.leverage,
     bet_usd: d.bet_usd,
     bet_pct: d.bet_pct ?? 0,
-    balance_usdt: d.balance_usdt ?? 0,
-    balance_usdc: d.balance_usdc ?? 0,
+    balance_usdt: bal?.usdt ?? d.balance_usdt ?? 0,
+    balance_usdc: bal?.usdc ?? d.balance_usdc ?? 0,
     target_profit_pct: d.target_profit_pct,
     max_open_positions: d.max_open_positions,
     daily_max_loss_pct: d.daily_max_loss_pct,
@@ -124,32 +125,33 @@ export function ControlPanel({
   useEffect(() => {
     api.settings().then((d) => {
       setS(d);
+      // Seed config saja; balance_* di-overwrite effect sync di bawah
+      // (hindari closure basi: status sering tiba sebelum/sesudah settings).
       setForm(toForm(d));
     });
     api.geminiModels().then((r) => setModels(r.models));
   }, []);
 
-  // Form Saldo = saldo hidup. LIVE: dari Binance Futures USDC (read-only).
-  // DEMO/paper: dari status (paper, naik/turun mengikuti PnL), bisa diinput manual.
-  // saldo TERPISAH per-wallet (USDT/USDC). Jangan timpa saat user mengetik atau
-  // menunggu bot menerapkan (pendingBal*).
+  // Form Saldo = ledger hidup (sama sumber dengan bar Status / equity).
+  // LIVE: Binance Futures. Paper: status bot (naik/turun via PnL).
+  // POST /api/settings sengaja pop balance_* (anti-overwrite PnL) → field read-only.
+  // formReady = form sudah di-seed → re-run juga saat settings load selesai
+  // (status bisa sudah ada lebih dulu; dulu effect cuma depend balance → race).
+  const formReady = form != null;
   useEffect(() => {
-    if (!form) return;
-    const usdt = isLive ? account?.balance_usdt : status?.balance_usdt;
-    const usdc = isLive ? account?.balance_usdc : status?.balance_usdc;
-    const apply = (key: "balance_usdt" | "balance_usdc", val: number) => {
-      if (val == null) return;
-      const refKey = key === "balance_usdt" ? pendingBalUsdt : pendingBalUsdc;
-      if (refKey.current != null && Math.abs(val - refKey.current) < 1e-9)
-        refKey.current = null;
-      const activeRef = key === "balance_usdt" ? balRefUsdt.current : balRefUsdc.current;
-      if (!isLive && (document.activeElement === activeRef || refKey.current != null)) return;
-      setForm((p) => (p ? { ...p, [key]: val } : p));
-    };
-    apply("balance_usdt", usdt ?? form.balance_usdt);
-    apply("balance_usdc", usdc ?? form.balance_usdc);
-  }, [status?.balance_usdt, status?.balance_usdc,
-      account?.balance_usdt, account?.balance_usdc, isLive]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!formReady) return;
+    const usdt = liveUsdt;
+    const usdc = liveUsdc;
+    setForm((p) => {
+      if (!p) return p;
+      let next = p;
+      if (usdt != null && Math.abs(usdt - p.balance_usdt) > 1e-9)
+        next = { ...next, balance_usdt: usdt };
+      if (usdc != null && Math.abs(usdc - p.balance_usdc) > 1e-9)
+        next = { ...next, balance_usdc: usdc };
+      return next;
+    });
+  }, [formReady, liveUsdt, liveUsdc]);
 
   if (!s || !form) return <div className="panel"><h2>Bot control</h2><div className="empty">memuat…</div></div>;
 
@@ -176,7 +178,11 @@ export function ControlPanel({
       await api.setMode(m);
       const d = await api.settings(m);
       setS(d);
-      setForm(toForm(d));
+      // Mode switch: seed config mode baru; balance tetap dari ledger hidup bila ada.
+      setForm(toForm(d, {
+        usdt: liveUsdt ?? d.balance_usdt,
+        usdc: liveUsdc ?? d.balance_usdc,
+      }));
     } catch {
       set("mode", m);
     }
@@ -198,8 +204,12 @@ export function ControlPanel({
   ];
 
   const save = async () => {
+    // Jangan kirim balance_* — backend pop() anti-overwrite PnL ledger.
+    // Field form hanya mirror status/account (read-only di UI).
+    const { balance_usdt: _bu, balance_usdc: _bc, ...payload } = form as Form & Record<string, unknown>;
+    void _bu; void _bc;
     const sent = form;
-    const res = await api.saveSettings(form as unknown as Record<string, unknown>);
+    const res = await api.saveSettings(payload as Record<string, unknown>);
     const adj: string[] = [];
     for (const [k, label] of NUM_FIELDS) {
       const a = sent[k] as number;
@@ -207,10 +217,9 @@ export function ControlPanel({
       if (typeof a === "number" && typeof b === "number" && Math.abs(a - b) > 1e-9)
         adj.push(`${label}: ${a} → ${b}`);
     }
-    pendingBalUsdt.current = res.balance_usdt ?? null;
-    pendingBalUsdc.current = res.balance_usdc ?? null;
     setS((prev) => (prev ? { ...prev, ...res } : res)); // merge, jaga 'techniques'
-    // pakai nilai hasil clamp engine (kalau user input ngawur, ikut engine)
+    // pakai nilai hasil clamp engine (kalau user input ngawur, ikut engine).
+    // balance_* tetap dari liveUsdt/liveUsdc (effect sync) — jangan ambil seed settings.
     setForm((p) =>
       p ? { ...p, leverage: res.leverage, bet_usd: res.bet_usd, bet_pct: res.bet_pct ?? 0,
             target_profit_pct: res.target_profit_pct,
@@ -224,7 +233,9 @@ export function ControlPanel({
             gemini_min_hold_s: res.gemini_min_hold_s ?? p.gemini_min_hold_s,
             gemini_portfolio_seconds: res.gemini_portfolio_seconds ?? p.gemini_portfolio_seconds,
             gemini_plan_hours: res.gemini_plan_hours ?? p.gemini_plan_hours,
-            gemini_tool_iters: res.gemini_tool_iters ?? p.gemini_tool_iters } : p
+            gemini_tool_iters: res.gemini_tool_iters ?? p.gemini_tool_iters,
+            balance_usdt: liveUsdt ?? p.balance_usdt,
+            balance_usdc: liveUsdc ?? p.balance_usdc } : p
     );
     setAdjusted(adj);
     setSaved(" tersimpan ✓ (bot menerapkan tiap siklus)");
@@ -300,30 +311,34 @@ export function ControlPanel({
         <label style={{ gridColumn: "1 / -1" }}>
           Saldo per-wallet —{" "}
           <span className="sub">
-            {isLive ? "LIVE: dari Binance Futures — read-only · " : ""}
-            USDT (wallet USDT-M) & USDC (wallet USDC-M) terpisah
+            {isLive
+              ? "LIVE: dari Binance Futures — read-only · "
+              : "paper: dari status bot (ikut PnL) — read-only · "}
+            sinkron dengan bar Status / equity · USDT (USDT-M) & USDC (USDC-M) terpisah
           </span>
           <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
             <label style={{ flex: 1 }}>
               USDT
               <input
-                ref={balRefUsdt}
                 type="number" min={0} step={0.01}
                 value={form.balance_usdt}
-                disabled={isLive}
-                title={isLive ? "Saldo USDT diambil otomatis dari Binance" : ""}
-                onChange={(e) => set("balance_usdt", +e.target.value)}
+                readOnly
+                disabled
+                title={isLive
+                  ? "Saldo USDT dari Binance Futures (ledger live)"
+                  : "Saldo USDT paper dari status bot — berubah otomatis via PnL"}
               />
             </label>
             <label style={{ flex: 1 }}>
               USDC
               <input
-                ref={balRefUsdc}
                 type="number" min={0} step={0.01}
                 value={form.balance_usdc}
-                disabled={isLive}
-                title={isLive ? "Saldo USDC diambil otomatis dari Binance" : ""}
-                onChange={(e) => set("balance_usdc", +e.target.value)}
+                readOnly
+                disabled
+                title={isLive
+                  ? "Saldo USDC dari Binance Futures (ledger live)"
+                  : "Saldo USDC paper dari status bot — berubah otomatis via PnL"}
               />
             </label>
           </div>
