@@ -140,7 +140,7 @@ Checklist siap pakai (centang + log 1 baris): **[CHECKLIST_HARIAN.md](CHECKLIST_
 ## 6. Urutan lanjut (setelah dokumen ini)
 
 1. **Jaga AB 7 hari** — kumpulkan A/B + survival metrics.  
-2. **H28 paper** — `h28_forward.py`, parameter **beku**, evaluasi pertama hanya setelah n siklus cukup (lihat pra-registrasi di `RESEARCH_HYPOTHESES_PHASE4.md`).  
+2. **H28 paper** — `research/h28_forward.py`, parameter **beku**, evaluasi pertama hanya setelah n siklus cukup (lihat pra-registrasi di `RESEARCH_HYPOTHESES_PHASE4.md`).  
 3. **Hipotesis baru (kandidat struktural)** — ilmu siklus BTC/alt pemilik:
    [memory/CRYPTO_CYCLE_KNOWLEDGE.md](memory/CRYPTO_CYCLE_KNOWLEDGE.md)
    (beta dump, relative weakness, unlock, alt-season, 4 fase). **P0 ukur OOS dulu**;

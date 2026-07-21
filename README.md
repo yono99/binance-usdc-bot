@@ -21,6 +21,9 @@ Satu basis kode, **tiga mode** lewat satu variabel `MODE`:
 > **Operasional aktif (2026-07):** survival + **Jalan A** (agent manajer disiplin, A/B shadow) —
 > lihat **[PLAN_OPERASIONAL.md](PLAN_OPERASIONAL.md)**, **[CHECKLIST_HARIAN.md](CHECKLIST_HARIAN.md)**
 > (ritual ~10 menit), dan **[TUJUAN.md](TUJUAN.md)** §2.1. Bukan target “profit tiap hari”.
+>
+> **Peta sistem:** [ARCHITECTURE.md](ARCHITECTURE.md) · entry gates: [ENTRY_PIPELINE.md](ENTRY_PIPELINE.md) ·
+> riset offline: [research/](research/) (bukan path PM2).
 
 ## ⚠️ Baca dulu — jujur soal ekspektasi
 
@@ -71,7 +74,7 @@ python run.py               # loop penuh (simulasi)
 | `cd web && npm run build` | Build frontend React/Vite (dashboard menyajikan `web/dist`) |
 | `python chart_ingest.py --all-usdc` | Isi/refresh chart OHLCV → SQLite `data/market.db` (backfill otomatis) |
 | `python sl_calibrate.py` | Kalibrasi lantai SL dari 1 thn data (MAE pemenang, ×ATR) |
-| `python h28_eval.py` | Progres/vonis t-test paper-test H28 (PREVIEW s/d 15 siklus) |
+| `python research/h28_eval.py` | Progres/vonis t-test paper-test H28 (PREVIEW s/d 15 siklus) |
 | `python ab_report.py` | A/B: apakah layer agen (ReAct/rem) menambah nilai — diukur |
 | `python bot/ec_calibrate.py` | Kalibrasi Entry Confluence Gate threshold dari settled trades |
 | `pytest -q` | 113 unit test Python (termasuk anti-leakage, signifikansi, gerbang verdict) |

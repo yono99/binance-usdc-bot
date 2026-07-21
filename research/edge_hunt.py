@@ -36,7 +36,7 @@ from bot.xsectional import (
 )
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 SNAP = ROOT / "data" / "snap"
 COST_RT = 0.0018  # 0.04% fee + 0.05% slip per leg × 2
 

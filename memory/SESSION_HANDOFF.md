@@ -4,7 +4,7 @@
 > Di-load lewat project rules (`AGENT.md` + `.grok/rules/`).  
 > Update baris “Status terakhir” bila posture server berubah.
 
-**Terakhir diisi:** 2026-07-21 (trade_reviews SQLite + CE dual-track + handoff full)
+**Terakhir diisi:** 2026-07-21 (forward mixin split + research/ + ARCHITECTURE kanonik)
 
 ### Scoreboard edge (jawab “sudah dapat berapa edge?”)
 
@@ -60,6 +60,17 @@ short-alts markdown-only, 1h majors net cost, re-tune thr LINK, `risk_filter_blo
 
 ### Status terakhir (2026-07-21)
 
+- **Refactor arsitektur (poin 1–4, pemilik setuju) — SELESAI:**
+  - `ForwardTester` dipecah mixin (perilaku 1:1): `bot/forward_gates.py`,
+    `forward_open.py`, `forward_close.py`, `forward_status.py` + shell `forward.py`
+  - Entry pipeline: [ENTRY_PIPELINE.md](../ENTRY_PIPELINE.md)
+  - Kanonik: [ARCHITECTURE.md](../ARCHITECTURE.md) (arsip patch log tetap di
+    `ARCHITECTURE_DOCUMENTATION.md`)
+  - Research offline: `research/` (`edge_hunt*`, `cyc*`, `h28*`, `*_alpha`, …)
+    — jalankan `python research/edge_hunt.py` dari **repo root**
+  - `.gitignore`: `tmp_*.py` / `tmp_*.json` / …
+  - **Bukan** behavior change trading; PROMOTE_PAPER tetap 0
+
 - **Trade review SQLite (belajar di bawah pondasi) — AKTIF:**
   - Spek: [TRADE_REVIEW.md](TRADE_REVIEW.md) · `bot/trade_review.py` · tabel `trade_reviews`
   - Tiap close → post-mortem: error_class, lesson IF/THEN, `conflicts_foundation`
@@ -83,7 +94,7 @@ short-alts markdown-only, 1h majors net cost, re-tune thr LINK, `risk_filter_blo
   - **PROMOTE_FILTER_PAPER = 2** (breadth_lo + corr/vol) — meta only, shadow di dry
   - **WATCHLIST = 1:** LINK residual-z fade vs BTC — OOS+ lockbox+ cost×2+ tapi **p_adj gagal**
   - Log: [EDGE_HUNT.md](EDGE_HUNT.md) · `RESEARCH_LOG.md` · `logs/edge_hunt*.json`
-  - Harness: `edge_hunt.py` + `edge_hunt_round*.py` + `edge_hunt_risk_filter.py` + validators
+  - Harness: `research/edge_hunt.py` + `research/edge_hunt_round*.py` + validators
   - **Jangan** retread H24–H32 / crash-bounce murni / short-alts markdown-only
   - Lanjut: kumpulkan shadow risk-filter / alt-data hist / LINK log-only — **bukan** re-tune thr
 
@@ -94,7 +105,7 @@ short-alts markdown-only, 1h majors net cost, re-tune thr LINK, `risk_filter_blo
   - Commits: `c67d34c` → `b8e924f` → tip handoff
 
 - **P2/P3 siklus SELESAI (ukur + inject, bukan hard gate):**
-  - Modul: `bot/cycle_regime.py` · riset `cyc02_cycle_unlock_altseason.py`
+  - Modul: `bot/cycle_regime.py` · riset `research/cyc02_cycle_unlock_altseason.py`
   - Wire: `forward._cycle_context` → ReAct observe + Gemini `build_context`
   - Curriculum: `btc_dominance` / `halving_cycle` = stance only (hapus klaim boost short OOS)
   - Verdict: phase/dom **CONTEXT_ONLY**; unlock **INCONCLUSIVE** (isi `data/unlock_calendar.csv` manual)

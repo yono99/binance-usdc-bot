@@ -28,7 +28,7 @@ from bot.logger import log
 from h28_forward import (GATE_THR, HOLD_DAYS, IVOL_WIN, BETA_WIN, QUANTILE,  # noqa: F401
                          UNIVERSE_FILE, closed_daily_panel, fetch_dvol_last)
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 OUTDIR = ROOT / "data" / "h28_live"
 STATE = OUTDIR / "state.json"
 TRADES = OUTDIR / "trades.jsonl"

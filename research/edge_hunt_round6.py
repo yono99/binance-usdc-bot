@@ -12,6 +12,14 @@ Strict: train must be + for CANDIDATE.
 """
 from __future__ import annotations
 
+# Ensure research/ is importable when run from repo root
+import sys as _sys
+from pathlib import Path as _Path
+_RESEARCH = str(_Path(__file__).resolve().parent)
+if _RESEARCH not in _sys.path:
+    _sys.path.insert(0, _RESEARCH)
+
+
 import json
 from pathlib import Path
 

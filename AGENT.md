@@ -209,7 +209,11 @@ Config: `agent.risk_filter_shadow` · `risk_filter_block` · `risk_filter_breadt
 
 ## Berkas terkait
 `bot/react_agent.py` · `bot/decision_log.py` · `bot/lessons.py` · `bot/evolve.py` ·
-`bot/risk_filter.py` · gerbang di `bot/engine.py` · `bot/forward.py` · **Entry Confluence Gate: `bot/entry_confluence.py` + `bot/ec_calibrate.py` + `tests/test_entry_confluence.py` + [ENTRY_CONFLUENCE_GATE.md](ENTRY_CONFLUENCE_GATE.md)**.
+`bot/risk_filter.py` · gerbang di `bot/engine.py` · `bot/forward.py` (+ mixin
+`forward_gates` / `forward_open` / `forward_close` / `forward_status`) ·
+**Entry Confluence Gate:** `bot/entry_confluence.py` + [ENTRY_CONFLUENCE_GATE.md](ENTRY_CONFLUENCE_GATE.md) ·
+**Pipeline:** [ENTRY_PIPELINE.md](ENTRY_PIPELINE.md) · **Arsitektur:** [ARCHITECTURE.md](ARCHITECTURE.md) ·
+**Riset (bukan runtime):** [research/](research/).
 
 ## Rencana operasional aktif
 Posture paper **Jalan A** (manager-mode + A/B shadow, risk dry dikunci, larangan H30/L2

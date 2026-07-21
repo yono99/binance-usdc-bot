@@ -10,6 +10,7 @@
 | PROMOTE_FILTER_PAPER | **2** shadow |
 | CE-STANCE (ilmu pemilik) | dual-track dry⇄live 1:1 · `risk_ack` |
 | Trade review (baru) | SQLite post-mortem **di bawah** pondasi — bukan auto-edge |
+| Arch (2026-07-21) | `ARCHITECTURE.md` · `ENTRY_PIPELINE.md` · `research/` · forward mixins |
 
 ## Fakta terkunci
 

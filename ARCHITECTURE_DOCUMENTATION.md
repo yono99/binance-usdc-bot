@@ -1,5 +1,9 @@
 # Binance USDC Bot — Dokumentasi Arsitektur Lengkap (Updated 2026-07-16)
 
+> **Peta kanonik terbaru (2026-07-21):** [ARCHITECTURE.md](ARCHITECTURE.md) ·
+> [ENTRY_PIPELINE.md](ENTRY_PIPELINE.md) · research offline di [research/](research/).
+> File ini = arsip detail + patch log historis; bila bentrok, **kanonik menang**.
+
 > **Catatan**: Dokumentasi ini dibuat dari analisis penuh terhadap seluruh kodebase (70+ file Python, ~18.000 baris). Termasuk implementasi Phase 0-4 (2026-07-14) untuk memperbaiki bug kritis, membangun S/R detection, hard gates fade family, structured TP, dan pure trend-following system, serta **Entry Confluence Gate (3-Factor Shadow)** + **Dashboard fixes** (2026-07-16).
 
 > **Patch log 2026-07-14 (sesi-2)** — bug operasional yang ditemukan & diperbaiki:

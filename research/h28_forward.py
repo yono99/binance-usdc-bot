@@ -35,7 +35,7 @@ from bot.exchange import Exchange
 from bot.logger import log
 from vrp_alpha import DVOL_URL  # endpoint publik yang sama dgn riset
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 OUTDIR = ROOT / "data" / "h28_forward"
 STATE = OUTDIR / "state.json"
 TRADES = OUTDIR / "trades.jsonl"

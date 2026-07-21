@@ -3,6 +3,7 @@ tidak boleh mengecilkan penyebut R (bug PLAY/USDT R=-231 dari rugi $0.01)."""
 import pytest
 
 from bot import forward as fwd
+from bot import forward_close as fclose
 from bot.config import Settings
 from bot.forward import ForwardTester, default_params
 
@@ -32,8 +33,13 @@ def _no_network(monkeypatch):
 def _ft(cfg, monkeypatch):
     s = Settings(mode="dry", raw=cfg, gemini_keys=[], gemini_enabled=False)
     ft = ForwardTester(s, ["BTC/USDC:USDC"], default_params())
-    monkeypatch.setattr(fwd, "journal", lambda *a, **k: None)
-    monkeypatch.setattr(fwd.vrp, "log_close", lambda *a, **k: None)
+    # journal/vrp/mtf diikat di mixin close — patch di sana
+    monkeypatch.setattr(fclose, "journal", lambda *a, **k: None)
+    monkeypatch.setattr(fclose.vrp, "log_close", lambda *a, **k: None)
+    monkeypatch.setattr(fclose.mtf, "log_close", lambda *a, **k: None)
+    # unit test: jangan kena guard close_exists dari DB sesi lain
+    import bot.store as store
+    monkeypatch.setattr(store, "close_exists", lambda *a, **k: False)
     ft._react_settle = lambda *a, **k: None
     ft.balance_usdc = 100.0
     ft.balance_usdt = 0.0

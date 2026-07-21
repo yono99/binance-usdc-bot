@@ -8,7 +8,7 @@
 
 **Mulai:** 2026-07-21  
 **Panel default:** `data/snap` daily, ~1153×66 (volume lookback, max_alts≈200, min_bars 400)  
-**Harness:** `edge_hunt.py` + skrip putaran  
+**Harness:** `research/edge_hunt.py` + skrip putaran di `research/`  
 **Git:** `bec33c1` (R7–R10) · `3e535d4` (A–R6) · tip master
 
 ### Bootstrap sesi baru (konteks penuh / TUI restart)
@@ -315,7 +315,7 @@ Jangan wire paper entry; boleh pantau paper shadow nanti bila n bertambah.
 
 | File | Isi |
 |---|---|
-| `edge_hunt.py` | harness load_daily, pack, verdict_arm, rounds A–F |
+| `research/edge_hunt.py` | harness load_daily, pack, verdict_arm, rounds A–F |
 | `edge_hunt_deep.py` | deep single-param |
 | `edge_hunt_validate_crash.py` | promotion ketat crash-bounce |
 | `edge_hunt_volspike.py` | volspike fade |

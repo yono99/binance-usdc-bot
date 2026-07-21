@@ -1,7 +1,7 @@
 """Phase 6: alarm drift kalibrasi — alarm saja, anti-spam, TANPA auto-ubah threshold."""
 from types import SimpleNamespace
 
-import bot.forward as fwd
+import bot.forward_close as fclose
 import bot.store as store
 from bot.forward import ForwardTester
 
@@ -11,7 +11,8 @@ def _fake(report, monkeypatch):
     sent = []
     logged = []
     monkeypatch.setattr(store, "calibration_report", lambda mode, last_n=50, days=14: report)
-    monkeypatch.setattr(fwd, "journal", lambda ev, data: logged.append((ev, data)))
+    # journal diikat di forward_close (mixin), bukan di shell forward.py
+    monkeypatch.setattr(fclose, "journal", lambda ev, data: logged.append((ev, data)))
     self = SimpleNamespace(
         settings=SimpleNamespace(mode="dry"),
         rs=SimpleNamespace(calib_drift_margin=0.05, calib_drift_min_n=20, conf_min=0.55),

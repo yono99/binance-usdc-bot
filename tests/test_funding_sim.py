@@ -75,9 +75,13 @@ def test_live_mode_skips_simulation(cfg):
 
 
 def test_close_deducts_funding_from_pnl(cfg, monkeypatch):
+    from bot import forward_close as fclose
+    import bot.store as store
     ft = _ft(cfg)
-    monkeypatch.setattr(fwd, "journal", lambda *a, **k: None)
-    monkeypatch.setattr(fwd.vrp, "log_close", lambda *a, **k: None)
+    monkeypatch.setattr(fclose, "journal", lambda *a, **k: None)
+    monkeypatch.setattr(fclose.vrp, "log_close", lambda *a, **k: None)
+    monkeypatch.setattr(fclose.mtf, "log_close", lambda *a, **k: None)
+    monkeypatch.setattr(store, "close_exists", lambda *a, **k: False)
     ft._react_settle = lambda *a, **k: None
     ft.balance_usdt = 100.0
     ft.balance_usdc = 0.0

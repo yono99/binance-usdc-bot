@@ -2,6 +2,7 @@
 import types
 
 import bot.forward as fwd
+import bot.forward_close as fclose
 import bot.store as store
 from bot.forward import ForwardTester
 
@@ -10,7 +11,7 @@ def _self(equity_after, *, open_pos, monkeypatch):
     calls, settled = [], []
     monkeypatch.setattr(store, "log_calibration",
                         lambda tid, sym, prob, out, mode: calls.append((tid, sym, prob, out, mode)))
-    monkeypatch.setattr(fwd, "journal", lambda ev, data: None)
+    monkeypatch.setattr(fclose, "journal", lambda ev, data: None)
     ex = types.SimpleNamespace(
         positions=lambda: [],                                  # semua posisi sudah tutup di bursa
         equity_usdc=lambda bal: equity_after,                  # legacy balance (Tahap 0)
