@@ -534,6 +534,31 @@ class ForwardTester:
         except Exception as e:  # boundary
             log.warning(f"react link {sym} gagal: {e}")
 
+    def _ce_live_track_close(self, sym: str, pos: dict, outcome_r: float) -> None:
+        """Live only: accumulate CE-touched R toward stop_loss_r_live (owner stop rule)."""
+        if not self.live:
+            return
+        # Touched if stamped with reasons or size mult < 1 at open
+        reasons = pos.get("cycle_candidate_reasons") or []
+        sm = pos.get("cycle_candidate_size_mult")
+        touched = bool(reasons) or (sm is not None and float(sm) < 0.999)
+        if not touched:
+            return
+        try:
+            st = cycle_cand.record_live_close_r(outcome_r, self.cfg, symbol=sym)
+            if st.get("stopped"):
+                log.warning(
+                    f"CE LIVE STOP latched after {sym}: {st.get('stop_reason')} "
+                    f"— size/soft_block enforce OFF until reset_live_stop")
+                try:
+                    self.notify.send(
+                        f"⛔ <b>CE LIVE STOP</b>\n{st.get('stop_reason')}\n"
+                        f"Enforce OFF — review + reset sadar")
+                except Exception:
+                    pass
+        except Exception as e:  # boundary
+            log.warning(f"ce live track {sym}: {e}")
+
     def _react_settle(self, sym: str, pos: dict, pnl: float, reason: str) -> None:
         """Paper: R dari jarak SL (akuntansi identik backtest)."""
         risk0 = pos.get("risk0") or abs(pos["entry"] - pos["sl"]) * pos["qty"]  # 1R beku saat open
@@ -542,6 +567,7 @@ class ForwardTester:
         self._react_link(sym, outcome, outcome_r,
                          extras={"mae_pct": round(pos.get("mae_pct", 0.0), 3),
                                  "mfe_pct": round(pos.get("mfe_pct", 0.0), 3)})
+        self._ce_live_track_close(sym, pos, outcome_r)
 
     def _last_price(self, sym: str) -> float | None:
         buf = self.buffers.get(sym)
@@ -1729,6 +1755,15 @@ class ForwardTester:
             sym, pos = react_closed[0]
             outcome_r = ((self.balance_usdt + self.balance_usdc) - prev_balance) / pos["bet"] if pos.get("bet") else 0.0
             self._react_link(sym, "LIVE_CLOSE", outcome_r)
+            self._ce_live_track_close(sym, pos, outcome_r)
+        # CE stop tracking for single gemini live close too (same unambiguous PnL rule)
+        if len(closed) == 1 and len(gem_closed) == 1:
+            sym, pos = gem_closed[0]
+            try:
+                outcome_r = ((self.balance_usdt + self.balance_usdc) - prev_balance) / pos["bet"] if pos.get("bet") else 0.0
+                self._ce_live_track_close(sym, pos, outcome_r)
+            except Exception as e:  # boundary
+                log.debug(f"ce live track gem {sym}: {e}")
 
     @staticmethod
     def _valid_entry_sl(is_long: bool, entry: float, sl, liq: float) -> float | None:
@@ -2094,7 +2129,8 @@ class ForwardTester:
         self._day_trades += 1                       # untuk circuit breaker harian
         journal("forward_open", {"symbol": sym, "side": self.open[sym]["side"], "entry": entry,
                                  "sl": sl, "tp": tp, "liq": liq, "lev": rs.leverage, "bet": bet,
-                                 "conviction": gem_conv, "size_mult": size_mult})
+                                 "conviction": gem_conv, "size_mult": size_mult,
+                                 **cycle_cand.stamp(ce_verdict)})
         # Persist SEGERA setelah open — crash/restart antara open & end-of-cycle
         # dulu bikin journal ada OPEN tapi botstate.open kosong (ghost).
         self._persist_state()

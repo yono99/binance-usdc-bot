@@ -4,7 +4,7 @@
 > Di-load lewat project rules (`AGENT.md` + `.grok/rules/`).  
 > Update baris “Status terakhir” bila posture server berubah.
 
-**Terakhir diisi:** 2026-07-21 (candidate edge CE-STANCE dry shadow + risk-filter)
+**Terakhir diisi:** 2026-07-21 (dual-track CE: dry+live 1:1, risk_ack, ce_report)
 
 ### Scoreboard edge (jawab “sudah dapat berapa edge?”)
 
@@ -60,16 +60,16 @@ short-alts markdown-only, 1h majors net cost, re-tune thr LINK, `risk_filter_blo
 
 ### Status terakhir (2026-07-21)
 
-- **Candidate edge CE-STANCE — pondasi ilmu + dual-track 1:1:**
-  - Spek (revisi): [CANDIDATE_EDGE.md](CANDIDATE_EDGE.md) §0.1 telaah paper↔live · `bot/cycle_candidate.py`
-  - **Pondasi** = ilmu pemilik (bukan PROMOTE_PAPER=0 dari OHLCV hunt)
-  - Config: `mode: shadow`, `allow_live: false`, `risk_ack: false` (dry deploy `c4ab001`)
-  - **1:1:** aturan CE sama dry & live; beda = modal/risk lock (live lebih ketat)
-  - Live = **hakim realisme** fill/fee (gap paper endpoint) — ukur auto, **bukan** auto-promote
-  - Dry = volume + counterfactual; jangan matikan dry “karena live lebih real”
-  - Enforce live hanya `allow_live` **dan** `risk_ack` + stop rule
-  - **Bukan** auto-short (H-CYC entry OOS gagal); stance = size-down long
-  - Tes: `tests/test_cycle_candidate.py` (9)
+- **Candidate edge CE-STANCE — dual-track AKTIF (pemilik setuju 2026-07-21):**
+  - Spek: [CANDIDATE_EDGE.md](CANDIDATE_EDGE.md) · checklist: [LIVE_MICRO_CHECKLIST.md](LIVE_MICRO_CHECKLIST.md)
+  - **Pondasi** = ilmu pemilik; **bukan** PROMOTE_PAPER
+  - Config: `mode: size` · `allow_live: true` · `risk_ack: true` · `stop_loss_r_live: -5`
+  - **1:1 aturan** dry & live; live risk lock **lebih ketat** (bet/loss/pos) di UI mode=live
+  - Stop: `logs/ce_live_state.json` cum R CE-touched ≤ −5 → enforce OFF (notify)
+  - Hakim: `python ce_report.py` / `bot/ce_report.py` — **non-mutating**
+  - Wire: stamp open/journal · track close live · `bot/cycle_candidate.py`
+  - **Bukan** auto-short; **bukan** auto-promote / auto-scale
+  - Tes: `tests/test_cycle_candidate.py`
 
 - **Edge hunt open loop SELESAI tahap 1 — ENTRY EDGE = 0:**
   - ~300 arms OOS (A–F, deep, crash, volspike, R2–R10 pairs)
@@ -99,8 +99,9 @@ short-alts markdown-only, 1h majors net cost, re-tune thr LINK, `risk_filter_blo
 - **Proxmox paper dry (postur terkunci — cek tiap deploy):**
   risk loss **5** / trades 30 / max_open 5 / lev 5 / bet 4; manager **OFF**, ab_shadow **ON**;
   dump_short_boost false; risk_filter_shadow ON / block OFF;
-  **cycle_candidate mode=shadow** (allow_live/risk_ack OFF).
-  **Cek risk tiap deploy** (sering drift loss %).
+  **cycle_candidate mode=size** (allow_live+risk_ack ON di config — live enforce
+  hanya saat proses **mode=live**; dry paper size-down aktif).
+  **Cek risk tiap deploy** (sering drift loss %). Live mikro: lihat checklist.
 
 - **P0 H-CYC-01 SELESAI** — beta>1 CONFIRMED; short_weak **REJECT**.
 - **P0b SELESAI** — 598 alt frac~65%; block_long hold1 REJECT; boost short OFF.

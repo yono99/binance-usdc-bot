@@ -175,15 +175,16 @@ Riwayat evolusi. Endpoint JSON: `/api/decisions`, `/api/lessons`, `/api/agent-he
 
 ## Candidate edge — ilmu pemilik = pondasi (bukan PROMOTE_PAPER)
 
-**Pondasi** = pengalaman siklus pemilik, bukan scoreboard OHLCV hunt.  
-**Dry ⇄ live 1:1** pada aturan CE; live = realisme endpoint Binance (gap paper fill),  
-bukan auto-promote edge. Spek + telaah: [memory/CANDIDATE_EDGE.md](memory/CANDIDATE_EDGE.md)  
-· modul `bot/cycle_candidate.py`.
+**Pondasi** = pengalaman siklus pemilik. **Dry ⇄ live 1:1** aturan CE.  
+Live = realisme endpoint + risiko sadar — **bukan** auto-promote.  
+Spek: [memory/CANDIDATE_EDGE.md](memory/CANDIDATE_EDGE.md) ·  
+checklist: [memory/LIVE_MICRO_CHECKLIST.md](memory/LIVE_MICRO_CHECKLIST.md) ·  
+`bot/cycle_candidate.py` · `python ce_report.py`.
 
-- Default `mode: shadow` → log `CANDIDATE_EDGE_SHADOW` (size/skip *would*) di dry (dan live log-only).
-- `size` / `soft_block`: enforce di dry; di **live** hanya `allow_live` **dan** `risk_ack`.
-- Hakim: dry = volume/proses; live = fill/fee/funding nyata — **ukur auto, putusan fase manual**.
-- **Dilarang:** auto-short dump/unlock, full live tanpa ack, klaim live hijau = PROMOTE_PAPER.
+- Config: `mode: size` · `allow_live`+`risk_ack` (pemilik setuju dual test) · `stop_loss_r_live: -5`.
+- Dry: size-down long aktif. Live: enforce hanya bila ack + stop belum latch.
+- Hakim non-mutating: `ce_report.py`. Stop latch: `logs/ce_live_state.json`.
+- **Dilarang:** auto-short dump/unlock, full size tanpa checklist, klaim PROMOTE_PAPER dari CE.
 
 ## Risk filter overlay (Jalan A meta — bukan entry alpha)
 

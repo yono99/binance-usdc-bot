@@ -16,16 +16,18 @@ agent:
   risk_filter_block: false
   risk_filter_breadth: true      # skip when breadth (frac > SMA50) in bottom 30% of 100d
   risk_filter_corr_vol: true     # skip when avg corr high OR BTC vol20 high (top quartile)
-  # Candidate edge from owner cycle knowledge (NOT PROMOTE_PAPER). See memory/CANDIDATE_EDGE.md
-  # Dry: shadow = log only. size/soft_block = enforce on dry. Live needs allow_live+risk_ack.
+  # Candidate edge — owner knowledge foundation (NOT PROMOTE_PAPER).
+  # Dual-track 1:1: same rules dry & live. See memory/CANDIDATE_EDGE.md + LIVE_MICRO_CHECKLIST.md
+  # Owner 2026-07-21: agreed dual test dry+live with considered loss; risk_ack ON for live micro.
   cycle_candidate:
-    mode: shadow                 # off|shadow|size|soft_block
-    allow_live: false            # LIVE enforce — default OFF
-    risk_ack: false              # must be true knowingly: unproven candidate risk
+    mode: size                   # 1:1 dry+live stance (size-down long). shadow=log-only first if preferred
+    allow_live: true             # LIVE may enforce (still needs risk_ack + stop ok)
+    risk_ack: true               # OWNER ACK: unproven candidate; real money loss considered
+    stop_loss_r_live: -5.0       # auto latch: CE-touched cum R ≤ −5 → enforce OFF until reset
     long_size_on_dump: 0.5
     long_size_on_markdown: 0.7
     long_size_on_unlock: 0.5
-    soft_block_long_on_dump: true
+    soft_block_long_on_dump: true  # only applies when mode=soft_block (not in size mode)
 btc:
   block_counter: true
   dump_pct: 0.5

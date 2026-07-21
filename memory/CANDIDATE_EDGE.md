@@ -134,14 +134,17 @@ YA:      ilmu → CE-STANCE (1 config) → dry + live mikro 1:1 → ukur → sca
 ```yaml
 agent:
   cycle_candidate:
-    mode: shadow          # off|shadow|size|soft_block — SAMA untuk dry & live
-    allow_live: false     # kunci LIVE enforce
-    risk_ack: false       # sadar: unproven + uang nyata
+    mode: size            # 1:1 dry+live (size-down). off|shadow|size|soft_block
+    allow_live: true      # LIVE boleh enforce
+    risk_ack: true        # pemilik sadar (set 2026-07-21)
+    stop_loss_r_live: -5  # latch cum R CE-touched → enforce OFF
     long_size_on_dump: 0.5
     long_size_on_markdown: 0.7
     long_size_on_unlock: 0.5
     soft_block_long_on_dump: true
 ```
+
+Hakim: `python ce_report.py` · Live checklist: [LIVE_MICRO_CHECKLIST.md](LIVE_MICRO_CHECKLIST.md).
 
 **1:1 artinya:**
 
@@ -160,10 +163,12 @@ Modul: `bot/cycle_candidate.py` · wire: `ForwardTester._open_usd`.
 
 ### F0 — Kontrak + pondasi
 
-- [x] Spek + wire + tes + dry `mode=shadow` deploy  
+- [x] Spek + wire + tes + dry deploy  
 - [x] Telaah paper↔live (bagian 0.1)  
-- [ ] Pemilik setuju kalimat risiko §0 sebelum L0  
-- [ ] Tidak nyalakan dump_short_boost / manager demi “ilmu”
+- [x] Pemilik setuju dual-track dry+live + kerugian dipertimbangkan (2026-07-21)  
+- [x] `risk_ack` + `allow_live` + `mode: size` + `stop_loss_r_live: -5` di config  
+- [x] `ce_report.py` hakim non-mutating + [LIVE_MICRO_CHECKLIST.md](LIVE_MICRO_CHECKLIST.md)  
+- [x] Tidak nyalakan dump_short_boost / manager demi “ilmu”
 
 ### F1 — Shadow 1:1 (logging, tanpa size)
 
