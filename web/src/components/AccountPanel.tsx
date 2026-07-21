@@ -56,7 +56,7 @@ export function AccountPanel({ acct }: { acct: Account | null }) {
 
   return (
     <div className="panel">
-      <h2>Akun / API</h2>
+      <h2>Account</h2>
       <div className="line">
         Mode: <b>{acct?.mode ?? "—"}</b> · API: {apiBadge}
         {hasBal && <> · Saldo: <b>{balLine}</b></>} · Gemini:{" "}

@@ -195,9 +195,11 @@ export function PriceChart({ status, available }: { status: Status | null; avail
     // EMA overlays - gunakan emas dari state (SSE update) atau data awal (REST)
     emaSeries.current.forEach((s) => pxChart.current!.removeSeries(s));
     emaSeries.current = [];
-    const emaFast = data.emas?.fast ?? data.ema_fast;
-    const emaMid = data.emas?.mid ?? data.ema_mid;
-    const emaSlow = data.emas?.slow ?? data.ema_slow;
+    const asArr = (v: number | number[] | undefined): number[] | undefined =>
+      Array.isArray(v) ? v : undefined;
+    const emaFast = asArr(data.emas?.fast ?? data.ema_fast);
+    const emaMid = asArr(data.emas?.mid ?? data.ema_mid);
+    const emaSlow = asArr(data.emas?.slow ?? data.ema_slow);
     const emaDefs: [number[] | undefined, string][] = [
       [emaFast, "#eab308"],
       [emaMid, "#3b82f6"],
@@ -251,8 +253,12 @@ export function PriceChart({ status, available }: { status: Status | null; avail
     }
 
     // RSI - gunakan rsi_val dari state (SSE update) atau data awal (REST)
-    const rsiData = data.rsi_val ?? data.rsi;
-    if (rsiData) rsiSeries.current.setData(rsiData.map((y, i) => ({ time: t(data.bars[i].x), value: y })));
+    const rsiData = asArr(data.rsi) ?? (Array.isArray(data.rsi_val) ? data.rsi_val : undefined);
+    if (rsiData) {
+      rsiSeries.current.setData(
+        rsiData.map((y: number, i: number) => ({ time: t(data.bars[i].x), value: y })),
+      );
+    }
     pxChart.current!.timeScale().fitContent();
     rsiChart.current!.timeScale().fitContent();
   }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -260,7 +266,7 @@ export function PriceChart({ status, available }: { status: Status | null; avail
   const cap = data?.periods;
   return (
     <div className="panel">
-      <h2>Chart Harga per Pair</h2>
+      <h2>Chart</h2>
       <div style={{ marginBottom: 10, display: "flex", gap: 8, alignItems: "flex-start" }}>
         <SearchSelect value={sym} options={symbols} onChange={setSym} placeholder="cari pair…" />
         <select value={tf} onChange={(e) => setTf(e.target.value)} style={{ minWidth: 80 }}>

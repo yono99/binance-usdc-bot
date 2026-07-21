@@ -19,7 +19,7 @@ import csv as csvmod
 import io
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from bot.logger import log
@@ -2075,18 +2075,40 @@ load();setInterval(load,10000);
 </script></body></html>"""
 
 
-@app.get("/agent", response_class=HTMLResponse)
-def agent_page() -> str:
-    return AGENT_PAGE
-
-
 # ---------- penyajian frontend ----------
-# Jika build React/Vite ada (web/dist), sajikan SPA itu; jika belum, fallback ke
-# halaman HTML lama (PAGE). API /api/* di atas tetap diprioritaskan (terdaftar lebih dulu).
+# SPA React (web/dist): aset di /assets; deep link /trade /agent /history /settings
+# diarahkan ke index.html (BrowserRouter). API /api/* terdaftar di atas → menang.
+# Tanpa build: fallback HTML monolit lama (PAGE) + /agent monolit (AGENT_PAGE).
 DIST = ROOT / "web" / "dist"
-if (DIST / "index.html").exists():
-    app.mount("/", StaticFiles(directory=str(DIST), html=True), name="spa")
+_SPA = (DIST / "index.html").exists()
+
+if _SPA:
+    _assets = DIST / "assets"
+    if _assets.is_dir():
+        app.mount("/assets", StaticFiles(directory=str(_assets)), name="assets")
+
+    @app.get("/")
+    def spa_index() -> FileResponse:
+        return FileResponse(DIST / "index.html")
+
+    @app.get("/{full_path:path}")
+    def spa_fallback(full_path: str):
+        """Deep link SPA + file statis root (favicon, dll). Bukan /api/*."""
+        if full_path.startswith("api/") or full_path == "api":
+            return JSONResponse({"error": "not found"}, status_code=404)
+        candidate = DIST / full_path
+        try:
+            candidate.resolve().relative_to(DIST.resolve())
+        except ValueError:
+            return FileResponse(DIST / "index.html")
+        if candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(DIST / "index.html")
 else:
+    @app.get("/agent", response_class=HTMLResponse)
+    def agent_page() -> str:
+        return AGENT_PAGE
+
     @app.get("/", response_class=HTMLResponse)
     def index() -> str:
         return PAGE

@@ -9,13 +9,17 @@ export function PaginatedTable<T>({
   rowCls,
   empty,
   initialSize = 5,
+  pageSizeOptions: _pageSizeOptions,
 }: {
   cols: Col<T>[];
   rows: T[];
   rowCls?: (r: T) => string;
   empty?: string;
   initialSize?: number;
+  /** diterima untuk kompatibilitas; ukuran halaman via Pager bawaan */
+  pageSizeOptions?: number[];
 }) {
+  void _pageSizeOptions;
   const [page, setPage] = useState(1);
   const [size, setSize] = useState(initialSize);
   const pages = Math.max(1, Math.ceil(rows.length / size));

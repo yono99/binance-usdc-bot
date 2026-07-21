@@ -63,7 +63,7 @@ export function EntryConfluenceShadow() {
   if (error) {
     return (
       <div className="panel">
-        <h2>Entry Confluence Shadow</h2>
+        <h2>EC shadow</h2>
         <div className="danger">{error}</div>
       </div>
     );
@@ -72,7 +72,7 @@ export function EntryConfluenceShadow() {
   if (!data) {
     return (
       <div className="panel">
-        <h2>Entry Confluence Shadow</h2>
+        <h2>EC shadow</h2>
         <div className="empty">Memuat...</div>
       </div>
     );
@@ -82,7 +82,7 @@ export function EntryConfluenceShadow() {
   if (!agg.total_logged) {
     return (
       <div className="panel">
-        <h2>Entry Confluence Shadow</h2>
+        <h2>EC shadow</h2>
         <div className="empty">Belum ada data — jalankan forwardtest.py</div>
       </div>
     );
@@ -107,7 +107,7 @@ export function EntryConfluenceShadow() {
 
   return (
     <div className="panel">
-      <h2>Entry Confluence Shadow</h2>
+      <h2>EC shadow</h2>
       <div className="tab-bar" style={{ marginBottom: 8 }}>
         <button className={activeTab === "agg" ? "active" : ""} onClick={() => setActiveTab("agg")}>
           Ringkasan

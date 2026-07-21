@@ -58,6 +58,30 @@ export const api = {
   agentHealth: () => getJSON<AgentHealth>("/api/agent-health"),
   agentPlan: () => getJSON<AgentPlan>("/api/plan"),
   agentAB: () => getJSON<AgentAB>("/api/ab"),
+  decisions: (page = 1, page_size = 10) =>
+    getJSON<{
+      total: number;
+      page: number;
+      page_size: number;
+      total_pages: number;
+      decisions: Record<string, unknown>[];
+    }>(`/api/decisions?page=${page}&page_size=${page_size}`),
+  lessons: (page = 1, page_size = 10) =>
+    getJSON<{
+      total: number;
+      page: number;
+      page_size: number;
+      total_pages: number;
+      lessons: Record<string, unknown>[];
+    }>(`/api/lessons?page=${page}&page_size=${page_size}`),
+  evolution: (page = 1, page_size = 10) =>
+    getJSON<{
+      total: number;
+      page: number;
+      page_size: number;
+      total_pages: number;
+      events: Record<string, unknown>[];
+    }>(`/api/evolution?page=${page}&page_size=${page_size}`),
 
   saveSettings: (body: Record<string, unknown>) => postJSON<Settings>("/api/settings", body),
   setMode: (mode: string) => postJSON<{ ok: boolean; mode: string }>("/api/mode", { mode }),

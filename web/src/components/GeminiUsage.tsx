@@ -51,7 +51,7 @@ export function GeminiUsage() {
   return (
     <div className="panel">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <h2>Pemantauan Token Gemini</h2>
+        <h2>Gemini tokens</h2>
         <button className="btnsm" onClick={onReset}>Reset pemantauan</button>
       </div>
       <div className="cards" style={{ marginBottom: 14 }}>

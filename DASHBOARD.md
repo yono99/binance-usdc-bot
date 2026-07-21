@@ -19,14 +19,14 @@ React/Vite SPA (web/dist)  ──REST /api/*──►  FastAPI (bot/dashboard.py
 forwardtest.py (bot/forward.py) ──tulis──►   SQLite  logs/bot.db  (mode WAL)
 ```
 
-- **Backend**: `bot/dashboard.py` (FastAPI). Menyajikan `web/dist` di `/` bila
-  ada; jika belum di-build, fallback ke halaman HTML lama (`PAGE`). Route
-  `/api/*` selalu diprioritaskan di atas mount statis.
-- **Panel Agent (`/agent`)**: halaman mandiri (tak menyentuh SPA React) untuk memantau
-  agen ReAct — Agent Health (rasio LLM vs fallback), keputusan terakhir, pelajaran aktif
-  + akurasi, dan riwayat evolusi threshold. Endpoint: `/api/decisions`, `/api/lessons`,
-  `/api/agent-health`, `/api/evolution`. Arsitektur agen: [AGENT.md](AGENT.md).
-- **Frontend**: `web/` (React + Vite + TypeScript). Lihat [web/README.md](web/README.md).
+- **Backend**: `bot/dashboard.py` (FastAPI). Menyajikan SPA `web/dist` di `/` +
+  deep-link fallback (`/trade`, `/agent`, … → `index.html`). Tanpa build → HTML
+  monolit lama. Route `/api/*` selalu diprioritaskan.
+- **SPA routes (React Router)**: `/` Overview · `/trade` · `/agent` · `/history` ·
+  `/settings`. Halaman Agent di React (bukan HTML monolit) — health, keputusan,
+  lessons, evolusi, A/B. Endpoint: `/api/decisions`, `/api/lessons`,
+  `/api/agent-health`, `/api/evolution`, `/api/ab`, `/api/plan`. Lihat [AGENT.md](AGENT.md).
+- **Frontend**: `web/` (React + Vite + TypeScript + react-router). Lihat [web/README.md](web/README.md).
 - **Penyimpanan**: `bot/store.py` (SQLite). Tak butuh instalasi — `sqlite3`
   bawaan Python. File dibuat otomatis di `logs/bot.db` (+ `-wal`, `-shm`).
 

@@ -151,7 +151,7 @@ export function ControlPanel({
   }, [status?.balance_usdt, status?.balance_usdc,
       account?.balance_usdt, account?.balance_usdc, isLive]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!s || !form) return <div className="panel"><h2>Kontrol Bot (paper)</h2><div className="empty">memuat…</div></div>;
+  if (!s || !form) return <div className="panel"><h2>Bot control</h2><div className="empty">memuat…</div></div>;
 
   const set = (k: keyof Form, v: Form[keyof Form]) => setForm((p) => (p ? { ...p, [k]: v } : p));
 
@@ -233,7 +233,10 @@ export function ControlPanel({
 
   return (
     <div className="panel">
-      <h2>Kontrol Bot {isLive ? "— ⚠ LIVE (UANG NYATA)" : "(paper)"}</h2>
+      <h2>
+        Bot control
+        <span className="sub">{isLive ? "LIVE — uang nyata" : "paper"}</span>
+      </h2>
       {isLive && (
         <div className="danger">
           ⚠ <b>MODE LIVE AKTIF — UANG NYATA.</b> Order ditempatkan ASLI di Binance Futures.

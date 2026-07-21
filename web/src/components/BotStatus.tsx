@@ -11,7 +11,7 @@ export function BotStatus({ status, onAction }: { status: Status | null; onActio
   if (!status || !status.ts)
     return (
       <div className="panel">
-        <h2>Status Bot</h2>
+        <h2>Status</h2>
         <div className="empty">Bot belum jalan — `python forwardtest.py --poll 30 --use-store`</div>
       </div>
     );
@@ -86,7 +86,7 @@ export function BotStatus({ status, onAction }: { status: Status | null; onActio
   return (
     <>
       <div className="panel">
-        <h2>Status Bot</h2>
+        <h2>Status</h2>
         <div className="line">
           Status: {status.enabled ? <span className="pos">ON</span> : <span className="neg">OFF</span>} · Teknik:{" "}
           <b>{status.technique}</b> · TF: {status.timeframe} · Leverage: <b>{status.leverage}x</b> · Bet: $

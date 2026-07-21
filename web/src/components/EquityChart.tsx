@@ -53,7 +53,7 @@ export function EquityChart({ s }: { s: Stats }) {
 
   return (
     <div className="panel">
-      <h2>Kurva Equity</h2>
+      <h2>Equity</h2>
       <div ref={ref} />
     </div>
   );

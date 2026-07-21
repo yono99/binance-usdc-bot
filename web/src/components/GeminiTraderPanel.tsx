@@ -72,7 +72,10 @@ export function GeminiTraderPanel() {
 
   return (
     <div className="panel">
-      <h2>🤖 Gemini Trader — track record & playbook</h2>
+      <h2>
+        Gemini trader
+        <span className="sub">track record</span>
+      </h2>
 
       <div className={VERDICT_CLS[data.verdict] || "sub"} style={{ marginBottom: 12 }}>
         Verdict: <b>{data.verdict}</b>
