@@ -102,8 +102,10 @@ risk:
   trailing: true
   trailing_atr_mult: 1.2
 rotate:
-  blacklist_after_sl: 2
-  cooldown_minutes: 30
+  # Kebijakan pemilik: rugi = risiko yang diterima. BELAJAR dari kekalahan,
+  # JANGAN menghukum pair (blacklist/cooldown karena SL). 0 = off.
+  blacklist_after_sl: 0
+  cooldown_minutes: 0
   max_open_positions: 6
 screener:
   max_atr_pct: 6.0

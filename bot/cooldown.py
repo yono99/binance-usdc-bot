@@ -6,6 +6,11 @@ Pindah ke modul ini: stateless, key kv `cooldown_<mode>` dengan sub-key
 
 Idempoten & non-blocking. Race? Loader cooldown di-run setiap masuk `_open_usd`;
 persist perubahan tiap kali ada close (anti restart hilang).
+
+Kebijakan pemilik (2026-07): rugi = risiko, BUKAN hukuman pair.
+Default config `blacklist_after_sl: 0` + `cooldown_minutes: 0` → modul ini
+tetap ada untuk opt-in / tes, tapi produksi tidak memblokir simbol karena SL.
+Pembelajaran = trade_reviews + gemini lessons (soft), bukan ban pair.
 """
 from __future__ import annotations
 

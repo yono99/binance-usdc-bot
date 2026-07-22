@@ -308,6 +308,10 @@ def curriculum_prompt(modules: list[str] | None = None) -> str:
         "  (cenderung flat kecuali konfluensi jelas lebih kuat). avg_mfe_before_sl_pct KECIL =\n"
         "  arah/timing salah (harga langsung lawan) → pertimbangkan bias berlawanan atau tunggu\n"
         "  lokasi lebih baik. avg_mfe_before_sl_pct BESAR = SL-mu terlalu mepet (harga sempat\n"
-        "  searah lalu balik menyapu) → letakkan sl lebih jauh di BALIK struktur, bukan lebih dekat."
+        "  searah lalu balik menyapu) → letakkan sl lebih jauh di BALIK struktur, bukan lebih dekat.\n"
+        "- 'process_reviews' (BELAJAR DARI KEKALAHAN — soft): IF…THEN…BECAUSE dari trade tutup.\n"
+        "  Patuhi sebagai disiplin proses (setup, konfluensi, penempatan SL). Rugi = risiko yang\n"
+        "  dicatat, BUKAN hukuman: JANGAN blacklist/ban pair hanya karena SL. Naikkan bar setup\n"
+        "  atau minta konfluensi lebih kuat; pair yang sama boleh ditinjau ulang bila setup beda."
     )
     return (CORE + "\n" + body + "\nDAFTAR SETUPS (pilih tepat satu):\n" + setups + contract)

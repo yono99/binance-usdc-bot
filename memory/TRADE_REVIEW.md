@@ -48,8 +48,17 @@ Contoh **conflict** (disimpan audit, **tidak** di-inject):
 Contoh **injectable** (selaras pondasi):
 
 - Long di dump/markdown → reduce size / skip new long  
-- Low conviction → abstain  
+- Low conviction → raise confluence bar / abstain  
 - Liq → tighten risk  
+- **SL hit** → lesson proses per **setup** (MFE/MAE, confluence) — **bukan** ban pair  
+
+### Kebijakan pemilik (2026-07): belajar ≠ menghukum pair
+
+- Rugi / loss streak = **risiko** yang dicatat & dipelajari.  
+- **Jangan** blacklist / cooldown pair karena SL (`rotate.blacklist_after_sl: 0`,
+  `cooldown_minutes: 0`).  
+- Lesson teks **tidak** boleh menyuruh ban simbol; fokus setup / konfluensi / SL placement.  
+- Hard risk (daily loss, max pos, circuit) tetap — itu survival, bukan hukuman pair.
 
 ---
 

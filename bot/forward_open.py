@@ -163,12 +163,15 @@ class ForwardOpenMixin:
         if sym in self.open:
             log.warning(f"DUPOPEN BLOCKED {sym}: already in self.open")
             return
-        # Tahap 4a (plan-sess): cooldown/blacklist per-mode PERSEISTEN di SQLite via
-        # bot.cooldown — skip simbol yg masih cooldown atau di-blacklist setelah SL streak
-        # (config rotate.cooldown_minutes/blacklist_after_sl).
+        # Tahap 4a: cooldown/blacklist per-mode (opsional via config rotate.*).
+        # Kebijakan pemilik: default OFF (0) — rugi dicatat sebagai pelajaran,
+        # BUKAN hukuman pair. Bila config >0, gate tetap hormati (opt-in lama).
         try:
             from . import cooldown as _cd
-            if not _cd.available(self.settings.mode, sym):
+            _r_cfg = self.cfg.get("rotate", {}) or {}
+            _cd_on = (float(_r_cfg.get("cooldown_minutes", 0) or 0) > 0
+                      or int(_r_cfg.get("blacklist_after_sl", 0) or 0) > 0)
+            if _cd_on and not _cd.available(self.settings.mode, sym):
                 c = self.sig_cache.setdefault(sym, {})
                 snap = _cd.snapshot(self.settings.mode)
                 _until = max(snap.get("cooldown_until", {}).get(sym, 0),

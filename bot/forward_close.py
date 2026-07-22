@@ -578,15 +578,18 @@ class ForwardCloseMixin:
             pass
         self._recently_closed[sym] = now
         pos = self.open.pop(sym)
-        # Tahap 4a: cooldown/blacklist per-mode (DRY) — config rotate.cooldown_minutes &
-        # blacklist_after_sl. Live juga di-catat tapi efektif di mode tersebut.
+        # Tahap 4a: catat close ke cooldown module HANYA bila opt-in config >0.
+        # Default 0 = belajar via trade_reviews, jangan ban pair karena SL.
         try:
             from . import cooldown as _cd
             _r_cfg = self.cfg.get("rotate", {}) or {}
-            _cd.record_close(self.settings.mode, sym, was_sl=(reason == "sl"),
-                             cooldown_minutes=float(_r_cfg.get("cooldown_minutes", 0) or 0),
-                             blacklist_after_sl=int(_r_cfg.get("blacklist_after_sl", 0) or 0),
-                             blacklist_hours=float(_r_cfg.get("blacklist_hours", 6) or 6))
+            _cd_min = float(_r_cfg.get("cooldown_minutes", 0) or 0)
+            _bl_after = int(_r_cfg.get("blacklist_after_sl", 0) or 0)
+            if _cd_min > 0 or _bl_after > 0:
+                _cd.record_close(self.settings.mode, sym, was_sl=(reason == "sl"),
+                                 cooldown_minutes=_cd_min,
+                                 blacklist_after_sl=_bl_after,
+                                 blacklist_hours=float(_r_cfg.get("blacklist_hours", 6) or 6))
         except Exception as e:  # boundary
             log.debug(f"cooldown record_close {sym}: {e}")
         self._decide_price_cache.pop(sym, None)  # invalidasi cache: state berubah, butuh decide baru

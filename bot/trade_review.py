@@ -115,8 +115,14 @@ def build_lesson_text(
     phase: str | None,
     unlock: bool,
     setup: str | None,
+    mae_pct: float | None = None,
+    mfe_pct: float | None = None,
 ) -> str:
-    """Deterministic IF…THEN…BECAUSE — process hygiene only."""
+    """Deterministic IF…THEN…BECAUSE — process hygiene only.
+
+    Kebijakan: belajar dari kekalahan (setup/konfluensi/SL-placement),
+    BUKAN menghukum simbol/pair. Jangan tulis ban/blacklist pair di sini.
+    """
     r_s = f"{outcome_r:.2f}R" if isinstance(outcome_r, (int, float)) else "?"
     ctx = []
     if dump_flag:
@@ -128,16 +134,19 @@ def build_lesson_text(
     if setup:
         ctx.append(f"setup={setup}")
     ctx_s = ",".join(ctx) if ctx else "normal"
+    setup_s = setup or "unknown_setup"
 
     if error_class == "bad_regime_long":
         return (
             f"IF long AND ({ctx_s}) THEN reduce_size_or_skip_new_long "
-            f"BECAUSE last long closed {exit_reason} ({r_s}) under defensive regime"
+            f"BECAUSE last long closed {exit_reason} ({r_s}) under defensive regime "
+            f"(process — not a pair ban)"
         )
     if error_class == "low_confidence":
         return (
-            f"IF conviction_low AND side={side or '?'} THEN abstain_or_min_size "
-            f"BECAUSE last trade {exit_reason} ({r_s})"
+            f"IF conviction_low AND side={side or '?'} AND setup={setup_s} "
+            f"THEN require_stronger_confluence_or_abstain "
+            f"BECAUSE last trade {exit_reason} ({r_s}) — raise bar on process, not ban pair"
         )
     if error_class == "liq":
         return (
@@ -149,6 +158,32 @@ def build_lesson_text(
             f"IF side={side or '?'} AND context={ctx_s} THEN keep_process "
             f"BECAUSE last trade positive ({r_s}) — do not overfit win"
         )
+    # SL / plain loss: learn process from path (MFE vs MAE), still no pair ban
+    if error_class == "sl_hit" or (
+        isinstance(outcome_r, (int, float)) and outcome_r < 0
+    ):
+        mfe = float(mfe_pct) if mfe_pct is not None else None
+        mae = float(mae_pct) if mae_pct is not None else None
+        if mfe is not None and mae is not None and mfe > 0 and mfe >= mae * 0.7:
+            # sempat searah lalu disapu → SL/placement noise, bukan "pair cursed"
+            return (
+                f"IF setup={setup_s} AND side={side or '?'} AND context={ctx_s} "
+                f"THEN recheck_sl_behind_structure_or_wait_cleaner_location "
+                f"BECAUSE SL after MFE={mfe:.2f}% MAE={mae:.2f}% ({r_s}) — "
+                f"path had edge of direction then noise; learn placement, do not ban pair"
+            )
+        if mfe is not None and mfe < 0.3:
+            return (
+                f"IF setup={setup_s} AND side={side or '?'} AND context={ctx_s} "
+                f"THEN demand_stronger_alignment_before_same_setup "
+                f"BECAUSE immediate adverse move MFE={mfe:.2f}% ({r_s}) — "
+                f"timing/confluence weak; raise bar on setup, do not ban pair"
+            )
+        return (
+            f"IF setup={setup_s} AND side={side or '?'} AND context={ctx_s} "
+            f"THEN raise_confluence_bar_on_this_setup "
+            f"BECAUSE closed {exit_reason} ({r_s}) — process lesson only, not pair blacklist"
+        )
     return (
         f"IF side={side or '?'} AND context={ctx_s} THEN review_process_not_edge "
         f"BECAUSE closed {exit_reason} ({r_s}) — hypothesis only"
@@ -156,16 +191,21 @@ def build_lesson_text(
 
 
 def review_status(*, conflicts: bool, outcome_r: float | None, error_class: str) -> str:
-    """hypothesis | injectable | retired — never 'promoted_edge'."""
+    """hypothesis | injectable | retired — never 'promoted_edge'.
+
+    Loss is risk, not guilt: sl_hit process lessons may inject as soft prompt
+    (setup hygiene). Never means ban symbol. Wins stay hypothesis (anti-overfit).
+    """
     if conflicts:
         return "hypothesis"  # stored for audit, not injected
-    # Only process-hygiene classes that align with foundation get injectable
-    if error_class in ("bad_regime_long", "low_confidence", "liq"):
+    # Process-hygiene classes — soft inject into prompt (not hard gate)
+    if error_class in ("bad_regime_long", "low_confidence", "liq", "sl_hit"):
         return "injectable"
     if error_class in ("tp_hit", "noise_or_ok"):
         return "hypothesis"  # wins: don't invent edge
     if isinstance(outcome_r, (int, float)) and outcome_r < 0:
-        return "hypothesis"
+        # unclassified loss still injectable as process note
+        return "injectable"
     return "hypothesis"
 
 
@@ -241,6 +281,8 @@ def build_review(
         phase=str(phase) if phase else None,
         unlock=bool(unlock_in_window),
         setup=str(setup) if setup else None,
+        mae_pct=pos.get("mae_pct"),
+        mfe_pct=pos.get("mfe_pct"),
     )
     conflicts, notes = foundation_conflict_check(
         lesson, side=side or pos.get("side"), error_class=error_class

@@ -48,6 +48,21 @@ def test_review_status_injectable():
     assert review_status(conflicts=False, outcome_r=-1.0, error_class="bad_regime_long") == "injectable"
     assert review_status(conflicts=True, outcome_r=-1.0, error_class="bad_regime_long") == "hypothesis"
     assert review_status(conflicts=False, outcome_r=1.0, error_class="tp_hit") == "hypothesis"
+    # Loss = learn process (soft inject), not pair ban
+    assert review_status(conflicts=False, outcome_r=-1.0, error_class="sl_hit") == "injectable"
+
+
+def test_sl_lesson_is_process_not_pair_ban():
+    text = build_lesson_text(
+        error_class="sl_hit", side="long", outcome_r=-1.02,
+        exit_reason="sl", dump_flag=False, phase="uptrend", unlock=False,
+        setup="scalp_range", mae_pct=5.8, mfe_pct=3.4,
+    )
+    assert "scalp_range" in text
+    assert "do not ban pair" in text or "not pair" in text.lower()
+    assert "blacklist" not in text.lower() or "not" in text.lower()
+    bad, _ = foundation_conflict_check(text, side="long", error_class="sl_hit")
+    assert bad is False
 
 
 def test_build_review_and_store(tmp_path, monkeypatch):

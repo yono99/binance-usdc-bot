@@ -200,6 +200,9 @@ class GeminiTrader:
                                                    mode=None if self.share_lessons_across_modes
                                                    else self.mode,
                                                    share_across_modes=self.share_lessons_across_modes),
+            # Soft process lessons from closed trades (trade_reviews). BELAJAR dari
+            # kekalahan per setup/konfluensi — BUKAN ban pair. Fail-soft empty list.
+            "process_reviews": self._process_reviews(),
             # Grounding tambahan dari SQLite (agar Gemini PAHAM performa nyatanya):
             "setup_track_record": self._track_record(),         # stats per-setup (dihitung kode)
             "exit_track_record": self._exit_track_record(),      # BELAJAR dari SL/CL/TP/gemini_exit
@@ -208,6 +211,17 @@ class GeminiTrader:
             "loss_postmortem": self._postmortem(symbol),        # TANYA-JAWAB kekalahan (koreksi diri)
         }
         return ctx
+
+    def _process_reviews(self, limit: int = 6) -> list[dict]:
+        """Injectable trade_reviews → soft prompt. Rugi = pelajaran proses, bukan hukuman pair."""
+        try:
+            from . import trade_review as trev
+            return trev.injectable_lessons(
+                mode=None if self.share_lessons_across_modes else self.mode,
+                limit=limit,
+            )
+        except Exception:  # boundary — konteks opsional
+            return []
 
     def _sl_feedback(self, symbol: str, lookback: int = 8) -> dict | None:
         """Umpan balik ADAPTASI SL/cut-loss untuk simbol INI (dari SQLite). Bila entry
