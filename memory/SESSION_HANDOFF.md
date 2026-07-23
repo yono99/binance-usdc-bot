@@ -60,9 +60,10 @@ short-alts markdown-only, 1h majors net cost, re-tune thr LINK, `risk_filter_blo
 
 ### Status terakhir (2026-07-23)
 
-- **Equity paper dry (ukur via SSH → :8000):** trough **$5.65** (12 Jul) → last close
-  **$15.69** (+**178%** dari low) · ATH path **$20** (14 Jul) · MTM ~$16.4 · exp_R **−0.17**
-  (bukan edge). Detail: [EQUITY_SNAPSHOT.md](EQUITY_SNAPSHOT.md).
+- **Equity paper dry (ukur via SSH → journal):** trough dalam **$5.40** (7 Jul) / low **$5.65**
+  (12 Jul) → last close **~$22.26** (23 Jul). exp_R **all-time −0.56** (tercemar arch lama);
+  **adil open≥20 Jul (ghost+manager fix): exp_R ≈ +0.12 · WR 52% · n=91** — **bukan**
+  PROMOTE_PAPER. Detail: [EQUITY_SNAPSHOT.md](EQUITY_SNAPSHOT.md) §0.
 
 - **Dry + LIVE paralel — didukung (lock per-mode):**
   - `forwardtest.py`: lock `logs/forwardtest_<mode>.lock` (bukan 1 global)

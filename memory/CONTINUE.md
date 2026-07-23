@@ -23,7 +23,7 @@
 | Dry server | `192.168.1.107` · `./restart.sh` · 1× forwardtest dry |
 | Risk rugi | daily loss **OFF**; gerbang = **DRAWDOWN LOCK** (`max_drawdown_pct`, default 20) |
 | Dry+LIVE | Boleh paralel (lock per-mode) · spek [LIVE_AND_DRY.md](LIVE_AND_DRY.md) |
-| Equity dry (2026-07-23) | trough **$5.65** → last **$15.69** (+178%) · ATH path $20 · exp_R **−** · [EQUITY_SNAPSHOT.md](EQUITY_SNAPSHOT.md) |
+| Equity dry (2026-07-23) | trough **$5.40** → last **$22.26** · exp_R all-time **−** · **post-fix open≥20 Jul exp_R ≈ +0.12** (n=91) · [EQUITY_SNAPSHOT.md](EQUITY_SNAPSHOT.md) |
 | Hakim CE | `python ce_report.py` |
 
 ## Hierarki belajar (jangan dibalik)
