@@ -22,15 +22,15 @@ if command -v fuser >/dev/null 2>&1; then
 fi
 sleep 1
 
-# 3) Hapus lock basi (proses sudah mati)
-rm -f logs/forwardtest.lock
+# 3) Hapus lock basi (proses sudah mati) — per-mode + legacy global
+rm -f logs/forwardtest.lock logs/forwardtest_dry.lock logs/forwardtest_test.lock logs/forwardtest_live.lock
 
-# 4) Start ulang dari ecosystem (args --mode dry + lock)
+# 4) Start ulang dari ecosystem (default: bot dry + dashboard; bot-live opsional di cjs)
 if [ ! -f ecosystem.config.cjs ]; then
   echo "ERROR: ecosystem.config.cjs tidak ada" >&2
   exit 1
 fi
-pm2 delete bot dashboard 2>/dev/null || true
+pm2 delete bot bot-live dashboard 2>/dev/null || true
 pm2 start ecosystem.config.cjs
 pm2 save
 
@@ -38,19 +38,27 @@ sleep 5
 echo "--- pm2 list ---"
 pm2 list
 
-echo "--- forwardtest processes (harus tepat 1) ---"
+echo "--- forwardtest processes (1 per mode; dry+live paralel OK) ---"
 n=$(ps aux | grep -F 'forwardtest.py' | grep -v grep | wc -l | tr -d ' ')
 ps aux | grep -F 'forwardtest.py' | grep -v grep || true
-if [ "$n" != "1" ]; then
-  echo "WARN: expected 1 forwardtest process, got $n" >&2
+n_dry=$(ps aux | grep -F 'forwardtest.py' | grep -F -- '--mode dry' | grep -v grep | wc -l | tr -d ' ')
+n_live=$(ps aux | grep -F 'forwardtest.py' | grep -F -- '--mode live' | grep -v grep | wc -l | tr -d ' ')
+echo "count total=$n dry=$n_dry live=$n_live"
+if [ "$n_dry" -gt 1 ] || [ "$n_live" -gt 1 ]; then
+  echo "WARN: lebih dari 1 proses mode yang sama (botstate bentrok)" >&2
+elif [ "$n" -eq 0 ]; then
+  echo "WARN: 0 forwardtest" >&2
 else
-  echo "OK: exactly 1 forwardtest"
+  echo "OK: forwardtest count sane (1 per mode)"
 fi
 
 echo "--- lock ---"
-if [ -f logs/forwardtest.lock ]; then
-  echo "pid=$(cat logs/forwardtest.lock)"
-else
+for f in logs/forwardtest.lock logs/forwardtest_dry.lock logs/forwardtest_live.lock; do
+  if [ -f "$f" ]; then
+    echo "$f pid=$(cat "$f")"
+  fi
+done
+if [ ! -f logs/forwardtest.lock ] && [ ! -f logs/forwardtest_dry.lock ] && [ ! -f logs/forwardtest_live.lock ]; then
   echo "(lock belum — bot masih seed / belum main loop)"
 fi
 

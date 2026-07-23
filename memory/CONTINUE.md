@@ -22,6 +22,7 @@
 | Inject | Hanya injectable & !conflicts_foundation → prompt soft |
 | Dry server | `192.168.1.107` · `./restart.sh` · 1× forwardtest dry |
 | Risk rugi | daily loss **OFF**; gerbang = **DRAWDOWN LOCK** (`max_drawdown_pct`, default 20) |
+| Dry+LIVE | Boleh paralel (lock per-mode) · spek [LIVE_AND_DRY.md](LIVE_AND_DRY.md) |
 | Hakim CE | `python ce_report.py` |
 
 ## Hierarki belajar (jangan dibalik)

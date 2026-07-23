@@ -120,13 +120,14 @@ harga), **market → taker** (+ slippage). Baris Status menampilkan
 
 ## Manajemen risiko (selalu aktif)
 
-- **Circuit breaker harian** — **diatur dari UI** (Stop-loss harian % / Max trade
-  harian; `config.yaml: risk.daily_max_loss_pct` / `daily_max_trades` jadi default
-  bila belum pernah disimpan). Stop buka posisi bila rugi harian ≥ % saldo awal
-  hari, atau jumlah open harian tercapai. **0 = nonaktifkan** breaker tsb. Nilai
-  disimpan per-mode (dry/test/live) & hot-reload tanpa restart. Reset tiap hari
-  UTC, **tahan restart** (disimpan di `botstate`). Status menampilkan PnL hari ini
-  + status breaker.
+- **DRAWDOWN LOCK** — gerbang rugi utama (Settings: **Drawdown lock %** =
+  `max_drawdown_pct`, default 20). Equity turun ≥ % dari **puncak** → entry
+  terkunci sampai tombol **Reset Drawdown Lock** di Status (`POST /api/dd-reset`).
+  Kumulatif, tidak reset harian. Per-wallet USDT/USDC.
+- **Stop-loss harian** (`daily_max_loss_pct`) — **retired** (selalu 0). Jangan
+  diandalkan; pakai drawdown lock.
+- **Max trade harian** — tetap di UI; stop buka posisi setelah N trade hari itu
+  (0 = off). Disimpan per-mode, hot-reload.
 - **Guard korelasi** (`risk.corr_threshold` / `corr_lookback`): blok entry **searah**
   bila korelasi return ≥ threshold (default 0.85) dengan posisi terbuka — mencegah
   banyak alt USDC jadi satu taruhan BTC tersamar saat screening semua pair.
@@ -136,8 +137,21 @@ harga), **market → taker** (+ slippage). Baris Status menampilkan
 Tiap mode menyimpan **setting sendiri** (terpisah di kv `runtime:<mode>`): `dry`,
 `test`, `live` punya leverage/bet/pair/order/dll masing-masing. Ganti **Mode** di UI
 → form otomatis memuat setting milik mode itu (`GET /api/settings?mode=<m>`). Mode
-aktif disimpan di kv `active_mode`; bot membaca setting mode aktif tiap heartbeat.
-Saldo **live** selalu diambil dari Binance (equity nyata), bukan nilai tersimpan.
+aktif disimpan di kv `active_mode`; bot **pinned** (`--mode dry|live`) membaca
+bucket mode itu tiap heartbeat (tak ikut switch UI).
+
+### LIVE vs paper — sumber data
+
+| | Dry / test (paper) | LIVE |
+|---|---|---|
+| Saldo | Ledger paper (`botstate_*` / status) | **Binance** `fetch_balance` via `BINANCE_LIVE_*` |
+| Posisi terbuka | `botstate_*.open` | **Binance** `fetch_positions` (+ sync engine) |
+| Open orders | pending simulasi di status | **Binance** `fetch_open_orders` |
+| Riwayat trade UI | journal `mode=dry` | journal `mode=live` (bukan full history API) |
+| Order entry/exit | simulasi | order nyata + SL/TP exchange |
+
+Dry + LIVE **bisa paralel** (dua proses, lock per-mode). Spek lengkap:
+[memory/LIVE_AND_DRY.md](memory/LIVE_AND_DRY.md).
 
 ### Default startup = OFF (preventif)
 

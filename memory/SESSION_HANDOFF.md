@@ -58,7 +58,17 @@ sebelumnya R7–R10 di tree yang sama. `git pull` dulu di server.
 short-alts markdown-only, 1h majors net cost, re-tune thr LINK, `risk_filter_block` tanpa bukti paper.
 **Jangan** auto-short dump/unlock; **jangan** `allow_live`+`risk_ack` sebelum D2 dry lolos.
 
-### Status terakhir (2026-07-21)
+### Status terakhir (2026-07-23)
+
+- **Dry + LIVE paralel — didukung (lock per-mode):**
+  - `forwardtest.py`: lock `logs/forwardtest_<mode>.lock` (bukan 1 global)
+  - Dry + live = 2 proses OK; **2× mode sama = dilarang**
+  - Spek sumber data LIVE (saldo/posisi/orders dari Binance key `.env`;
+    riwayat UI = journal bot): [LIVE_AND_DRY.md](LIVE_AND_DRY.md)
+  - PM2: `bot` dry default; `bot-live` opsional di `ecosystem.config.cjs`
+  - DRAWDOWN LOCK di Settings UI; daily stop-loss harian retired (0)
+
+### Status sebelumnya (2026-07-21)
 
 - **Refactor arsitektur (poin 1–4, pemilik setuju) — SELESAI:**
   - `ForwardTester` dipecah mixin (perilaku 1:1): `bot/forward_gates.py`,

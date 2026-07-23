@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
-"""Forward-test (paper) strategi v4 di data LIVE real-time. Tanpa uang.
+"""Forward-test (paper) / live runner strategi v4 di data real-time.
 
   python forwardtest.py                       # whitelist config, parameter default
   python forwardtest.py --symbols "BTC/USDC:USDC" --poll 30
   python forwardtest.py --once                # satu siklus (uji cepat)
+  python forwardtest.py --mode dry --use-store
+  python forwardtest.py --mode live --use-store   # UANG NYATA (butuh BINANCE_LIVE_*)
 
-Parameter TETAP selama jalan (tidak re-optimize). Hasil di logs/forward_trades.jsonl.
-Jalankan berhari-hari; bila expectancy R tetap > 0 di sampel besar, baru ada bukti edge.
+Parameter TETAP selama jalan (tidak re-optimize). Hasil di logs/trades_<mode>.jsonl.
 
-PENTING: tepat SATU proses bot per host. Dua forwardtest menulis botstate/events
-yang sama → open hilang tanpa CLOSE (insiden 2026-07-20). Single-instance lock
-mencegah zombie manual + PM2 jalan bersamaan.
+PENTING — single-instance PER MODE:
+  - Dua proses **mode sama** (mis. 2× dry) = botstate/events bentrok (insiden 2026-07-20).
+  - Dry + live **boleh** paralel: lock terpisah `logs/forwardtest_<mode>.lock`,
+    state `botstate_dry` / `botstate_live`, journal `trades_dry` / `trades_live`.
+  - Tanpa `--mode`: lock legacy `logs/forwardtest.lock` (satu proses global).
 """
 from __future__ import annotations
 
@@ -27,12 +30,21 @@ from bot.settings_store import reset_all_enabled
 
 ROOT = Path(__file__).resolve().parent
 _LOCK_FD = None
+_LOCK_PATH: Path | None = None
 
 
-def _acquire_single_instance_lock() -> None:
-    """Gagal start bila sudah ada forwardtest lain (PM2 atau manual)."""
-    global _LOCK_FD
-    lock_path = ROOT / "logs" / "forwardtest.lock"
+def _lock_path_for_mode(mode: str | None) -> Path:
+    """Satu lock per mode (dry/test/live). Legacy tanpa --mode → lock global."""
+    if mode in ("dry", "test", "live"):
+        return ROOT / "logs" / f"forwardtest_{mode}.lock"
+    return ROOT / "logs" / "forwardtest.lock"
+
+
+def _acquire_single_instance_lock(mode: str | None = None) -> None:
+    """Gagal start bila sudah ada forwardtest **mode yang sama** (PM2 atau manual)."""
+    global _LOCK_FD, _LOCK_PATH
+    lock_path = _lock_path_for_mode(mode)
+    _LOCK_PATH = lock_path
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o644)
@@ -48,15 +60,17 @@ def _acquire_single_instance_lock() -> None:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except (OSError, BlockingIOError):
         os.close(fd)
+        label = mode or "global"
         log.error(
-            "FORWARDTEST SUDAH JALAN (lock logs/forwardtest.lock). "
-            "Tepat 1 bot — bunuh proses zombie dulu: "
+            f"FORWARDTEST mode={label} SUDAH JALAN (lock {lock_path.name}). "
+            "Tepat 1 proses per mode — bunuh zombie dulu: "
             "ps aux | grep forwardtest; pm2 list"
         )
         sys.exit(2)
     os.ftruncate(fd, 0)
     os.write(fd, f"{os.getpid()}\n".encode())
     _LOCK_FD = fd
+    log.info(f"Instance lock OK: {lock_path.name} pid={os.getpid()}")
 
     def _release() -> None:
         global _LOCK_FD
@@ -101,10 +115,13 @@ def parse_args():
 
 def main() -> None:
     args = parse_args()
-    # Single-instance: cegah 2 bot menulis botstate yang sama (ghost open / wipe).
+    # Single-instance PER MODE: cegah 2 bot mode sama menulis botstate yang sama.
+    # Dry + live paralel OK (lock terpisah). Lihat memory/LIVE_AND_DRY.md.
     if not args.once:
-        _acquire_single_instance_lock()
+        _acquire_single_instance_lock(args.mode)
     # Skip reset_all_enabled in production (PM2) - use SKIP_ENABLED_RESET=1 env var
+    # Catatan dual-bot: proses live yang start belakangan JANGAN matikan enabled dry.
+    # Hanya proses pertama / tanpa SKIP yang mereset semua mode ke OFF.
     if not os.getenv("SKIP_ENABLED_RESET"):
         reset_all_enabled()
         log.info("Startup: SEMUA mode di-reset ke OFF — nyalakan dari dashboard.")

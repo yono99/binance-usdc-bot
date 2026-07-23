@@ -1,18 +1,18 @@
 // Phase 5 — PM2 process manager (pengganti nohup/&).
-// Menjalankan bot forward-test (paper, MODE=dry default) + dashboard :8000, dengan
-// auto-restart saat crash & auto-start saat reboot (lihat `pm2 startup` + `pm2 save`).
+// Default: bot paper (dry) + dashboard :8000, auto-restart & auto-start boot.
 //
-// cwd: __dirname → tak hardcode path; jalan di mana pun repo di-clone.
-// interpreter: ./venv/bin/python (Linux server; sesuai DEPLOY.md). Di Windows ganti
-//   ke ".\\venv\\Scripts\\python.exe".
+// Dual dry + live (opsional):
+//   - Lock PER MODE: logs/forwardtest_dry.lock + logs/forwardtest_live.lock
+//   - Uncomment app `bot-live` di bawah (butuh BINANCE_LIVE_KEY/SECRET di .env)
+//   - UI: ganti Mode dry|live untuk melihat status/settings bucket masing-masing
+//   - JANGAN dua proses mode SAMA (2× dry atau 2× live) — botstate bentrok
+//
+// Detail: memory/LIVE_AND_DRY.md · DEPLOY.md
 //
 // Pakai:
-//   npm install -g pm2
 //   pm2 start ecosystem.config.cjs
-//   pm2 save && pm2 startup     # auto-start saat boot (jalankan perintah yang dicetak)
-//   pm2 logs bot | pm2 status | pm2 restart bot
-//
-// PENTING: jalankan TEPAT SATU proses bot (dua bot menulis DB sama → state bentrok).
+//   pm2 save && pm2 startup
+//   pm2 logs bot | pm2 status
 
 const PY = "/root/binance-usdc-bot/venv/bin/python";  // Linux server (venv)
 
@@ -22,8 +22,7 @@ module.exports = {
       name: "bot",
       script: "forwardtest.py",
       interpreter: PY,
-      // --mode dry → pin_mode=True: bot tak ikut switch UI ke test/live di proses paper
-      // (switch mode mengosongkan self.open di memori; pin mencegah desync paper).
+      // --mode dry → pin_mode=True: proses paper tak ikut switch UI ke live
       args: "--poll 30 --use-store --mode dry",
       cwd: __dirname,
       autorestart: true,
@@ -32,6 +31,21 @@ module.exports = {
       time: true,
       env: { MODE: "dry", SKIP_ENABLED_RESET: "1" },
     },
+    // ── OPSIONAL: LIVE paralel dengan dry (UANG NYATA) ─────────────────────
+    // Uncomment HANYA setelah checklist live + BINANCE_LIVE_* di .env.
+    // pm2 start ecosystem.config.cjs  →  akan start bot + bot-live + dashboard
+    // {
+    //   name: "bot-live",
+    //   script: "forwardtest.py",
+    //   interpreter: PY,
+    //   args: "--poll 30 --use-store --mode live",
+    //   cwd: __dirname,
+    //   autorestart: true,
+    //   restart_delay: 5000,
+    //   max_restarts: 10,
+    //   time: true,
+    //   env: { MODE: "live", SKIP_ENABLED_RESET: "1" },
+    // },
     {
       name: "dashboard",
       script: "dashboard.py",

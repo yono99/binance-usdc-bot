@@ -99,16 +99,19 @@ python forwardtest.py --poll 60 --use-store
 python dashboard.py --host 0.0.0.0    # http://<host>:8000
 ```
 
-> Penting: jalankan **tepat satu** proses bot. Dua bot menulis DB yang sama =
-> posisi & status saling timpa.
+> Penting: **tepat satu proses per mode** (`dry` / `test` / `live`).  
+> Dua proses **mode sama** menulis `botstate_<mode>` yang sama → posisi & status
+> saling timpa. **Dry + live paralel boleh** (lock & state terpisah) — lihat
+> [memory/LIVE_AND_DRY.md](memory/LIVE_AND_DRY.md).
 
 ### 3a. Auto-start saat boot (PM2) — alternatif systemd
 
-`ecosystem.config.cjs` mengelola **bot + dashboard** dengan auto-restart & auto-start boot.
+`ecosystem.config.cjs` mengelola **bot dry + dashboard** (default) dengan
+auto-restart & auto-start boot. Opsional: uncomment `bot-live` untuk LIVE paralel.
 
 ```bash
 npm install -g pm2                  # butuh Node 18+
-pm2 start ecosystem.config.cjs      # jalankan kedua service (bot MODE=dry default)
+pm2 start ecosystem.config.cjs      # bot MODE=dry + dashboard
 pm2 save                            # simpan daftar proses
 pm2 startup                         # cetak perintah; jalankan utk auto-start saat reboot
 ```
@@ -130,15 +133,15 @@ chmod +x restart.sh
 ```
 
 `restart.sh` melakukan: stop PM2 → kill orphan `forwardtest` / fuser :8000 → hapus
-`logs/forwardtest.lock` basi → `pm2 start ecosystem.config.cjs` → cek **tepat 1**
-proses + lock + `/api/status`. Ini mencegah insiden 2026-07-20 (zombie manual + PM2
-saling timpa `botstate_dry`).
+lock per-mode (`forwardtest_*.lock`) → `pm2 start ecosystem.config.cjs` → cek
+jumlah proses per mode + `/api/status`. Mencegah insiden 2026-07-20 (zombie
+manual + PM2 saling timpa `botstate_dry`).
 
 - `interpreter: ./venv/bin/python` (Linux). Pastikan venv sudah dibuat (langkah 1).
-- Jalankan **tepat satu** proses bot (sama spt systemd) — dua bot = state DB bentrok.
-- **Jangan** `python forwardtest.py` manual di samping PM2 (file lock exit 2; zombie
-  menimpa paper open tanpa CLOSE).
-- Reboot: `pm2 save` + `pm2 startup` membuat kedua service hidup lagi otomatis.
+- **1 proses per mode.** Dry + live = 2 proses OK; 2× dry = bentrok.
+- **Jangan** `python forwardtest.py --mode dry` manual di samping PM2 `bot`
+  (lock `forwardtest_dry.lock` exit 2).
+- Reboot: `pm2 save` + `pm2 startup` membuat service hidup lagi otomatis.
 
 ### 3. Auto-start saat boot (systemd)
 
@@ -175,11 +178,18 @@ cd web && npm install && npm run build   # butuh Node 18+
 
 ### Mode live (UANG NYATA)
 1. API key Binance: **Futures-only**, **withdrawal OFF**, **IP-locked**.
-2. `.env`: `MODE=live` + isi `BINANCE_LIVE_KEY/SECRET` (atau toggle mode `live` dari UI).
-3. Mulai dengan **bet sangat kecil**. Saldo live diambil otomatis dari Binance.
+2. `.env`: isi `BINANCE_LIVE_KEY` + `BINANCE_LIVE_SECRET` (wajib untuk proses `--mode live`).
+3. **Saldo, posisi terbuka, open orders** diambil dari Binance via key itu
+   (`fetch_balance` / `fetch_positions` / `fetch_open_orders`) — **bukan** dari
+   form Settings. Riwayat trade di UI = **journal bot** (`mode=live`), bukan
+   impor penuh history akun Binance. Detail: [memory/LIVE_AND_DRY.md](memory/LIVE_AND_DRY.md).
+4. Dual paper+live: biarkan PM2 `bot` (dry); uncomment `bot-live` di
+   `ecosystem.config.cjs` atau jalankan proses kedua `--mode live`.
+5. Mulai dengan **bet sangat kecil** + [memory/LIVE_MICRO_CHECKLIST.md](memory/LIVE_MICRO_CHECKLIST.md).
 
-> ⚠️ Methodology: strategi **belum ada edge (impas)**. Live = risiko penuh. Order
-> nyata + SL/TP sisi-exchange aktif, tapi uji kecil dulu. Lihat [DASHBOARD.md](DASHBOARD.md).
+> ⚠️ Methodology: strategi **belum ada edge entry (PROMOTE_PAPER=0)**. Live = risiko
+> penuh. Order nyata + SL/TP sisi-exchange aktif, uji mikro dulu.
+> Lihat [DASHBOARD.md](DASHBOARD.md) · [memory/LIVE_AND_DRY.md](memory/LIVE_AND_DRY.md).
 
 ---
 

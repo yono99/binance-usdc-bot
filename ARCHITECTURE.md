@@ -5,7 +5,8 @@
 > Operasional harian: [PLAN_OPERASIONAL.md](PLAN_OPERASIONAL.md) ·
 > [memory/SESSION_HANDOFF.md](memory/SESSION_HANDOFF.md).
 
-**Terakhir diselaraskan:** 2026-07-21 — CE dual-track, trade_reviews, forward mixin split, `research/`.
+**Terakhir diselaraskan:** 2026-07-23 — dual dry+live (lock per-mode), DRAWDOWN LOCK UI,
+sumber data LIVE Binance ([memory/LIVE_AND_DRY.md](memory/LIVE_AND_DRY.md)).
 
 ---
 
@@ -53,12 +54,13 @@ Prinsip: [METHODOLOGY.md](METHODOLOGY.md) · [TUJUAN.md](TUJUAN.md) §2.1 (survi
 
 | Path | Peran |
 |---|---|
-| `forwardtest.py` | Entry PM2: `ForwardTester` + `reset_all_enabled` (default OFF) |
+| `forwardtest.py` | Entry PM2: lock **per-mode**, `ForwardTester`, `reset_all_enabled` |
+| `bot/exchange.py` | Binance USDM: balances/positions/orders (LIVE key dari `.env`) |
 | `bot/forward.py` | Class shell: init, seed, cycle loop, signal buffer |
 | `bot/forward_gates.py` | Circuit breaker, ReAct gate, risk_filter, cycle context, corr |
 | `bot/forward_open.py` | `_open_usd`, sizing, CE evaluate, live open |
-| `bot/forward_close.py` | Monitor, close, post-mortem, CE live stop, calib drift |
-| `bot/forward_status.py` | Settings apply, persist, mode switch, `_write_status` |
+| `bot/forward_close.py` | Monitor, close, `_live_reconcile`, post-mortem, CE live stop |
+| `bot/forward_status.py` | Settings apply, persist, mode switch, `_sync_live_positions` |
 | `bot/react_agent.py` | OBSERVE→REASON→ACT (fail-open) |
 | `bot/entry_confluence.py` | 3-factor gate (**shadow** default) |
 | `bot/cycle_candidate.py` | **CE-STANCE** — pondasi ilmu pemilik |
@@ -66,7 +68,8 @@ Prinsip: [METHODOLOGY.md](METHODOLOGY.md) · [TUJUAN.md](TUJUAN.md) §2.1 (survi
 | `bot/risk_filter.py` | Meta overlay breadth/corr/vol (**shadow**) |
 | `bot/engine.py` | Jalur alternatif `run.py` (bukan PM2 dry utama) |
 
-**Entry pipeline detail:** [ENTRY_PIPELINE.md](ENTRY_PIPELINE.md)
+**Entry pipeline detail:** [ENTRY_PIPELINE.md](ENTRY_PIPELINE.md)  
+**Dry + LIVE paralel & sumber data Binance:** [memory/LIVE_AND_DRY.md](memory/LIVE_AND_DRY.md)
 
 ---
 
