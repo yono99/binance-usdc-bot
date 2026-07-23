@@ -10,7 +10,10 @@ export function SettingsPage() {
       <div className="page-head">
         <div>
           <h1>Settings</h1>
-          <p>Risk, pair, mode, agent flags — hot-reload tiap siklus bot.</p>
+          <p>
+            Setting pribadi (risk / order / trade) · setting server (timeframe /
+            model / interval) · agent — hot-reload tiap siklus bot.
+          </p>
         </div>
       </div>
       <ControlPanel status={status} available={available} account={account} />
