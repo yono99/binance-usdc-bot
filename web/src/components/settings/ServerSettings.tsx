@@ -21,10 +21,14 @@ export function ServerSettings({
       <header className="settings-section-head">
         <h3>Setting server</h3>
         <span className="sub">
-          Timeframe, model Gemini, interval bot — config proses (bukan risk
-          pribadi)
+          Satu untuk semua mode (dry / test / live) — poll, model Gemini,
+          interval. Bukan risk pribadi. Seed default dari dry.
         </span>
       </header>
+      <div className="ok" style={{ marginBottom: 10, fontSize: 11 }}>
+        One-to-many: simpan di sini → dry, test, dan live memakai nilai server
+        yang sama. Setting pribadi (lev, bet, max trade) tetap per-mode.
+      </div>
 
       <div className="settings-group">
         <div className="settings-group-title">Proses bot</div>

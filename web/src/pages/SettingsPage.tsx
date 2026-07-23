@@ -11,8 +11,8 @@ export function SettingsPage() {
         <div>
           <h1>Settings</h1>
           <p>
-            Setting pribadi (risk / order / trade) · setting server (timeframe /
-            model / interval) · agent — hot-reload tiap siklus bot.
+            Setting pribadi per-mode · setting server bersama (1× untuk dry/test/live)
+            · agent — hot-reload tiap siklus bot.
           </p>
         </div>
       </div>

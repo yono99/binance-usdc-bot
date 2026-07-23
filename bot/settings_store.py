@@ -76,6 +76,21 @@ PRESETS: dict[str, dict] = {
 
 MAINT_MARGIN = 0.005  # asumsi maintenance margin ~0.5%
 
+# Setting SERVER — satu sumber (`runtime:server`) untuk SEMUA mode (dry/test/live).
+# Personal (risk/sizing/order/enabled/…) tetap per-mode di `runtime:<mode>`.
+# Satu tulis server → banyak mode baca (one-to-many). Seed default dari dry.
+SERVER_SETTING_KEYS: tuple[str, ...] = (
+    "poll_seconds",
+    "gemini_decide_seconds",
+    "gemini_manage_seconds",
+    "gemini_min_hold_s",
+    "gemini_portfolio_seconds",
+    "gemini_plan_hours",
+    "gemini_tool_iters",
+    "gemini_model",
+)
+SERVER_KV_KEY = "runtime:server"
+
 
 @dataclass
 class RuntimeSettings:
@@ -307,9 +322,100 @@ def _gemini_from_env() -> tuple[list[str], bool]:
     return keys, enabled
 
 
+def extract_server_settings(s: RuntimeSettings | dict) -> dict:
+    """Ambil field setting server dari RuntimeSettings atau dict (setelah clamp bila RS)."""
+    if isinstance(s, RuntimeSettings):
+        s = s.clamp()
+        src = asdict(s)
+    else:
+        src = s or {}
+    return {k: src[k] for k in SERVER_SETTING_KEYS if k in src}
+
+
+def _default_server_settings() -> dict:
+    """Default dataclass (bukan dry) — fallback terakhir."""
+    return extract_server_settings(RuntimeSettings())
+
+
+def _seed_server_from_dry() -> dict:
+    """Seed shared server dari bucket dry (prefer), lalu legacy, lalu default.
+
+    One-to-many: dry = sumber default historis paper yang sudah dituning.
+    """
+    for key in ("runtime:dry", "runtime"):
+        try:
+            data = store.get_kv(key)
+        except Exception:
+            data = None
+        if not data:
+            continue
+        got = extract_server_settings(data)
+        if got:
+            # Lengkapi key yang hilang dari default
+            base = _default_server_settings()
+            base.update(got)
+            return base
+    if LEGACY_STORE.exists():
+        try:
+            legacy = json.loads(LEGACY_STORE.read_text(encoding="utf-8"))
+            got = extract_server_settings(legacy)
+            if got:
+                base = _default_server_settings()
+                base.update(got)
+                return base
+        except Exception:
+            pass
+    return _default_server_settings()
+
+
+def load_server_settings() -> dict:
+    """Baca setting server bersama. Belum ada → seed dari dry lalu persist."""
+    try:
+        data = store.get_kv(SERVER_KV_KEY)
+    except Exception:
+        data = None
+    if data and isinstance(data, dict) and any(k in data for k in SERVER_SETTING_KEYS):
+        base = _default_server_settings()
+        base.update({k: data[k] for k in SERVER_SETTING_KEYS if k in data})
+        # Clamp lewat RuntimeSettings kosong + overlay
+        tmp = RuntimeSettings()
+        apply_server_settings(tmp, base)
+        return extract_server_settings(tmp)
+    seeded = _seed_server_from_dry()
+    try:
+        store.set_kv(SERVER_KV_KEY, seeded)
+    except Exception:
+        pass
+    return seeded
+
+
+def apply_server_settings(s: RuntimeSettings, server: dict | None = None) -> RuntimeSettings:
+    """Overlay setting server bersama ke instance mode (in-place + return)."""
+    srv = server if server is not None else load_server_settings()
+    for k in SERVER_SETTING_KEYS:
+        if k in srv:
+            setattr(s, k, srv[k])
+    return s.clamp()
+
+
+def save_server_settings(s: RuntimeSettings | dict) -> dict:
+    """Tulis setting server bersama (dipakai semua mode). Return dict tersimpan."""
+    if isinstance(s, RuntimeSettings):
+        payload = extract_server_settings(s.clamp())
+    else:
+        tmp = RuntimeSettings()
+        apply_server_settings(tmp, extract_server_settings(s or {}))
+        payload = extract_server_settings(tmp)
+    store.set_kv(SERVER_KV_KEY, payload)
+    return payload
+
+
 def load_settings(mode: str | None = None) -> RuntimeSettings:
-    """Pengaturan PER-MODE. mode=None → mode aktif (pilihan UI/.env).
-    Tiap mode (dry/test/live) punya setting terpisah di kv 'runtime:<mode>'."""
+    """Pengaturan PER-MODE + overlay setting SERVER bersama.
+
+    Personal (risk/sizing/order/…) di kv `runtime:<mode>`.
+    Server (poll/interval Gemini/model) di kv `runtime:server` — sama untuk dry/test/live.
+    """
     requested = get_active_mode() if mode is None else mode
     eff = _eff_mode(requested)
     try:
@@ -323,6 +429,8 @@ def load_settings(mode: str | None = None) -> RuntimeSettings:
         s = _from_dict(data, mode=requested)
     except Exception:
         s = _from_dict({}, mode=requested)
+    # One-to-many: server shared menimpa field proses di bucket mode
+    apply_server_settings(s)
     # Overlay key dari .env (jangan percaya snapshot KV)
     keys, enabled = _gemini_from_env()
     s.gemini_keys = keys
@@ -331,11 +439,11 @@ def load_settings(mode: str | None = None) -> RuntimeSettings:
 
 
 def save_settings(s: RuntimeSettings, set_active: bool = True) -> None:
-    """Simpan ke bucket mode-nya sendiri. set_active=False → JANGAN sentuh mode
-    aktif (dipakai POST /api/settings agar form tak bisa memindah mode).
-    
-    LIVE MODE: balance_usdt & balance_usdc TIDAK bisa di-set manual — diambil
-    otomatis dari Binance API (fetch_live_balances). Mencegah input manual salah."""
+    """Simpan personal ke bucket mode + setting server ke bucket bersama.
+
+    set_active=False → JANGAN sentuh mode aktif (POST /api/settings).
+    LIVE: balance_usdt/usdc dari Binance, bukan form manual.
+    """
     s = s.clamp()
     eff = _eff_mode(s.mode)
     if eff == "live":
@@ -353,9 +461,12 @@ def save_settings(s: RuntimeSettings, set_active: bool = True) -> None:
             if existing:
                 s.balance_usdt = float(existing.get("balance_usdt", s.balance_usdt))
                 s.balance_usdc = float(existing.get("balance_usdc", s.balance_usdc))
+    # Server shared dulu — load_settings mode lain langsung lihat nilai baru
+    save_server_settings(s)
     # Jangan persist secret key list ke KV (sumber kebenaran = .env saja)
     payload = asdict(s)
     payload["gemini_keys"] = []
+    # Simpan juga salinan server di bucket mode (audit/back-compat); load tetap overlay shared
     store.set_kv("runtime:" + eff, payload)
     if set_active:
         set_active_mode(s.mode)

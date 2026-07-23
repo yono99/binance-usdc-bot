@@ -1221,6 +1221,9 @@ def api_set_settings(payload: dict) -> JSONResponse:
     d["techniques"] = list(PRESETS)
     d["timeframe"] = s.timeframe()
     d["liq_pct"] = round(s.liquidation_frac() * 100, 3)
+    # Server fields are shared across dry/test/live (runtime:server).
+    from bot.settings_store import SERVER_SETTING_KEYS
+    d["server_shared_keys"] = list(SERVER_SETTING_KEYS)
     return JSONResponse(d)
 
 
