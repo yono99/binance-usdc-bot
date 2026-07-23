@@ -26,8 +26,9 @@ export interface Settings {
   balance_usdc?: number;
   target_profit_pct: number;
   max_open_positions: number;
-  daily_max_loss_pct: number;
+  daily_max_loss_pct: number;   // retired — engine paksa 0; pakai max_drawdown_pct
   daily_max_trades: number;
+  max_drawdown_pct: number;     // DRAWDOWN LOCK: % drop dari puncak equity (0=off)
   corr_threshold: number;
   corr_lookback: number;
   poll_seconds: number;
@@ -124,7 +125,16 @@ export interface Status {
   day_pnl?: number;
   day_trades?: number;
   circuit_breaker?: string | null;
-  drawdown?: { locked: boolean; reason: string | null; peak_balance: number; dd_pct: number };
+  drawdown?: {
+    locked: boolean;
+    reason: string | null;
+    peak_balance?: number;
+    peak_balance_usdt?: number;
+    peak_balance_usdc?: number;
+    dd_pct?: number;
+    dd_pct_usdt?: number;
+    dd_pct_usdc?: number;
+  };
   corr_threshold?: number;
   news_veto?: { active: boolean; note: string };
   pending_orders?: OpenOrder[];

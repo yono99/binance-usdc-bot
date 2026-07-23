@@ -53,12 +53,12 @@ Live/test tidak diubah.
 
 | Field | Nilai | Alasan |
 |---|---:|---|
-| `daily_max_loss_pct` | **5** | Circuit harian (sebelumnya 50 = longgar) |
+| `daily_max_loss_pct` | **0** | Retired 2026-07-23 — diganti DRAWDOWN LOCK |
 | `daily_max_trades` | **30** | Batas frekuensi (sebelumnya 200) |
 | `max_open_positions` | **5** | Slot terbatas (sebelumnya 10) |
 | `leverage` | **5** | Paper disiplin (sebelumnya 10) |
 | `bet_usd` | 4 | Tetap kecil |
-| `max_drawdown_pct` | 20 | Kill-switch kumulatif (tetap) |
+| `max_drawdown_pct` | **20** | Kill-switch kumulatif dari puncak equity (Settings UI) |
 
 ### 3.2 Agent — Jalan A (Fase 2)
 

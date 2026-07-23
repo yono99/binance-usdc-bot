@@ -93,7 +93,9 @@ risk:
   account_risk_pct: 0.5
   corr_lookback: 50
   corr_threshold: 0.85
-  daily_max_loss_pct: 3.0
+  # daily_max_loss_pct retired (0). Gerbang rugi utama = max_drawdown_pct (DRAWDOWN LOCK).
+  daily_max_loss_pct: 0.0
+  max_drawdown_pct: 20.0          # kunci entry bila equity turun ≥% dari puncak; lepas manual
   daily_max_trades: 20
   leverage: 3
   max_portfolio_exposure_pct: 30

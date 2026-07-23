@@ -1349,7 +1349,7 @@ PAGE = """<!doctype html>
       <label>Saldo USDC (read-only, berubah otomatis via PnL)<input id="balance_usdc" type="number" readonly style="background:#1a2332;color:#8aa0c0"></label>
       <label>Target profit % (0=ATR)<input id="target_profit_pct" type="number" min="0" step="0.1"></label>
       <label>Max posisi terbuka<input id="max_open_positions" type="number" min="1" max="20" step="1"></label>
-      <label>Stop-loss harian % (0=off)<input id="daily_max_loss_pct" type="number" min="0" max="100" step="0.1"></label>
+      <label>Drawdown lock % (0=off; dari puncak equity)<input id="max_drawdown_pct" type="number" min="0" max="90" step="0.5"></label>
       <label>Max trade harian (0=off)<input id="daily_max_trades" type="number" min="0" max="1000" step="1"></label>
       <label>Interval screening (dtk)<input id="poll_seconds" type="number" min="5" max="3600" step="1"></label>
       <label>Timeframe (otomatis)<input id="tf" disabled></label>
@@ -1522,7 +1522,7 @@ async function loadSettings(){
   
   document.getElementById('target_profit_pct').value=s.target_profit_pct;
   document.getElementById('max_open_positions').value=s.max_open_positions;
-  document.getElementById('daily_max_loss_pct').value=s.daily_max_loss_pct;
+  document.getElementById('max_drawdown_pct').value=s.max_drawdown_pct ?? 20;
   document.getElementById('daily_max_trades').value=s.daily_max_trades;
   document.getElementById('poll_seconds').value=s.poll_seconds;
   document.getElementById('tf').value=s.timeframe;
@@ -1615,7 +1615,7 @@ document.getElementById('save').addEventListener('click',async()=>{
     // balance_usdt/balance_usdc TIDAK dikirim — backend pop() otomatis
     target_profit_pct:+document.getElementById('target_profit_pct').value,
     max_open_positions:+document.getElementById('max_open_positions').value,
-    daily_max_loss_pct:+document.getElementById('daily_max_loss_pct').value,
+    max_drawdown_pct:+document.getElementById('max_drawdown_pct').value,
     daily_max_trades:+document.getElementById('daily_max_trades').value,
     poll_seconds:+document.getElementById('poll_seconds').value,
     conf_min:+document.getElementById('conf_min').value,

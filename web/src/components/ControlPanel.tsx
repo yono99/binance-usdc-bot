@@ -15,14 +15,14 @@ const liqPct = (lev: number) => Math.max(1 / lev - 0.005, 0.0005) * 100;
 // Default teknik gemini yang direkomendasikan. HANYA knob teknik/gerbang/throttle/fee —
 // modal & identitas (saldo, mode, leverage, bet, pair, gemini_model) TAK disentuh.
 // Prinsip: jangan over-gate (korelasi 0.55 mereka blok terlalu banyak → 0.85), throttle
-// hemat free-tier, circuit breaker harian nyala tapi tak mencekik, fee USDC-M promo benar.
+// hemat free-tier, gerbang rugi = DRAWDOWN LOCK (bukan stop-loss harian), fee USDC-M promo benar.
 const REKOMENDASI_GEMINI: Partial<Form> = {
   technique: "gemini",
   order_type: "limit",              // maker lebih murah (exit SL/TP tetap taker)
   corr_threshold: 0.85,             // longgarkan dari 0.55 (over-gating = sedikit entry & tetap -EV)
   corr_lookback: 50,
   max_open_positions: 5,            // $ kecil: 20 slot menyebar modal terlalu tipis
-  daily_max_loss_pct: 20,           // breaker harian nyala (100 = praktis mati)
+  max_drawdown_pct: 20,             // DRAWDOWN LOCK dari puncak equity (ganti stop-loss harian)
   daily_max_trades: 20,
   poll_seconds: 60,
   gemini_decide_seconds: 180,
@@ -49,7 +49,7 @@ type Form = {
   balance_usdc: number;
   target_profit_pct: number;
   max_open_positions: number;
-  daily_max_loss_pct: number;
+  max_drawdown_pct: number;
   daily_max_trades: number;
   corr_threshold: number;
   corr_lookback: number;
@@ -102,7 +102,7 @@ export function ControlPanel({
     balance_usdc: bal?.usdc ?? d.balance_usdc ?? 0,
     target_profit_pct: d.target_profit_pct,
     max_open_positions: d.max_open_positions,
-    daily_max_loss_pct: d.daily_max_loss_pct,
+    max_drawdown_pct: d.max_drawdown_pct ?? 20,
     daily_max_trades: d.daily_max_trades,
     corr_threshold: d.corr_threshold ?? 0.85,
     corr_lookback: d.corr_lookback ?? 50,
@@ -194,7 +194,7 @@ export function ControlPanel({
     ["leverage", "Leverage"], ["bet_usd", "Bet"], ["bet_pct", "Bet % saldo"],
     ["target_profit_pct", "Target profit %"],
     ["max_open_positions", "Max posisi"], ["poll_seconds", "Interval screening"],
-    ["daily_max_loss_pct", "Stop-loss harian %"], ["daily_max_trades", "Max trade harian"],
+    ["max_drawdown_pct", "Drawdown lock %"], ["daily_max_trades", "Max trade harian"],
     ["taker_fee_pct", "Fee taker USDT %"], ["maker_fee_pct", "Fee maker USDT %"],
     ["usdc_taker_fee_pct", "Fee taker USDC %"], ["usdc_maker_fee_pct", "Fee maker USDC %"],
     ["gemini_decide_seconds", "Interval keputusan"], ["gemini_manage_seconds", "Interval kelola"],
@@ -224,7 +224,8 @@ export function ControlPanel({
       p ? { ...p, leverage: res.leverage, bet_usd: res.bet_usd, bet_pct: res.bet_pct ?? 0,
             target_profit_pct: res.target_profit_pct,
             max_open_positions: res.max_open_positions, poll_seconds: res.poll_seconds,
-            daily_max_loss_pct: res.daily_max_loss_pct, daily_max_trades: res.daily_max_trades,
+            max_drawdown_pct: res.max_drawdown_pct ?? p.max_drawdown_pct,
+            daily_max_trades: res.daily_max_trades,
             corr_threshold: res.corr_threshold ?? p.corr_threshold, corr_lookback: res.corr_lookback ?? p.corr_lookback,
             taker_fee_pct: res.taker_fee_pct, maker_fee_pct: res.maker_fee_pct,
             usdc_taker_fee_pct: res.usdc_taker_fee_pct, usdc_maker_fee_pct: res.usdc_maker_fee_pct,
@@ -376,8 +377,18 @@ export function ControlPanel({
           <input type="number" min={1} max={20} step={1} value={form.max_open_positions} onChange={(e) => set("max_open_positions", +e.target.value)} />
         </label>
         <label>
-          Stop-loss harian % · <span className="sub">circuit breaker; rugi ≥ % saldo awal hari → stop (0 = nonaktif)</span>
-          <input type="number" min={0} max={100} step={0.1} value={form.daily_max_loss_pct} onChange={(e) => set("daily_max_loss_pct", +e.target.value)} />
+          Drawdown lock % ·{" "}
+          <span className="sub">
+            kunci entry bila equity turun ≥ % dari puncak (kumulatif, 0 = nonaktif) · lepas hanya via tombol Reset di Status
+          </span>
+          <input
+            type="number"
+            min={0}
+            max={90}
+            step={0.5}
+            value={form.max_drawdown_pct}
+            onChange={(e) => set("max_drawdown_pct", +e.target.value)}
+          />
         </label>
         <label>
           Max trade harian · <span className="sub">stop buka posisi setelah N trade hari ini (0 = nonaktif)</span>

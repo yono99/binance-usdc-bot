@@ -98,14 +98,15 @@ class RuntimeSettings:
     #                                             balance_usdt/balance_usdc.
     target_profit_pct: float = 0.0              # 0 = pakai TP dari ATR; >0 = TP = entry×(1+ini%)
     max_open_positions: int = 2                 # slot posisi paralel maksimum
-    daily_max_loss_pct: float = 3.0             # circuit breaker: stop buka posisi bila rugi harian ≥ % saldo awal hari (0 = nonaktif)
+    daily_max_loss_pct: float = 0.0             # RETIRED — selalu 0 di clamp. Pakai max_drawdown_pct (DRAWDOWN LOCK).
+                                                 # Field tetap ada agar KV/API lama tak error; diabaikan engine (0=off).
     daily_max_trades: int = 20                  # circuit breaker: stop bila jumlah trade hari ini tercapai (0 = nonaktif)
     corr_threshold: float = 0.85                 # guard korelasi: blok entry SEARAH bila korelasi return ≥ ini (0 = nonaktif)
     corr_lookback: int = 50                      # bar untuk hitung korelasi (<20 = nonaktif)
     max_drawdown_pct: float = 20.0               # KILL-SWITCH drawdown TOTAL dari puncak saldo (0 = nonaktif).
-                                                 # Beda dgn daily_max_loss: ini KUMULATIF & tak reset harian —
-                                                 # kebocoran pelan berhari-hari tetap tertangkap. Lepas kunci
-                                                 # HANYA manual (POST /api/dd-reset) — keputusan sadar pemilik.
+                                                 # KUMULATIF & tak reset harian — kebocoran pelan tetap tertangkap.
+                                                 # Lepas kunci HANYA manual (POST /api/dd-reset) — keputusan sadar pemilik.
+                                                 # Menggantikan daily_max_loss_pct sebagai gerbang rugi utama.
     poll_seconds: int = 60                      # heartbeat bot (baca setting+monitor+status). Sinyal dievaluasi per bar TF.
     # --- Penyetelan Gemini (atur frekuensi panggilan → hemat RPM/token), semua di UI ---
     gemini_decide_seconds: int = 900           # throttle decide Gemini/simbol — 900s = 1× bar 15m (hemat RPD)
@@ -173,7 +174,9 @@ class RuntimeSettings:
         # dry_quote_split_usdc DEPRECATED: di-clamp nilai waras tapi TAK dipakai code baru.
         self.target_profit_pct = max(0.0, min(100.0, float(self.target_profit_pct)))   # >100% gerak harga = tak masuk akal
         self.max_open_positions = int(max(1, min(20, self.max_open_positions)))
-        self.daily_max_loss_pct = max(0.0, min(100.0, float(self.daily_max_loss_pct)))   # 0 = nonaktif; >100% saldo tak masuk akal
+        # Stop-loss harian retired: paksa 0 agar KV/UI lama tak menghidupkan circuit harian lagi.
+        # Gerbang rugi utama = max_drawdown_pct (DRAWDOWN LOCK dari puncak equity).
+        self.daily_max_loss_pct = 0.0
         self.daily_max_trades = int(max(0, min(1000, self.daily_max_trades)))            # 0 = nonaktif
         self.corr_threshold = max(0.0, min(1.0, float(self.corr_threshold)))             # korelasi ∈ [0,1]; 0 = nonaktif
         self.corr_lookback = int(max(0, min(500, self.corr_lookback)))                   # <20 = nonaktif

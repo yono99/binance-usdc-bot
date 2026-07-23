@@ -114,7 +114,8 @@ short-alts markdown-only, 1h majors net cost, re-tune thr LINK, `risk_filter_blo
   - Detail: [CRYPTO_CYCLE_KNOWLEDGE.md](CRYPTO_CYCLE_KNOWLEDGE.md) §4 P2/P3
 
 - **Proxmox paper dry (postur terkunci — cek tiap deploy):**
-  risk loss **5** / trades 30 / max_open 5 / lev 5 / bet 4; manager **OFF**, ab_shadow **ON**;
+  risk: daily_loss **OFF (0)** · DD lock **20%** / trades 30 / max_open 5 / lev 5 / bet 4;
+  manager **OFF**, ab_shadow **ON**;
   dump_short_boost false; risk_filter_shadow ON / block OFF;
   **cycle_candidate mode=size** (allow_live+risk_ack ON di config — live enforce
   hanya saat proses **mode=live**; dry paper size-down aktif).
@@ -217,12 +218,12 @@ Dokumen induk:
 
 | Field | Nilai |
 |---|---:|
-| `daily_max_loss_pct` | 5 |
+| `daily_max_loss_pct` | **0** (retired 2026-07-23 — pakai DD lock) |
 | `daily_max_trades` | 30 |
 | `max_open_positions` | 5 |
 | `leverage` | 5 |
 | `bet_usd` | 4 |
-| `max_drawdown_pct` | 20 |
+| `max_drawdown_pct` | **20** (Settings UI; set 25 bila mau) |
 
 ### Agent (postur 2026-07-20/21, setelah audit agent_flat + risk-filter)
 

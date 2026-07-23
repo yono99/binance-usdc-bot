@@ -15,7 +15,8 @@ file ini di repo = **template** (boleh di-fork ke notes lokal agar git tetap ber
 |---|---|
 | Mode aktif | `dry` |
 | Bot proses | **tepat 1** `forwardtest` (PM2 `bot`) |
-| `daily_max_loss_pct` | **5** |
+| `daily_max_loss_pct` | **0** (retired — pakai drawdown lock) |
+| `max_drawdown_pct` | **20** (set di Settings; mis. 25) |
 | `daily_max_trades` | **30** |
 | `max_open_positions` | **5** |
 | `leverage` | **5** |
@@ -46,10 +47,10 @@ ps aux | grep forwardtest | grep -v grep   # harus tepat 1
 
 ### B. Risk lock masih utuh
 
-- [ ] Daily loss limit masih **5%** (tidak dilonggarkan)
+- [ ] Drawdown lock % masih di Settings (default **20**, tidak dilonggarkan impulsif)
 - [ ] Max trade harian masih **30**
 - [ ] Max posisi **5**, leverage **5**
-- [ ] Bila circuit harian kena: **stop entry dihormati** (tidak “paksa trade”)
+- [ ] Bila DRAWDOWN LOCK trip: **stop entry dihormati** (lepas hanya tombol Reset sadar)
 
 ### C. Agent posture
 
@@ -141,7 +142,7 @@ Salin ke notes pribadi (disarankan) atau append di bawah jika kamu memang ingin 
 ## 6. Ritual 60 detik (kalau sangat sibuk)
 
 1. Buka dashboard → bot ON, mode dry  
-2. Settings: loss 5 / trades 30 / pos 5 / lev 5  
+2. Settings: DD lock 20 / trades 30 / pos 5 / lev 5  
 3. Agent: manager ON, A/B ON  
 4. Tulis 1 baris di tabel §5  
 5. Tutup — **selesai**

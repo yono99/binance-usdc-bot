@@ -21,6 +21,7 @@
 | Review | `trade_reviews` di bot.db · `bot/trade_review.py` · [TRADE_REVIEW.md](TRADE_REVIEW.md) |
 | Inject | Hanya injectable & !conflicts_foundation → prompt soft |
 | Dry server | `192.168.1.107` · `./restart.sh` · 1× forwardtest dry |
+| Risk rugi | daily loss **OFF**; gerbang = **DRAWDOWN LOCK** (`max_drawdown_pct`, default 20) |
 | Hakim CE | `python ce_report.py` |
 
 ## Hierarki belajar (jangan dibalik)

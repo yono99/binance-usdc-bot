@@ -39,11 +39,15 @@ class RiskGate:
         self.daily.roll()
         if self.daily.halted:
             return True
-        max_loss = -abs(self.cfg["daily_max_loss_pct"]) / 100 * equity
-        if self.daily.realized_pnl <= max_loss:
-            self.daily.halted = True
-            log.error(f"CIRCUIT BREAKER: PnL harian {self.daily.realized_pnl:.2f} <= {max_loss:.2f}. STOP.")
-            return True
+        # daily_max_loss_pct retired (0 = off). Gerbang rugi utama = DRAWDOWN LOCK
+        # di ForwardTester (max_drawdown_pct). Engine path hormati 0 = nonaktif.
+        loss_pct = float(self.cfg.get("daily_max_loss_pct") or 0)
+        if loss_pct > 0:
+            max_loss = -abs(loss_pct) / 100 * equity
+            if self.daily.realized_pnl <= max_loss:
+                self.daily.halted = True
+                log.error(f"CIRCUIT BREAKER: PnL harian {self.daily.realized_pnl:.2f} <= {max_loss:.2f}. STOP.")
+                return True
         if self.daily.trades >= self.cfg["daily_max_trades"]:
             log.warning("Batas jumlah trade harian tercapai.")
             return True
