@@ -16,6 +16,16 @@ agent:
   risk_filter_block: false
   risk_filter_breadth: true      # skip when breadth (frac > SMA50) in bottom 30% of 100d
   risk_filter_corr_vol: true     # skip when avg corr high OR BTC vol20 high (top quartile)
+  # G2 quality-momentum as ENTRY signal overlay (adapted from research LS book).
+  # Rules propose long/short; G2 checks quality bucket (top=long, bottom=short).
+  # shadow=true → log G2_ENTRY_SHADOW when misaligned; block=true → hard skip (default OFF).
+  # Goal: measure entry edge on real paper trades — NOT wire size until n evidence.
+  g2_entry:
+    shadow: true
+    block: false
+    top_q: 0.3
+    lookback: 20
+    snap_dir: data/snap
   # Candidate edge — owner knowledge foundation (NOT PROMOTE_PAPER).
   # Dual-track 1:1: same rules dry & live. See memory/CANDIDATE_EDGE.md + LIVE_MICRO_CHECKLIST.md
   # Owner 2026-07-21: agreed dual test dry+live with considered loss; risk_ack ON for live micro.

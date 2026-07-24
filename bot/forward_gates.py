@@ -9,6 +9,7 @@ import pandas as pd
 
 from . import decision_log
 from . import risk_filter as risk_filter_mod
+from . import g2_entry as g2_entry_mod
 from .logger import journal, log
 from .settings_store import RuntimeSettings
 from .signals import Signal
@@ -228,6 +229,22 @@ class ForwardGatesMixin:
             log.warning(f"risk_filter check gagal (fail-open): {e}")
             self._risk_filter_verdict = risk_filter_mod.FilterVerdict(
                 True, [], {"note": "error", "err": str(e)[:120]})
+
+    def _refresh_g2_entry(self) -> None:
+        """Refresh G2 quality-mom ranks once per cycle when shadow|block on. Fail-open."""
+        try:
+            _g2 = g2_entry_mod.from_config(self.cfg)
+            self.g2_entry_shadow = bool(_g2["shadow"])
+            self.g2_entry_block = bool(_g2["block"])
+        except Exception:
+            pass
+        if not (getattr(self, "g2_entry_shadow", False)
+                or getattr(self, "g2_entry_block", False)):
+            return
+        try:
+            g2_entry_mod.refresh(self.cfg)
+        except Exception as e:
+            log.warning(f"g2_entry refresh gagal (fail-open): {e}")
 
     def _react_gate(self, sym: str, side: int, atr: float, df_closed, price: float):
         """Konsultasi ReactAgent sbg gerbang entry (teknik NON-gemini). OBSERVE pakai

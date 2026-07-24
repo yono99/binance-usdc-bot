@@ -7,6 +7,7 @@ from collections import namedtuple
 import pandas as pd
 
 from . import cycle_candidate as cycle_cand
+from . import g2_entry as g2_entry_mod
 from . import decision_log
 from . import risk_filter as risk_filter_mod
 from .logger import journal, log
@@ -469,6 +470,13 @@ class ForwardOpenMixin:
                           **mtf_stamp,
                           **risk_filter_mod.stamp(getattr(self, "_risk_filter_verdict", None)),
                           **cycle_cand.stamp(ce_verdict)}
+        # G2 entry stamp on open (for Path B A/B: aligned vs outcome R at close).
+        try:
+            if getattr(self, "g2_entry_shadow", False) or getattr(self, "g2_entry_block", False):
+                _g2v = g2_entry_mod.evaluate(sym, side, self.cfg)
+                self.open[sym].update(g2_entry_mod.stamp(_g2v))
+        except Exception as e:
+            log.debug(f"g2 stamp open {sym}: {e}")
         if gem:                                     # catat keputusan Gemini → settle saat tutup
             self.open[sym]["conviction"] = gem_conv   # untuk skor Brier saat close
             try:
@@ -481,7 +489,10 @@ class ForwardOpenMixin:
         journal("forward_open", {"symbol": sym, "side": self.open[sym]["side"], "entry": entry,
                                  "sl": sl, "tp": tp, "liq": liq, "lev": rs.leverage, "bet": bet,
                                  "conviction": gem_conv, "size_mult": size_mult,
-                                 **cycle_cand.stamp(ce_verdict)})
+                                 **cycle_cand.stamp(ce_verdict),
+                                 **{k: self.open[sym].get(k) for k in (
+                                     "g2_aligned", "g2_bucket", "g2_rank_pct", "g2_reasons"
+                                 ) if k in self.open[sym]}})
         # Persist SEGERA setelah open — crash/restart antara open & end-of-cycle
         # dulu bikin journal ada OPEN tapi botstate.open kosong (ghost).
         self._persist_state()

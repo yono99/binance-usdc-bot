@@ -26,11 +26,14 @@ Sibling import (`from edge_hunt import …`) di-bootstrap lewat `sys.path` di ti
 | H28 / H30 | `h28_*.py`, `h30_*.py` | paper-test beku; bukan PM2 bot utama |
 | Alpha once-off | `*_alpha.py`, `carry*.py`, `statarb.py`, … | arsip eksperimen |
 
-## Scoreboard
+## Scoreboard & loop memori
 
 - [memory/EDGE_HUNT.md](../memory/EDGE_HUNT.md)  
+- [memory/EDGE_HUNT_LOOP.md](../memory/EDGE_HUNT_LOOP.md) · [EDGE_HUNT_STATE.json](../memory/EDGE_HUNT_STATE.json)  
+- [EDGE_RISET_STATUS.md](EDGE_RISET_STATUS.md) — status kampanye all-time  
 - [RESEARCH_LOG.md](../RESEARCH_LOG.md)  
-- Hasil JSON: `logs/edge_hunt*.json` (sebagian di-track git lewat `!logs/edge_hunt*.json`)
+- Hasil JSON: `logs/edge_hunt*.json`  
+- Unduh: `download_snap_alltime.py` · coverage: `_snap_coverage.py`
 
 ## Jangan
 

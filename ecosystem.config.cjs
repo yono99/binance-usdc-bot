@@ -58,5 +58,18 @@ module.exports = {
       time: true,
       env: { SKIP_ENABLED_RESET: "1" },
     },
+    // G2 paper BOOK (Path A) — terpisah dari bot rules; BUKAN order Binance.
+    // cron 02:00 UTC: settle hold=10 bila jatuh tempo + buka buku baru.
+    {
+      name: "g2-book",
+      script: "research/g2_book_runner.py",
+      interpreter: PY,
+      args: "--once",
+      cwd: __dirname,
+      autorestart: false,
+      cron_restart: "0 2 * * *",
+      time: true,
+      env: { PYTHONPATH: __dirname },
+    },
   ],
 };

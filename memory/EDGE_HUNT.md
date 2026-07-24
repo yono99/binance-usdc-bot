@@ -303,11 +303,57 @@ Jangan wire paper entry; boleh pantau paper shadow nanti bila n bertambah.
 ## Antrian berikutnya
 
 1. ~~R3–R10~~ done, 0 PROMOTE_PAPER (~300 arms)
-2. **WATCHLIST only:** LINK residual z fade — butuh n lebih besar / OOS lebih panjang, bukan re-tune thr
-3. ~~Paper dry risk-filter shadow wire~~ done — **kumpulkan** would-deny vs R; jangan block dulu
-4. Sector lead-lag (H13) re-check only if construction novel vs prior reject
-5. Kumpulkan alt-data forward (OI/L2/funding panel) — hist OOS butuh waktu
-6. Jangan retread H24–H32 / crash-bounce / pure OHLCV tanpa novelty
+2. **WATCHLIST only:** LINK residual z fade — log only, bukan re-tune thr
+3. ~~Paper dry risk-filter shadow~~ done — jangan hard-block tanpa paper A/B
+4. ~~All-time download + A–F + R11 + R12 + R14~~ done 2026-07-24 — **0 PROMOTE_PAPER**
+5. **SURRENDER OHLCV entry** aktif — jangan R15+ retread
+6. Ops: paper dry survival + filter shadow + CE
+7. LATER only: novelty **non-OHLCV** (data baru), bukan remix indikator
+
+**Memori loop otonom:** [EDGE_HUNT_LOOP.md](EDGE_HUNT_LOOP.md) ·
+[EDGE_HUNT_STATE.json](EDGE_HUNT_STATE.json) ·
+[EDGE_RISET_STATUS.md](../research/EDGE_RISET_STATUS.md)
+
+---
+
+## Kampanye all-time (2026-07-24) — otoritas penuh pemilik
+
+**Tujuan:** unduh histori futures Binance (USDT-M public OHLCV) → cari edge data-first →
+forward paper hanya jika lolos bar PROMOTE.
+
+| Step | Status |
+|---|---|
+| Download `research/download_snap_alltime.py` @ server | ✅ ok=513 fail=15 end **2026-07-24** files_1d≈760 |
+| A–F discovery all-time | ✅ `logs/edge_hunt_alltime_20260724.json` |
+| Hasil A–F | **CANDIDATE=0** · REJECTED=38 · NOT_PROVEN=4 · panel 1122×65 |
+| Sumber data | Binance ccxt (bukan TradingView bulk) |
+| Screen unduh | volume 24h (default ON di skrip terbaru) + COIN perp |
+
+**Pelajaran A–F all-time:** memperpanjang data **tidak** membangkitkan calendar/session/compression
+yang sudah mati di panel pendek. Cost RT 0.18% tetap membunuh day-hold.
+
+### R11 listing-age — `edge_hunt_round11.py` (2026-07-24)
+
+Panel all-time 1415×34 · cut 70/30 · cost 0.18% · **CANDIDATES = 0**  
+(verdict: NOT_PROVEN 4 · REJECTED 7 · INCONCLUSIVE 39)
+
+| lean train+OOS+ | OOS | n | status |
+|---|---:|---:|---|
+| rev20_ls_allage_h10 | +0.25% | 415 | NOT_PROVEN (multi-trial; family lama) |
+| rev20_ls_allage_h5 | +0.14% | 420 | NOT_PROVEN |
+
+Post-list young long/short: n tipis → INCONCLUSIVE. **Bukan** promote.  
+Status kampanye: [research/EDGE_RISET_STATUS.md](../research/EDGE_RISET_STATUS.md)
+
+### R12 + strict + R14 (2026-07-24) — `riset_edge.txt` loop
+
+| Step | Hasil |
+|---|---|
+| Download screen qv≥5e6 | ~158 pair; skip-fresh 149 (data sudah all-time end 2026-07-24) |
+| R12 discovery | 35 arms · CANDIDATE=0 · 12 train+OOS+ lean (p_adj gagal) |
+| R12 strict | **PROMOTED NONE** |
+| R14 1h liquid | **REJECTED 11/11** |
+| Putusan | **surrender_ohlcv_entry=true** — stop entry hunt OHLCV publik spek ini |
 
 ---
 
@@ -319,9 +365,11 @@ Jangan wire paper entry; boleh pantau paper shadow nanti bila n bertambah.
 | `edge_hunt_deep.py` | deep single-param |
 | `edge_hunt_validate_crash.py` | promotion ketat crash-bounce |
 | `edge_hunt_volspike.py` | volspike fade |
-| `edge_hunt_round2.py` … `round6.py` | H-EH-24…65 |
+| `edge_hunt_round2.py` … `round11.py` | H-EH rounds + R11 listing-age |
+| `download_snap_alltime.py` | unduh all-time + volume screen |
 | `edge_hunt_validate_idiovol.py` / `validate_r6.py` | strict promotion |
 | `logs/edge_hunt*.json` | hasil numerik (di-commit via gitignore exception) |
+| `memory/EDGE_HUNT_LOOP.md` | memori loop panjang |
 
 ---
 

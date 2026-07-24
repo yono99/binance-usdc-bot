@@ -32,6 +32,7 @@ from . import vrp
 from . import mtf
 from . import flat_shadow
 from . import risk_filter as risk_filter_mod
+from . import g2_entry as g2_entry_mod
 from . import cycle_candidate as cycle_cand
 from .planner import SessionPlanner, default_plan
 from .react_agent import ReactAgent
@@ -104,6 +105,10 @@ class ForwardTester(ForwardGatesMixin, ForwardOpenMixin, ForwardCloseMixin, Forw
         self.risk_filter_shadow = bool(_rf["shadow"])
         self.risk_filter_block = bool(_rf["block"])
         self._risk_filter_verdict = None            # diisi tiap siklus bila shadow|block
+        # G2 quality-mom entry overlay (research formal CAND → paper shadow default).
+        _g2 = g2_entry_mod.from_config(self.cfg)
+        self.g2_entry_shadow = bool(_g2["shadow"])
+        self.g2_entry_block = bool(_g2["block"])
         # ReAct agent: gerbang entry AKTIF utk teknik non-gemini (Gemini mati → fallback ikut sinyal).
         self.react = ReactAgent(self.settings, self.cfg)
         self.lessons = LessonsEngine(self.settings, self.cfg)
@@ -522,6 +527,8 @@ class ForwardTester(ForwardGatesMixin, ForwardOpenMixin, ForwardCloseMixin, Forw
         self._refresh_risk_filter()
         rf_block = bool(self.risk_filter_block and self._risk_filter_verdict
                         and not self._risk_filter_verdict.allow)
+        # G2 entry ranks (daily) — refresh cache once per cycle when enabled.
+        self._refresh_g2_entry()
         if rf_block:
             log.info(
                 f"Risk filter ENFORCE aktif ({self._risk_filter_verdict.reasons}) "
@@ -719,6 +726,29 @@ class ForwardTester(ForwardGatesMixin, ForwardOpenMixin, ForwardCloseMixin, Forw
                             })
                         except Exception as e:  # boundary — shadow log tak boleh ganggu
                             log.warning(f"risk_filter shadow log {sym} gagal: {e}")
+                    # G2 quality-mom ENTRY overlay (adapted LS → single-symbol side check).
+                    # Default shadow: log misaligned would-deny; block only if g2_entry.block.
+                    g2v = None
+                    if (blocked is None and side != 0
+                            and (getattr(self, "g2_entry_shadow", False)
+                                 or getattr(self, "g2_entry_block", False))):
+                        try:
+                            g2v = g2_entry_mod.evaluate(sym, side, self.cfg)
+                            if self.g2_entry_block and not g2v.allow:
+                                blocked = ("g2_entry "
+                                           + ",".join(g2v.reasons or ["deny"]))
+                            elif (self.g2_entry_shadow and not self.g2_entry_block
+                                  and g2v.aligned is False):
+                                decision_log.append({
+                                    "ts": pd.Timestamp.utcnow().isoformat(),
+                                    "symbol": sym,
+                                    "action": "G2_ENTRY_SHADOW",
+                                    "side": "long" if side == 1 else "short",
+                                    "outcome": None,
+                                    **g2_entry_mod.stamp(g2v),
+                                })
+                        except Exception as e:  # boundary — G2 gagal ≠ blokir
+                            log.warning(f"g2_entry {sym} fail-open: {e}")
                     c["blocked"] = blocked
                     if blocked is None:
                         self._open_usd(sym, side, atr, rs)

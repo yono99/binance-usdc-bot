@@ -1,0 +1,250 @@
+{
+  "meta": {
+    "family": "swing_short_pullback_bear",
+    "pre_registered": true,
+    "n_trials": 4,
+    "cost_rt": 0.0018,
+    "split": "50/30/20 trade-list chronological",
+    "universe_n": 25,
+    "symbols": [
+      "DOGS/USDT:USDT",
+      "1000SATS/USDT:USDT",
+      "NEIRO/USDT:USDT",
+      "HMSTR/USDT:USDT",
+      "1000PEPE/USDT:USDT",
+      "SPELL/USDT:USDT",
+      "NOT/USDT:USDT",
+      "TLM/USDT:USDT",
+      "MEME/USDT:USDT",
+      "BOME/USDT:USDT",
+      "HOT/USDT:USDT",
+      "1MBABYDOGE/USDT:USDT",
+      "PENGU/USDT:USDT",
+      "DENT/USDT:USDT",
+      "1000BONK/USDT:USDT",
+      "1000SHIB/USDT:USDT",
+      "COS/USDT:USDT",
+      "TURBO/USDT:USDT",
+      "VANRY/USDT:USDT",
+      "DOGE/USDT:USDT",
+      "GALA/USDT:USDT",
+      "VTHO/USDT:USDT",
+      "T/USDT:USDT",
+      "MEW/USDT:USDT",
+      "1000CHEEMS/USDT:USDT"
+    ],
+    "rule": "PROMOTE_PAPER = OOS CANDIDATE (p_adj trials=4) + train>0 + lockbox>0 + cost2x OOS>0"
+  },
+  "rows": [
+    {
+      "id": "short_pb_bear_short_pb_adx22.0_sl1.5_rr2.5_t1.0_v0.0",
+      "params": {
+        "style": "swing",
+        "side": "short",
+        "adx_min": 22.0,
+        "sl_atr": 1.5,
+        "tp_rr": 2.5,
+        "touch": 1.0,
+        "vol_min": 0.0,
+        "mode": "pb"
+      },
+      "n_total": 183,
+      "train": {
+        "n": 91,
+        "mean": 0.03871979184670959,
+        "median": -0.03468731650029341,
+        "win": 0.4835164835164835,
+        "p_pos": 0.3655639649516292,
+        "sharpe": 0.03602174222206549
+      },
+      "oos": {
+        "n": 55,
+        "mean": 0.28571108758333086,
+        "median": 0.26002300884955704,
+        "win": 0.5818181818181818,
+        "p_pos": 0.04093096921630299,
+        "sharpe": 0.23461930949088794
+      },
+      "lockbox": {
+        "n": 37,
+        "mean": 0.3507476542922468,
+        "median": 0.5396170355466136,
+        "win": 0.5675675675675675,
+        "p_pos": 0.04459478182617137,
+        "sharpe": 0.2794270418894591
+      },
+      "oos_cost2x": {
+        "n": 55,
+        "mean": 0.2708989158247978,
+        "median": 0.25455929203539773,
+        "win": 0.5636363636363636,
+        "p_pos": 0.04946041998011097,
+        "sharpe": 0.22250052316641275
+      },
+      "verdict_oos": {
+        "verdict": "NOT_PROVEN",
+        "reason": "OOS mean +28.5711% n=55 but p_adj=0.164 (trials=4)",
+        "p_adj": 0.16372387686521195
+      },
+      "promotion": "NO"
+    },
+    {
+      "id": "short_pb_bear_short_pb_adx22.0_sl1.5_rr1.5_t1.0_v0.0",
+      "params": {
+        "style": "swing",
+        "side": "short",
+        "adx_min": 22.0,
+        "sl_atr": 1.5,
+        "tp_rr": 1.5,
+        "touch": 1.0,
+        "vol_min": 0.0,
+        "mode": "pb"
+      },
+      "n_total": 185,
+      "train": {
+        "n": 92,
+        "mean": 0.04943944533450435,
+        "median": -0.18226486582775892,
+        "win": 0.4782608695652174,
+        "p_pos": 0.32741547815885713,
+        "sharpe": 0.046609339991633074
+      },
+      "oos": {
+        "n": 56,
+        "mean": 0.29299416435142395,
+        "median": 0.4531122933374876,
+        "win": 0.6071428571428571,
+        "p_pos": 0.021907536661915143,
+        "sharpe": 0.26938004102669444
+      },
+      "lockbox": {
+        "n": 37,
+        "mean": 0.2404325160589129,
+        "median": 0.5396170355466136,
+        "win": 0.5675675675675675,
+        "p_pos": 0.09219137065823371,
+        "sharpe": 0.21822006245328246
+      },
+      "oos_cost2x": {
+        "n": 56,
+        "mean": 0.27824467902887823,
+        "median": 0.4333957739946831,
+        "win": 0.6071428571428571,
+        "p_pos": 0.02769719237096653,
+        "sharpe": 0.25600552753348743
+      },
+      "verdict_oos": {
+        "verdict": "NOT_PROVEN",
+        "reason": "OOS mean +29.2994% n=56 but p_adj=0.088 (trials=4)",
+        "p_adj": 0.08763014664766057
+      },
+      "promotion": "NO"
+    },
+    {
+      "id": "short_pb_bear_short_pb_adx22.0_sl2.0_rr2.5_t1.8_v0.0",
+      "params": {
+        "style": "swing",
+        "side": "short",
+        "adx_min": 22.0,
+        "sl_atr": 2.0,
+        "tp_rr": 2.5,
+        "touch": 1.8,
+        "vol_min": 0.0,
+        "mode": "pb"
+      },
+      "n_total": 179,
+      "train": {
+        "n": 89,
+        "mean": -0.0009696248886057742,
+        "median": -0.0010828282828282128,
+        "win": 0.4943820224719101,
+        "p_pos": 0.5037929260563075,
+        "sharpe": -0.0010078034713346914
+      },
+      "oos": {
+        "n": 54,
+        "mean": 0.17955135254132099,
+        "median": 0.25817572569886543,
+        "win": 0.5925925925925926,
+        "p_pos": 0.09806277167927474,
+        "sharpe": 0.17590997786313575
+      },
+      "lockbox": {
+        "n": 36,
+        "mean": 0.2704520762008411,
+        "median": 0.5089347933449473,
+        "win": 0.5833333333333334,
+        "p_pos": 0.07513780825612922,
+        "sharpe": 0.2397597706140059
+      },
+      "oos_cost2x": {
+        "n": 54,
+        "mean": 0.16797763037368996,
+        "median": 0.24250961072825128,
+        "win": 0.5740740740740741,
+        "p_pos": 0.1132029974825843,
+        "sharpe": 0.16461507730565803
+      },
+      "verdict_oos": {
+        "verdict": "NOT_PROVEN",
+        "reason": "OOS mean +17.9551% n=54 but p_adj=0.392 (trials=4)",
+        "p_adj": 0.39225108671709896
+      },
+      "promotion": "NO"
+    },
+    {
+      "id": "short_pb_bear_short_pb_adx30.0_sl1.5_rr2.5_t1.0_v0.0",
+      "params": {
+        "style": "swing",
+        "side": "short",
+        "adx_min": 30.0,
+        "sl_atr": 1.5,
+        "tp_rr": 2.5,
+        "touch": 1.0,
+        "vol_min": 0.0,
+        "mode": "pb"
+      },
+      "n_total": 101,
+      "train": {
+        "n": 50,
+        "mean": 0.22628123071027367,
+        "median": 0.44914118916421875,
+        "win": 0.56,
+        "p_pos": 0.07626365532670289,
+        "sharpe": 0.2023260608836689
+      },
+      "oos": {
+        "n": 30,
+        "mean": 0.40644493913307633,
+        "median": 0.6278354854215693,
+        "win": 0.6333333333333333,
+        "p_pos": 0.03522940862529729,
+        "sharpe": 0.330267519750226
+      },
+      "lockbox": {
+        "n": 21,
+        "mean": 0.36611300752538994,
+        "median": 0.27560000000000084,
+        "win": 0.5238095238095238,
+        "p_pos": 0.11201423977175448,
+        "sharpe": 0.26532800459022055
+      },
+      "oos_cost2x": {
+        "n": 30,
+        "mean": 0.3904921227217714,
+        "median": 0.6073319107639328,
+        "win": 0.6333333333333333,
+        "p_pos": 0.041138141281349606,
+        "sharpe": 0.3172461212031302
+      },
+      "verdict_oos": {
+        "verdict": "NOT_PROVEN",
+        "reason": "OOS mean +40.6445% n=30 but p_adj=0.141 (trials=4)",
+        "p_adj": 0.14091763450118916
+      },
+      "promotion": "NO"
+    }
+  ],
+  "promoted": [],
+  "promote_paper": false
+}

@@ -1,0 +1,177 @@
+{
+  "campaign": "riset_edge_alltime_2026-07-24",
+  "updated": "2026-07-24T08:50:00Z",
+  "owner_authority": "full_edge_search_data_first",
+  "spec": "riset_edge.txt",
+  "promote_paper": 0,
+  "promote_filter_paper": 2,
+  "watchlist": ["LINK_residual_z_fade"],
+  "surrender_ohlcv_entry": true,
+  "param_hunt_swing_scalp_20260724": {
+    "candidates": 0,
+    "lean_watch": "swing_bear_short_pullback_adx22-30",
+    "out": "logs/edge_hunt_param_regimes.json",
+    "doc": "research/EDGE_RISET_PARAM_SWING_SCALP.md"
+  },
+  "multifamily_v2_20260724": {
+    "doc": "research/EDGE_RISET_MULTIFAMILY_V2.md",
+    "out": "logs/edge_hunt_multifamily_v2.json",
+    "formal_entry_promoted": [
+      "G2_qmom_h10_q0.3",
+      "G2_qmom_h10_q0.2",
+      "G2_qmom_h5_q0.3"
+    ],
+    "best_focus": "G2_qmom_h10_q0.3",
+    "operational_wire": false,
+    "operational_status": "PAPER_SHADOW_CANDIDATE",
+    "operational_reason": "lock mean thin; LS cost model; need paper before size",
+    "retired": ["F3_short_pb_bear_broad", "G7_short_pb_bear_pure_majors", "G5_vertical_fade", "G6_pair_resid"],
+    "leans_no_promote": ["G3_squeeze_bull", "G4_resid_mom_follow", "G1_btc_lead_lag"],
+    "next": ["g2_shadow_once_periodic", "no_retune_grid", "no_wire"]
+  },
+  "g2_shadow_20260724": {
+    "arm_id": "G2_qmom_h10_q0.3",
+    "wire": false,
+    "status": "PAPER_SHADOW_ONLY",
+    "health": "OK_POSITIVE_OOS_LOCK",
+    "script": "research/g2_quality_mom_shadow.py",
+    "doc": "research/G2_SHADOW.md"
+  },
+  "g2_entry_overlay_20260724": {
+    "purpose": "entry_signal_edge_measurement",
+    "module": "bot/g2_entry.py",
+    "config": "agent.g2_entry shadow=true block=false",
+    "doc": "research/G2_ENTRY_ADAPT.md",
+    "block": false
+  },
+  "g2_s1_20260724": {
+    "doc": "research/G2_S1_RESULTS.md",
+    "path_a": {
+      "script": "research/g2_book_paper.py",
+      "verdict": "PATH_A_PASS_PAPER_BOOK",
+      "oos_mean_r": 0.0101,
+      "lock_mean_r": 0.0018,
+      "n_rebalances": 235
+    },
+    "path_b": {
+      "script": "research/g2_entry_ab_report.py",
+      "verdict": "PATH_B_LEAN_POSITIVE",
+      "aligned_n": 47,
+      "aligned_mean_r": -0.159,
+      "misaligned_n": 27,
+      "misaligned_mean_r": -0.561,
+      "delta": 0.40
+    },
+    "operational": {
+      "block": false,
+      "wire_live": false,
+      "role": "book_engine_ok + entry_filter_helps_but_rules_still_negEV"
+    }
+  },
+  "g2_book_runner_20260724": {
+    "doc": "research/G2_BOOK_PAPER.md",
+    "script": "research/g2_book_runner.py",
+    "state": "logs/g2_book_state.json",
+    "ledger": "logs/g2_book_ledger.jsonl",
+    "report": "logs/g2_book_live_report.json",
+    "wire": false,
+    "pm2": "g2-book cron 0 2 * * *",
+    "backfill_n_closed": 235,
+    "equity_sum_r": 3.57254,
+    "open_signal_ts": "2026-07-24",
+    "note": "Separate from forwardtest rules bot; paper only"
+  },
+  "surrender_reason": "After volume-screened all-time download + A-F + R11 + R12 discovery/strict + R14 1h + archived funding/carry REJECTED in RESEARCH_LOG: zero PROMOTE_PAPER. Multiple-testing and net cost dominate. Re-open only with non-OHLCV novelty or new data class.",
+  "data": {
+    "primary_host": "192.168.1.107",
+    "snap_dir": "data/snap",
+    "tf_primary": "1d",
+    "settle_research": "USDT",
+    "download": {
+      "script": "research/download_snap_alltime.py --screen-volume --min-qv 5000000",
+      "status": "done",
+      "screened_universe_qv5e6": 158,
+      "skip_fresh": 149,
+      "fail_short": 9,
+      "prior_full_ok": 513,
+      "files_1d_approx": 760,
+      "end_date_top": "2026-07-24",
+      "log": "logs/_download_riset_edge.log",
+      "manifest": "data/snap/_manifest_1d_USDT.json"
+    },
+    "1h_files": 24
+  },
+  "completed_rounds": [
+    {
+      "id": "AF_alltime",
+      "out": "logs/edge_hunt_alltime_20260724.json",
+      "n_candidates": 0
+    },
+    {
+      "id": "R11_listing_age",
+      "out": "logs/edge_hunt_round11.json",
+      "n_candidates": 0
+    },
+    {
+      "id": "R12_volume_regime_riset_cats",
+      "out": "logs/edge_hunt_round12.json",
+      "n_candidates": 0,
+      "verdicts": {"NOT_PROVEN": 20, "REJECTED": 15},
+      "train_oos_pos_leans": 12
+    },
+    {
+      "id": "R12_strict",
+      "out": "logs/edge_hunt_validate_r12.json",
+      "promoted": []
+    },
+    {
+      "id": "R14_1h_liquid",
+      "out": "logs/edge_hunt_round14.json",
+      "n_candidates": 0,
+      "verdicts": {"REJECTED": 11}
+    },
+    {
+      "id": "strict_link_pairs",
+      "promoted": []
+    },
+    {
+      "id": "strict_risk_filter",
+      "promoted_filters": ["long_ew__skip_breadth_lo", "st_rev_ls__skip_corr_or_volhi"]
+    }
+  ],
+  "queue": [
+    {
+      "id": "HOLD_OHLCV_ENTRY",
+      "status": "surrender_active",
+      "note": "No R15+ OHLCV retread"
+    },
+    {
+      "id": "OPTIONAL_non_ohlcv_novelty",
+      "status": "blocked_need_new_data",
+      "ideas": ["L2 hist panel", "funding multi-year large universe pipeline", "execution edge micro"]
+    },
+    {
+      "id": "OPS_paper_dry",
+      "status": "continue",
+      "note": "survival + filter shadow + CE"
+    }
+  ],
+  "banned_retread": [
+    "H24-H32",
+    "H30_maker",
+    "crash_bounce_pure",
+    "short_alts_markdown_only",
+    "AF_without_novelty",
+    "R11_R12_R14_retune",
+    "auto_short_dump_unlock_entry",
+    "OHLCV_indicator_remix"
+  ],
+  "docs": {
+    "loop": "memory/EDGE_HUNT_LOOP.md",
+    "state": "memory/EDGE_HUNT_STATE.json",
+    "scoreboard": "memory/EDGE_HUNT.md",
+    "campaign_status": "research/EDGE_RISET_STATUS.md",
+    "prompt_spec": "riset_edge.txt",
+    "methodology": "METHODOLOGY.md"
+  }
+}
